@@ -1652,24 +1652,25 @@ const HighRiseEstimator = {
 /* A small labour & trade rate card so labour lines can auto-price too.
    Rates are indicative supply-of-labour day/hour/unit rates. */
 const LabourRates = {
+  /* Hourly rates per worker (day rate ÷ ~8h). A labour line = workers × hours × rate. */
   catalog: [
-    { id: "lab_carpenter", label: "Carpenter", unit: "day", regions: { AU: 520, US: 360, UK: 320 } },
-    { id: "lab_apprentice", label: "Apprentice", unit: "day", regions: { AU: 280, US: 200, UK: 180 } },
-    { id: "lab_bricklayer", label: "Bricklayer", unit: "day", regions: { AU: 560, US: 380, UK: 340 } },
-    { id: "lab_concreter", label: "Concreter", unit: "day", regions: { AU: 540, US: 370, UK: 330 } },
-    { id: "lab_electrician", label: "Electrician", unit: "day", regions: { AU: 640, US: 440, UK: 390 } },
-    { id: "lab_plumber", label: "Plumber", unit: "day", regions: { AU: 640, US: 440, UK: 390 } },
-    { id: "lab_plasterer", label: "Plasterer", unit: "day", regions: { AU: 500, US: 340, UK: 300 } },
-    { id: "lab_painter", label: "Painter", unit: "day", regions: { AU: 460, US: 320, UK: 280 } },
-    { id: "lab_tiler", label: "Tiler", unit: "day", regions: { AU: 520, US: 360, UK: 320 } },
-    { id: "lab_roofer", label: "Roofer", unit: "day", regions: { AU: 540, US: 370, UK: 330 } },
-    { id: "lab_labourer", label: "General labourer", unit: "day", regions: { AU: 360, US: 250, UK: 220 } },
-    { id: "lab_supervisor", label: "Site supervisor", unit: "day", regions: { AU: 720, US: 500, UK: 440 } },
-    { id: "lab_crane", label: "Crane + operator", unit: "day", regions: { AU: 2200, US: 1500, UK: 1350 } },
-    { id: "lab_excavator", label: "Excavator + operator", unit: "day", regions: { AU: 1100, US: 760, UK: 680 } },
+    { id: "lab_carpenter", label: "Carpenter", regions: { AU: 65, US: 45, UK: 40 } },
+    { id: "lab_apprentice", label: "Apprentice", regions: { AU: 35, US: 25, UK: 22 } },
+    { id: "lab_bricklayer", label: "Bricklayer", regions: { AU: 70, US: 48, UK: 43 } },
+    { id: "lab_concreter", label: "Concreter", regions: { AU: 68, US: 46, UK: 41 } },
+    { id: "lab_electrician", label: "Electrician", regions: { AU: 80, US: 55, UK: 49 } },
+    { id: "lab_plumber", label: "Plumber", regions: { AU: 80, US: 55, UK: 49 } },
+    { id: "lab_plasterer", label: "Plasterer", regions: { AU: 63, US: 43, UK: 38 } },
+    { id: "lab_painter", label: "Painter", regions: { AU: 58, US: 40, UK: 35 } },
+    { id: "lab_tiler", label: "Tiler", regions: { AU: 65, US: 45, UK: 40 } },
+    { id: "lab_roofer", label: "Roofer", regions: { AU: 68, US: 46, UK: 41 } },
+    { id: "lab_labourer", label: "General labourer", regions: { AU: 45, US: 31, UK: 28 } },
+    { id: "lab_supervisor", label: "Site supervisor", regions: { AU: 90, US: 63, UK: 55 } },
+    { id: "lab_crane", label: "Crane + operator", regions: { AU: 275, US: 188, UK: 169 } },
+    { id: "lab_excavator", label: "Excavator + operator", regions: { AU: 138, US: 95, UK: 85 } },
   ],
   get(id) { return this.catalog.find((l) => l.id === id); },
-  rate(id, region) { const l = this.get(id); return l ? l.regions[region] ?? 0 : 0; },
+  rate(id, region) { const l = this.get(id); return l ? l.regions[region] ?? 0 : 0; }, // per hour
 };
 
 /* =========================================================================
@@ -1681,6 +1682,222 @@ const LabourRates = {
    Everything sums into ONE total, grouped by kind, so a client gets a single
    quote covering material + labour + trades, not three separate ones.
    ========================================================================= */
+/* =========================================================================
+   MODULE: wall-builder.js
+   Turn a single wall (length × height) into priced quote lines: the frame,
+   lining, insulation and finish a wall of that size needs, plus optional
+   add-ons (power points, switches, a door, etc.). Outputs lines in the same
+   shape the quote builder uses, so a wall flows into the one quote.
+   ========================================================================= */
+const WallBuilder = {
+  /* Add-ons: fixed "supply + install" rates per item, by region. */
+  addons: [
+    { id: "wa_power", label: "Power point (GPO, supply + install)", unit: "ea", kind: "element", regions: { AU: 145, US: 120, UK: 110 } },
+    { id: "wa_switch", label: "Light switch (supply + install)", unit: "ea", kind: "element", regions: { AU: 110, US: 90, UK: 85 } },
+    { id: "wa_data", label: "Data / TV point", unit: "ea", kind: "element", regions: { AU: 160, US: 130, UK: 120 } },
+    { id: "wa_light", label: "Downlight / light fitting", unit: "ea", kind: "element", regions: { AU: 130, US: 105, UK: 95 } },
+    { id: "wa_door", label: "Internal door + frame (in wall)", unit: "ea", kind: "element", regions: { AU: 620, US: 430, UK: 380 } },
+    { id: "wa_window", label: "Window opening (frame + reveal)", unit: "ea", kind: "element", regions: { AU: 780, US: 540, UK: 480 } },
+    { id: "wa_skirting", label: "Skirting + cornice (per wall)", unit: "ea", kind: "element", regions: { AU: 180, US: 130, UK: 115 } },
+    { id: "wa_waterproof", label: "Wet-area waterproofing", unit: "m²", kind: "element", regions: { AU: 75, US: 55, UK: 50 } },
+    { id: "wa_tile", label: "Wall tiling (supply + lay)", unit: "m²", kind: "element", regions: { AU: 130, US: 95, UK: 85 } },
+  ],
+  getAddon(id) { return this.addons.find((a) => a.id === id); },
+
+  /* Build quote lines for a wall.
+     opts: { lengthM, heightM, construction, insulated, finish, sides, labour } */
+  toLines(opts, region, mkId) {
+    const L = +opts.lengthM || 0;
+    const H = +opts.heightM || 0;
+    const area = L * H;
+    const lines = [];
+    if (area <= 0) return lines;
+    const sides = opts.sides === 1 ? 1 : 2; // lined one or both sides
+    const push = (kind, materialId, labourId, label, qty, unit, fixedRate) => {
+      lines.push({ id: mkId(), kind, materialId: materialId || null, labourId: labourId || null, label, qty: round(qty, 2), unit, fixedRate: fixedRate ?? null });
+    };
+    const pushLabour = (labourId, label, days) => {
+      lines.push({ id: mkId(), kind: "labour", materialId: null, labourId, label, workers: 1, hours: round(days * 8, 1), unit: "hr", fixedRate: null });
+    };
+
+    if (opts.construction === "stud") {
+      // Framing: studs @450 + top/bottom plates. Approx lin.m of timber ≈ area×2.2
+      push("material", "timber_mgp10", null, "Wall framing (studs + plates)", area * 2.2, "lin.m");
+      // Lining both sides (or one)
+      push("material", "plasterboard", null, `Plasterboard lining (${sides === 2 ? "both sides" : "one side"})`, area * sides, "m²");
+      if (opts.insulated) push("material", "wall_insulation", null, "Acoustic / thermal insulation", area, "m²");
+    } else if (opts.construction === "brick") {
+      push("material", "brick_veneer", null, "Brick / blockwork", area, "m²");
+      if (opts.insulated) push("material", "wall_insulation", null, "Insulation", area, "m²");
+    }
+
+    // Finish
+    if (opts.finish === "paint") push("material", "paint", null, `Paint (${sides === 2 ? "both sides" : "one side"})`, area * sides, "m²");
+    else if (opts.finish === "render") push("material", "render", null, "Render finish", area, "m²");
+    else if (opts.finish === "tile") push("element", null, null, "Wall tiling (supply + lay)", area, "m²", this.getAddon("wa_tile").regions[region]);
+
+    // Add-ons
+    for (const a of (opts.addonList || [])) {
+      const def = this.getAddon(a.id);
+      if (!def) continue;
+      const qty = a.qty || 1;
+      push("element", null, null, def.label, qty, def.unit, def.regions[region]);
+    }
+
+    // Labour estimate (optional): rough trade-days → converted to hours
+    if (opts.labour) {
+      const carpDays = opts.construction === "stud" ? Math.max(0.5, round(area / 12, 1)) : Math.max(0.5, round(area / 8, 1));
+      pushLabour("lab_carpenter", opts.construction === "stud" ? "Carpenter (frame + line)" : "Bricklayer / blocklayer", carpDays);
+      if (opts.finish === "paint" || opts.finish === "render") pushLabour("lab_painter", "Painter / finisher", Math.max(0.5, round(area / 25, 1)));
+      const hasElec = (opts.addonList || []).some((a) => ["wa_power", "wa_switch", "wa_data", "wa_light"].includes(a.id));
+      if (hasElec) pushLabour("lab_electrician", "Electrician (points + rough-in)", 0.5);
+    }
+    return lines;
+  },
+
+  /* ---- Job presets ----
+     Each preset declares the single dimension it needs (area in m², or length
+     in m) and produces sensible MATERIAL lines for that job. Labour is added
+     only if the user ticks it (a rough trade-day estimate). Add-ons optional. */
+  presets: [
+    {
+      id: "timber_wall", label: "Timber stud wall (frame + lining)", dim: "wall",
+      note: "A new stud-framed wall — framing, plasterboard, optional insulation & finish.",
+    },
+    {
+      id: "kitchen_bench", label: "Kitchen bench / cabinetry", dim: "length", dimLabel: "Bench / cabinet run (m)",
+      note: "Cabinetry + benchtop for a run of kitchen bench.",
+      variants: [
+        { id: "flatpack_laminate", label: "Flat-pack + laminate top" },
+        { id: "flatpack_stone", label: "Flat-pack + stone top" },
+        { id: "custom_stone", label: "Custom joinery + stone top" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const v = variant || "flatpack_laminate";
+        const cab = v === "custom_stone" ? "kit_cab_custom" : "kit_cab_flatpack";
+        const bench = v === "flatpack_laminate" ? "kit_bench_laminate" : "kit_bench_stone";
+        const cabM = Materials.get(cab), benchM = Materials.get(bench);
+        return [
+          { id: mk(), kind: "material", materialId: cab, label: cabM.label, qty: round(a, 2), unit: "lin.m" },
+          { id: mk(), kind: "material", materialId: bench, label: benchM.label, qty: round(a, 2), unit: "lin.m" },
+          { id: mk(), kind: "material", materialId: "kit_sink_tap", label: "Sink + mixer tapware", qty: 1, unit: "ea" },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_carpenter", label: "Cabinetmaker / installer", days: Math.max(0.5, round(a / 4, 1)) }],
+      addons: ["wa_power"],
+    },
+    {
+      id: "laundry_cabinet", label: "Laundry / vanity cabinet", dim: "length", dimLabel: "Cabinet run (m)",
+      note: "Cabinetry + benchtop + tub/basin for a laundry or vanity run.",
+      lines: (a, region, mk) => {
+        const tubRate = { AU: 320, US: 230, UK: 200 }[region];
+        return [
+          { id: mk(), kind: "material", materialId: "kit_cab_flatpack", label: "Cabinetry — flat-pack + install", qty: round(a, 2), unit: "lin.m" },
+          { id: mk(), kind: "material", materialId: "kit_bench_laminate", label: "Benchtop — laminate", qty: round(a, 2), unit: "lin.m" },
+          { id: mk(), kind: "element", label: "Laundry tub / basin + tapware", qty: 1, unit: "ea", fixedRate: tubRate },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_carpenter", label: "Cabinetmaker / installer", days: Math.max(0.5, round(a / 4, 1)) }],
+      addons: ["wa_power"],
+    },
+    {
+      id: "drywall", label: "Drywall / plasterboard lining", dim: "area", dimLabel: "Wall area (m²)",
+      note: "Lining an existing frame — board, set, no framing.",
+      lines: (a, region, mk) => {
+        const L = [];
+        L.push({ id: mk(), kind: "material", materialId: "plasterboard", label: "Plasterboard 10mm + set joints", qty: round(a, 2), unit: "m²" });
+        return L;
+      },
+      labour: (a) => [{ labourId: "lab_plasterer", label: "Plasterer (hang + set)", days: Math.max(0.5, round(a / 30, 1)) }],
+      addons: ["wa_skirting", "wa_power", "wa_switch"],
+    },
+    {
+      id: "painting", label: "Painting only", dim: "area", dimLabel: "Area to paint (m²)",
+      note: "Prep + 2 coats over existing surface.",
+      lines: (a, region, mk) => [{ id: mk(), kind: "material", materialId: "paint", label: "Paint, 2 coats + primer", qty: round(a, 2), unit: "m²" }],
+      labour: (a) => [{ labourId: "lab_painter", label: "Painter", days: Math.max(0.5, round(a / 35, 1)) }],
+      addons: [],
+    },
+    {
+      id: "flooring", label: "Flooring", dim: "area", dimLabel: "Floor area (m²)",
+      note: "Floor covering over a prepared subfloor.",
+      variants: [
+        { id: "floor_timber", label: "Engineered timber" },
+        { id: "floor_tile", label: "Tile" },
+        { id: "floor_carpet", label: "Carpet" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const matId = variant || "floor_timber";
+        const m = Materials.get(matId);
+        return [{ id: mk(), kind: "material", materialId: matId, label: m.label, qty: round(a, 2), unit: "m²" }];
+      },
+      labour: (a) => [{ labourId: "lab_tiler", label: "Floor layer", days: Math.max(0.5, round(a / 25, 1)) }],
+      addons: [],
+    },
+    {
+      id: "fencing", label: "Fencing", dim: "length", dimLabel: "Fence length (m)",
+      note: "Timber paling fence ~1.8m high (posts, rails, palings).",
+      lines: (a, region, mk) => {
+        const fenceRate = { AU: 95, US: 68, UK: 60 }[region];   // per lin.m supply
+        const postRate = { AU: 38, US: 27, UK: 24 }[region];
+        const posts = Math.ceil(a / 2.4) + 1;
+        return [
+          { id: mk(), kind: "element", label: "Fence panels / palings + rails", qty: round(a, 2), unit: "m", fixedRate: fenceRate },
+          { id: mk(), kind: "element", label: "Posts + concrete footings", qty: posts, unit: "ea", fixedRate: postRate },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_carpenter", label: "Fencer / carpenter", days: Math.max(0.5, round(a / 15, 1)) }],
+      addons: ["wa_door"],
+    },
+    {
+      id: "deck", label: "Deck / pergola", dim: "area", dimLabel: "Deck area (m²)",
+      note: "Timber deck on bearers/joists, or pergola frame.",
+      lines: (a, region, mk) => {
+        const deckRate = { AU: 145, US: 100, UK: 90 }[region];   // decking boards per m²
+        const frameRate = { AU: 85, US: 60, UK: 54 }[region];    // bearers/joists per m²
+        return [
+          { id: mk(), kind: "element", label: "Decking boards (merbau / treated)", qty: round(a, 2), unit: "m²", fixedRate: deckRate },
+          { id: mk(), kind: "element", label: "Bearers, joists & posts", qty: round(a, 2), unit: "m²", fixedRate: frameRate },
+          { id: mk(), kind: "material", materialId: "concrete_25mpa", label: "Footings concrete", qty: round(a * 0.04, 2), unit: "m³" },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_carpenter", label: "Carpenter", days: Math.max(1, round(a / 10, 1)) }],
+      addons: [],
+    },
+  ],
+  getPreset(id) { return this.presets.find((p) => p.id === id); },
+
+  /* Build lines from a chosen preset + dimension (+ optional variant, labour, add-ons). */
+  presetToLines(presetId, opts, region, mk) {
+    const p = this.getPreset(presetId);
+    if (!p) return [];
+    // the timber wall uses the richer wall builder (construction/finish/sides/insulation)
+    if (p.dim === "wall") {
+      return this.toLines({
+        lengthM: opts.lengthM, heightM: opts.heightM,
+        construction: "stud", insulated: opts.insulated, finish: opts.finish,
+        sides: opts.sides, labour: opts.labour, addonList: opts.addonList,
+      }, region, mk);
+    }
+    const dimVal = +opts.dim || 0;
+    if (dimVal <= 0) return [];
+    const lines = p.lines(dimVal, region, mk, opts.variant);
+    // add-ons
+    for (const a of (opts.addonList || [])) {
+      const def = this.getAddon(a.id);
+      if (!def) continue;
+      lines.push({ id: mk(), kind: "element", materialId: null, labourId: null, label: def.label, qty: a.qty || 1, unit: def.unit, fixedRate: def.regions[region] });
+    }
+    // labour (tick-on)
+    if (opts.labour && p.labour) {
+      for (const lb of p.labour(dimVal)) {
+        lines.push({ id: mk(), kind: "labour", materialId: null, labourId: lb.labourId, label: lb.label, workers: 1, hours: round((lb.days || 0) * 8, 1), unit: "hr", fixedRate: null });
+      }
+    }
+    return lines;
+  },
+};
+
 const MaterialsOnly = {
   rateFor(item, region) {
     if (item.kind === "labour" && item.labourId) return LabourRates.rate(item.labourId, region);
@@ -1708,6 +1925,26 @@ const MaterialsOnly = {
       const catRate = this.rateFor(item, region);
       const materialId = kind === "material" ? (item.materialId || null) : null;
 
+      // ---- LABOUR: workers × hours × hourly rate ----
+      if (kind === "labour") {
+        const workers = +item.workers || 1;
+        const hours = +item.hours || 0;
+        const hourly = item.fixedRate != null && isFinite(item.fixedRate) ? +item.fixedRate : (catRate || 0);
+        const total = workers * hours * hourly;
+        lines.push({
+          kind: "labour", materialId: null, labourId: item.labourId || null,
+          category: "labour",
+          label: item.label || catLabel || "Labour",
+          workers, hours, unit: "hr",
+          rate: round(hourly, 2),
+          qty: round(workers * hours, 2),  // total man-hours, for display
+          total: round(total, 2),
+          priceSource: item.fixedRate != null ? "manual" : "catalogue",
+          needsPrice: hourly <= 0, alloc: null,
+        });
+        continue;
+      }
+
       // pricing priority: file total → fixed rate → catalogue rate
       let rate = null, total = null, priceSource = "";
       if (item.fixedTotal != null && isFinite(item.fixedTotal)) {
@@ -1723,9 +1960,9 @@ const MaterialsOnly = {
       const needsPrice = total == null;
       lines.push({
         kind, materialId,
-        labourId: kind === "labour" ? (item.labourId || null) : null,
-        category: kind === "labour" ? "labour" : kind === "element" ? "trades & elements" : (item.materialId ? Materials.get(item.materialId)?.category : "materials"),
-        label: item.label || catLabel || (kind === "labour" ? "Labour" : kind === "element" ? "Item" : "Material"),
+        labourId: null,
+        category: kind === "element" ? "trades & elements" : (item.materialId ? Materials.get(item.materialId)?.category : "materials"),
+        label: item.label || catLabel || (kind === "element" ? "Item" : "Material"),
         unit: item.unit || catUnit || "",
         qty: qty || null,
         rate: rate != null ? round(rate, 2) : null,
@@ -2005,11 +2242,13 @@ class Engine3D {
     this.camera.position.set(28, 22, 28);
     this.camera.lookAt(0, 4, 0);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
+    // Cap pixel ratio at 1.5 — drawing at full 2x/3x device ratio costs 4-9x the
+    // pixels for no visible benefit on this kind of model.
+    this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
     this.renderer.setSize(this.width, this.height);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap; // cheaper than PCFSoft
     mountEl.appendChild(this.renderer.domElement);
 
     // Lights
@@ -2517,6 +2756,7 @@ class Engine3D {
   /* progress 0..1: reveal stages in order */
   setProgress(p) {
     this.progress = Math.max(0, Math.min(1, p));
+    this._needsRender = true;
     if (!this.spec) return;
     const stageCount = this.stageOrder.length;
     const stageProgress = this.progress * stageCount;
@@ -2613,6 +2853,19 @@ class Engine3D {
   animate() {
     this._animId = requestAnimationFrame(this.animate);
 
+    // Skip all work when the canvas isn't visible (scrolled away / tab hidden).
+    // This is the single biggest perf win — no GPU churn when you're reading
+    // the cost breakdown instead of looking at the model.
+    if (this.paused) return;
+
+    // When idle (not rotating, not walking, not playing), there's nothing moving
+    // — render once to settle, then stop until something changes.
+    const moving = this.mode === "walk" || this.autoRotate || this.playing;
+    if (!moving) {
+      if (this._needsRender) { this.renderer.render(this.scene, this.camera); this._needsRender = false; }
+      return;
+    }
+
     if (this.mode === "walk") {
       this.walkT += this.walkSpeed;
       if (this.walkT >= 1) this.walkT = 0; // loop the tour
@@ -2652,6 +2905,9 @@ class Engine3D {
     }
     this.renderer.render(this.scene, this.camera);
   }
+
+  setPaused(v) { this.paused = v; if (!v) this._needsRender = true; }
+  requestRender() { this._needsRender = true; }
 
   dispose() {
     cancelAnimationFrame(this._animId);
@@ -2716,8 +2972,8 @@ const DEFAULT_MAT_SPEC = {
     { id: "m1", kind: "material", materialId: "concrete_25mpa", qty: 25 },
     { id: "m2", kind: "material", materialId: "brick_veneer", qty: 168 },
     { id: "m3", kind: "material", materialId: "timber_mgp10", qty: 640 },
-    { id: "l1", kind: "labour", labourId: "lab_carpenter", qty: 8 },
-    { id: "l2", kind: "labour", labourId: "lab_bricklayer", qty: 5 },
+    { id: "l1", kind: "labour", labourId: "lab_carpenter", workers: 1, hours: 16 },
+    { id: "l2", kind: "labour", labourId: "lab_bricklayer", workers: 1, hours: 10 },
     { id: "e1", kind: "element", label: "Site clean & rubbish removal", qty: 1, unit: "item", fixedRate: 850 },
   ],
 };
@@ -2864,7 +3120,18 @@ export default function App() {
     eng.onComplete = () => setProgress(1);
     eng.onWalkProgress = (t, name) => { setWalkT(t); setWalkRoom(name || ""); };
     eng.onModeChange = (m) => setWalkMode(m === "walk");
-    return () => eng.dispose();
+
+    // Pause rendering when the viewport scrolls off-screen — the biggest perf win.
+    const io = new IntersectionObserver(
+      ([e]) => eng.setPaused(!e.isIntersecting),
+      { threshold: 0.01 }
+    );
+    io.observe(viewportRef.current);
+    // Also pause when the browser tab is hidden.
+    const onVis = () => eng.setPaused(document.hidden);
+    document.addEventListener("visibilitychange", onVis);
+
+    return () => { io.disconnect(); document.removeEventListener("visibilitychange", onVis); eng.dispose(); };
   }, []);
 
   /* Rebuild on spec or mode change (exit walkthrough first) */
@@ -3964,8 +4231,34 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
   const clearLines = () => setLines([]);
 
   const addMaterial = () => { const m = Materials.catalog[0]; setLines([...lines, { id: nextId(), kind: "material", materialId: m.id, label: m.label, qty: 1, unit: m.unit }]); };
-  const addLabour = () => { const l = LabourRates.catalog[0]; setLines([...lines, { id: nextId(), kind: "labour", labourId: l.id, label: l.label, qty: 1, unit: l.unit }]); };
+  const addLabour = () => { const l = LabourRates.catalog[0]; setLines([...lines, { id: nextId(), kind: "labour", labourId: l.id, label: l.label, workers: 1, hours: 8 }]); };
   const addElement = () => setLines([...lines, { id: nextId(), kind: "element", label: "", qty: 1, unit: "item", fixedRate: 0 }]);
+
+  /* "What do you want to build?" — unified element builder */
+  const [showBuild, setShowBuild] = useState(false);
+  const [buildId, setBuildId] = useState("timber_wall");
+  const [bDim, setBDim] = useState(20);          // area or length for non-wall presets
+  const [bLen, setBLen] = useState(4);            // wall length
+  const [bHt, setBHt] = useState(2.4);            // wall height
+  const [bFinish, setBFinish] = useState("paint");
+  const [bSides, setBSides] = useState(2);
+  const [bInsulated, setBInsulated] = useState(true);
+  const [bVariant, setBVariant] = useState("");
+  const [bLabour, setBLabour] = useState(false);
+  const [bAddonQty, setBAddonQty] = useState({});
+  const buildPreset = WallBuilder.getPreset(buildId);
+  const isWall = buildPreset && buildPreset.dim === "wall";
+  const buildPreview = isWall ? (+bLen || 0) * (+bHt || 0) : (+bDim || 0);
+
+  const doBuild = () => {
+    const addonList = Object.entries(bAddonQty).filter(([, q]) => +q > 0).map(([id, q]) => ({ id, qty: +q }));
+    const opts = isWall
+      ? { lengthM: bLen, heightM: bHt, finish: bFinish, sides: bSides, insulated: bInsulated, labour: bLabour, addonList }
+      : { dim: bDim, variant: bVariant || (buildPreset.variants ? buildPreset.variants[0].id : undefined), labour: bLabour, addonList };
+    const newLines = WallBuilder.presetToLines(buildId, opts, estimate.region, nextId);
+    if (newLines.length) setLines([...lines, ...newLines]);
+    setShowBuild(false); setBAddonQty({});
+  };
 
   const matCats = useMemo(() => {
     const g = {};
@@ -3974,12 +4267,19 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
   }, []);
 
   const calcLine = (l) => {
+    if (l.kind === "labour") {
+      const workers = +l.workers || 1, hours = +l.hours || 0;
+      const hourly = l.fixedRate != null && isFinite(l.fixedRate) ? +l.fixedRate : (l.labourId ? LabourRates.rate(l.labourId, estimate.region) : 0);
+      return { rate: hourly, total: workers * hours * hourly };
+    }
     if (l.fixedTotal != null && isFinite(l.fixedTotal) && !l.qty) return { rate: l.fixedRate || 0, total: +l.fixedTotal || 0 };
     if (l.fixedRate != null && isFinite(l.fixedRate)) return { rate: +l.fixedRate, total: (+l.fixedRate) * (+l.qty || 0) };
-    if (l.kind === "labour" && l.labourId) { const r = LabourRates.rate(l.labourId, estimate.region); return { rate: r, total: r * (+l.qty || 0) }; }
     if (l.materialId) { const r = Materials.rate(l.materialId, estimate.region); return { rate: r, total: r * (+l.qty || 0) }; }
     return { rate: 0, total: +l.fixedTotal || 0 };
   };
+
+  // plain-language hint for what a unit means
+  const unitHint = (u) => ({ "lin.m": "metres of length", "m²": "square metres (area)", "m³": "cubic metres (volume)", "ea": "each (count)", "hr": "hours", "item": "per item" }[u] || u);
 
   const kindMeta = {
     material: { tag: "MAT", color: TOKENS.hivisDeep },
@@ -3991,7 +4291,7 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
     const kind = l.kind || "material";
     const meta = kindMeta[kind];
     const calc = calcLine(l);
-    const usesCatalogue = (kind === "material" && l.materialId) || (kind === "labour" && l.labourId);
+    const usesCatalogue = (kind === "material" && l.materialId);
     return (
       <div key={l.id} style={{ border: `1px solid ${TOKENS.rule}`, borderLeft: `3px solid ${meta.color}`, padding: 8, background: TOKENS.paperLight }}>
         {/* row 1: tag + name/select + delete */}
@@ -4004,7 +4304,7 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
               ))}
             </select>
           ) : kind === "labour" ? (
-            <select className="ec-select" style={{ minWidth: 0 }} value={l.labourId || ""} onChange={(e) => { const lr = LabourRates.get(e.target.value); updateLine(l.id, { labourId: e.target.value, label: lr.label, unit: lr.unit, fixedRate: null, fixedTotal: null }); }}>
+            <select className="ec-select" style={{ minWidth: 0 }} value={l.labourId || ""} onChange={(e) => { const lr = LabourRates.get(e.target.value); updateLine(l.id, { labourId: e.target.value, label: lr.label, fixedRate: null }); }}>
               {LabourRates.catalog.map((lr) => <option key={lr.id} value={lr.id}>{lr.label}</option>)}
             </select>
           ) : (
@@ -4012,29 +4312,55 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
           )}
           <button onClick={() => removeLine(l.id)} title="Delete line" style={{ width: 26, height: 26, flexShrink: 0, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontSize: 14, lineHeight: 1, borderRadius: 2 }}>×</button>
         </div>
-        {/* row 2: qty | unit | rate | total — fixed grid, never overlaps */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 0.8fr 1fr 1.1fr", gap: 5, alignItems: "center" }}>
-          <label style={{ display: "block" }}>
-            <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>QTY</span>
-            <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="0" step="0.5" value={l.qty ?? ""} onChange={(e) => updateLine(l.id, { qty: e.target.value === "" ? null : +e.target.value })} />
-          </label>
-          <label style={{ display: "block" }}>
-            <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>UNIT</span>
-            <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} value={l.unit || ""} onChange={(e) => updateLine(l.id, { unit: e.target.value })} />
-          </label>
-          <label style={{ display: "block" }}>
-            <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>RATE {currency}</span>
-            {usesCatalogue && (l.fixedRate == null) ? (
-              <div className="ec-mono" style={{ padding: "5px 5px", fontSize: 12, color: TOKENS.inkSoft, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderRadius: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(calc.rate)}</div>
-            ) : (
-              <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="0" step="1" value={l.fixedRate ?? ""} placeholder={fmt(calc.rate)} onChange={(e) => updateLine(l.id, { fixedRate: e.target.value === "" ? null : +e.target.value, fixedTotal: null })} />
-            )}
-          </label>
-          <label style={{ display: "block" }}>
-            <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>TOTAL</span>
-            <div className="ec-mono" style={{ padding: "5px 5px", fontSize: 12, fontWeight: 700, color: TOKENS.ink, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currency}{fmt(calc.total)}</div>
-          </label>
-        </div>
+
+        {kind === "labour" ? (
+          /* labour: workers × hours × $/hr */
+          <div style={{ display: "grid", gridTemplateColumns: "0.9fr 0.9fr 1fr 1.1fr", gap: 5, alignItems: "center" }}>
+            <label style={{ display: "block" }}>
+              <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.08em" }}>WORKERS</span>
+              <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="1" step="1" value={l.workers ?? 1} onChange={(e) => updateLine(l.id, { workers: e.target.value === "" ? 1 : +e.target.value })} />
+            </label>
+            <label style={{ display: "block" }}>
+              <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.08em" }}>HOURS</span>
+              <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="0" step="0.5" value={l.hours ?? ""} onChange={(e) => updateLine(l.id, { hours: e.target.value === "" ? null : +e.target.value })} />
+            </label>
+            <label style={{ display: "block" }}>
+              <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.08em" }}>{currency}/HR</span>
+              <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="0" step="1" value={l.fixedRate ?? ""} placeholder={fmt(calc.rate)} onChange={(e) => updateLine(l.id, { fixedRate: e.target.value === "" ? null : +e.target.value })} />
+            </label>
+            <label style={{ display: "block" }}>
+              <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.08em" }}>TOTAL</span>
+              <div className="ec-mono" style={{ padding: "5px 5px", fontSize: 12, fontWeight: 700, color: TOKENS.ink, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currency}{fmt(calc.total)}</div>
+            </label>
+          </div>
+        ) : (
+          /* material / job: qty | unit | rate | total */
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 0.8fr 1fr 1.1fr", gap: 5, alignItems: "center" }}>
+            <label style={{ display: "block" }}>
+              <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>QTY</span>
+              <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="0" step="0.5" value={l.qty ?? ""} onChange={(e) => updateLine(l.id, { qty: e.target.value === "" ? null : +e.target.value })} />
+            </label>
+            <label style={{ display: "block" }} title={unitHint(l.unit)}>
+              <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>UNIT</span>
+              <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} value={l.unit || ""} onChange={(e) => updateLine(l.id, { unit: e.target.value })} />
+            </label>
+            <label style={{ display: "block" }}>
+              <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>RATE {currency}</span>
+              {usesCatalogue && (l.fixedRate == null) ? (
+                <div className="ec-mono" style={{ padding: "5px 5px", fontSize: 12, color: TOKENS.inkSoft, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderRadius: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(calc.rate)}</div>
+              ) : (
+                <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="0" step="1" value={l.fixedRate ?? ""} placeholder={fmt(calc.rate)} onChange={(e) => updateLine(l.id, { fixedRate: e.target.value === "" ? null : +e.target.value, fixedTotal: null })} />
+              )}
+            </label>
+            <label style={{ display: "block" }}>
+              <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>TOTAL</span>
+              <div className="ec-mono" style={{ padding: "5px 5px", fontSize: 12, fontWeight: 700, color: TOKENS.ink, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currency}{fmt(calc.total)}</div>
+            </label>
+          </div>
+        )}
+        {kind !== "labour" && l.unit && (
+          <div className="ec-mono" style={{ fontSize: 9, color: TOKENS.steel, marginTop: 4 }}>unit: {l.unit} = {unitHint(l.unit)}</div>
+        )}
       </div>
     );
   };
@@ -4045,7 +4371,7 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
         <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>QUOTE BUILDER — MATERIAL · LABOUR · TRADES</div>
         <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
-          One quote, every line. Add materials, labour days, or any job/trade/allowance — all priced into a single total. Catalogue lines auto-price; type your own rate on anything.
+          One quote, every line — from a single wall to a whole job. Quick-add a wall by its size, or add materials, labour days, or any trade/allowance. Everything prices into one total.
         </p>
       </div>
 
@@ -4059,6 +4385,94 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
           <button className="ec-btn ec-btn-ghost" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11 }} onClick={addLabour}>+ Labour</button>
           <button className="ec-btn" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11, background: TOKENS.emberDeep }} onClick={addElement}>+ Job/Trade</button>
         </div>
+
+        <button className="ec-btn ec-btn-hivis" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={() => setShowBuild((v) => !v)}>
+          {showBuild ? "× Close" : "▦ What do you want to build?"}
+        </button>
+
+        {showBuild && (
+          <div style={{ marginTop: 10, padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.05)" }}>
+            <label style={{ display: "block", marginBottom: 8 }}>
+              <span className="ec-label">I want to build…</span>
+              <select className="ec-select" value={buildId} onChange={(e) => { setBuildId(e.target.value); setBVariant(""); setBAddonQty({}); }}>
+                {WallBuilder.presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+            </label>
+            {buildPreset && buildPreset.note && (
+              <div style={{ fontSize: 11, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{buildPreset.note}</div>
+            )}
+
+            {isWall ? (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <label><span className="ec-label">Length (m)</span><input className="ec-input" type="number" min="0" step="0.1" value={bLen} onChange={(e) => setBLen(+e.target.value)} /></label>
+                  <label><span className="ec-label">Height (m)</span><input className="ec-input" type="number" min="0" step="0.1" value={bHt} onChange={(e) => setBHt(+e.target.value)} /></label>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <label><span className="ec-label">Finish</span>
+                    <select className="ec-select" value={bFinish} onChange={(e) => setBFinish(e.target.value)}>
+                      <option value="paint">Paint</option><option value="render">Render</option><option value="tile">Tile</option><option value="none">None / raw</option>
+                    </select>
+                  </label>
+                  <label><span className="ec-label">Lined</span>
+                    <select className="ec-select" value={bSides} onChange={(e) => setBSides(+e.target.value)}>
+                      <option value={2}>Both sides</option><option value={1}>One side</option>
+                    </select>
+                  </label>
+                </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                  <input type="checkbox" checked={bInsulated} onChange={(e) => setBInsulated(e.target.checked)} />
+                  <span className="ec-mono" style={{ fontSize: 11 }}>Insulated</span>
+                </label>
+              </>
+            ) : (
+              <>
+                <label style={{ display: "block", marginBottom: 8 }}>
+                  <span className="ec-label">{buildPreset ? buildPreset.dimLabel : "Size"}</span>
+                  <input className="ec-input" type="number" min="0" step="0.1" value={bDim} onChange={(e) => setBDim(+e.target.value)} />
+                </label>
+                {buildPreset && buildPreset.variants && (
+                  <label style={{ display: "block", marginBottom: 8 }}>
+                    <span className="ec-label">Type</span>
+                    <select className="ec-select" value={bVariant || buildPreset.variants[0].id} onChange={(e) => setBVariant(e.target.value)}>
+                      {buildPreset.variants.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                    </select>
+                  </label>
+                )}
+              </>
+            )}
+
+            {/* optional add-ons for this preset (wall shows the full list) */}
+            {(() => {
+              const addonIds = isWall ? WallBuilder.addons.filter((a) => a.id !== "wa_tile").map((a) => a.id) : (buildPreset && buildPreset.addons) || [];
+              if (!addonIds.length) return null;
+              return (
+                <>
+                  <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.steel, fontWeight: 700, margin: "10px 0 6px" }}>OPTIONAL ADD-ONS</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {addonIds.map((id) => { const a = WallBuilder.getAddon(id); if (!a) return null; return (
+                      <div key={id} style={{ display: "grid", gridTemplateColumns: "1fr 64px", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 12, color: TOKENS.ink }}>{a.label} <span style={{ color: TOKENS.steel }}>· {currency}{fmt(a.regions[estimate.region])}/{a.unit}</span></span>
+                        <input className="ec-input" type="number" min="0" step="1" placeholder="0" value={bAddonQty[id] ?? ""} onChange={(e) => setBAddonQty((m) => ({ ...m, [id]: e.target.value }))} />
+                      </div>
+                    ); })}
+                  </div>
+                </>
+              );
+            })()}
+
+            <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, margin: "10px 0 4px" }}>
+              {isWall ? `Wall area ≈ ${fmt(buildPreview)} m²` : null}
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, margin: "6px 0 10px" }}>
+              <input type="checkbox" checked={bLabour} onChange={(e) => setBLabour(e.target.checked)} />
+              <span className="ec-mono" style={{ fontSize: 11 }}>Add labour estimate (trade days)</span>
+            </label>
+            <button className="ec-btn" style={{ width: "100%", justifyContent: "center", background: TOKENS.emberDeep }} onClick={doBuild} disabled={buildPreview <= 0}>
+              + Add to quote
+            </button>
+          </div>
+        )}
       </InputCard>
 
       <div style={{ padding: 14, border: `2px solid ${TOKENS.ink}`, background: TOKENS.card }}>
@@ -4108,10 +4522,13 @@ function MaterialsEstimateTab({ estimate, currency }) {
             {lines.map((l, i) => (
               <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1.1fr 0.9fr", padding: "7px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "baseline" }}>
                 <span style={{ color: TOKENS.ink }}>{l.label}</span>
-                <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{l.qty} {l.unit}</span>
+                <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>
+                  {l.kind === "labour" ? `${l.workers || 1}×${l.hours || 0} hr` : `${l.qty} ${l.unit}`}
+                </span>
                 <span style={{ textAlign: "right", color: TOKENS.ink }}>
-                  {l.alloc ? `${fmt(l.alloc.orderQty)} ${l.alloc.buyUnit}` : <span style={{ color: TOKENS.steel }}>—</span>}
-                  {l.alloc && <span style={{ color: TOKENS.hivisDeep, fontSize: 10 }}> +{Math.round(l.alloc.wastePct * 100)}%</span>}
+                  {l.kind === "labour" ? <span style={{ color: TOKENS.steel }}>@{currency}{fmt(l.rate)}/hr</span>
+                    : l.alloc ? <>{fmt(l.alloc.orderQty)} {l.alloc.buyUnit}<span style={{ color: TOKENS.hivisDeep, fontSize: 10 }}> +{Math.round(l.alloc.wastePct * 100)}%</span></>
+                    : <span style={{ color: TOKENS.steel }}>—</span>}
                 </span>
                 <span style={{ textAlign: "right", color: TOKENS.ink, fontWeight: 500 }}>{currency}{fmt(l.total)}</span>
               </div>
@@ -4120,11 +4537,11 @@ function MaterialsEstimateTab({ estimate, currency }) {
         </div>
       ))}
       <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
-        <span>MATERIALS TOTAL (SUPPLY ONLY)</span><span>{currency}{fmt(estimate.materialsTotal)}</span>
+        <span>QUOTE TOTAL</span><span>{currency}{fmt(estimate.total)}</span>
       </div>
       {estimate.taxRate > 0 && (
         <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12, color: TOKENS.inkSoft }}>
-          <span>+ {estimate.taxLabel}</span><span>{currency}{fmt(estimate.materialsTotal * estimate.taxRate)}</span>
+          <span>+ {estimate.taxLabel}</span><span>{currency}{fmt(estimate.total * estimate.taxRate)}</span>
         </div>
       )}
     </div>
