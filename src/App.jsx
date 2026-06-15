@@ -677,6 +677,18 @@ const SpreadsheetImport = {
      Pricing priority: (1) file's Total column, (2) file's Rate × Qty,
      (3) catalogue rate if the material is recognised. Lines that have a
      name but no usable price are still kept and flagged 'needs price'. */
+  /* Words that mark a row as a summary/total line, not a material */
+  summaryWords: ["subtotal", "sub total", "sub-total", "total", "grand total", "gst", "vat", "tax", "fees", "fee", "margin", "discount", "amount due", "balance"],
+
+  isSummaryRow(name, hasName, fileTotal, qtyFinite, rateFinite) {
+    const n = String(name || "").toLowerCase().trim();
+    // explicit keyword in the description
+    if (n && this.summaryWords.some((w) => n === w || n.startsWith(w) || n.endsWith(w))) return true;
+    // a value in the Total column but no description, no qty, no rate = a bare summary figure
+    if (!hasName && isFinite(fileTotal) && !qtyFinite && !rateFinite) return true;
+    return false;
+  },
+
   estimate(rows, mapping, region) {
     const lines = [];
     let skipped = 0;
@@ -691,6 +703,9 @@ const SpreadsheetImport = {
       const hasAnyNumber = isFinite(qty) || isFinite(fileRate) || isFinite(fileTotal);
       // skip rows that are clearly blank/headers/section titles with no data at all
       if (!hasName && !hasAnyNumber) { skipped++; continue; }
+
+      // skip summary/total/GST/fees rows — they're not materials and would double-count
+      if (this.isSummaryRow(name, hasName, fileTotal, isFinite(qty), isFinite(fileRate))) { skipped++; continue; }
 
       const matId = hasName ? SketchUpImport.resolveMaterial(name) : null;
       const m = matId ? Materials.get(matId) : null;
@@ -1539,7 +1554,7 @@ const MaterialsOnly = {
     for (const item of (matSpec.lines || [])) {
       const m = item.materialId ? Materials.get(item.materialId) : null;
       const qty = +item.qty || 0;
-      // Fixed price from an imported file takes priority
+      // Fixed total from an imported file takes priority
       if (item.fixedTotal != null && isFinite(item.fixedTotal)) {
         lines.push({
           materialId: item.materialId || null,
@@ -1550,6 +1565,15 @@ const MaterialsOnly = {
           total: round(item.fixedTotal, 2),
           priceSource: "file",
           alloc: m && qty > 0 ? Allocation.forMaterial(item.materialId, qty) : null,
+        });
+        continue;
+      }
+      // Manual rate typed on a custom line
+      if (item.fixedRate != null && isFinite(item.fixedRate) && !item.materialId) {
+        lines.push({
+          materialId: null, category: "custom", label: item.label || "Item", unit: item.unit || "",
+          qty: qty || null, rate: round(item.fixedRate, 2), total: round(item.fixedRate * qty, 2),
+          priceSource: "manual", alloc: null,
         });
         continue;
       }
@@ -3781,23 +3805,32 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
   const lines = matSpec.lines || [];
   const setLines = (next) => setMatSpec({ lines: next });
   const updateLine = (id, patch) => setLines(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addLine = () => setLines([...lines, { id: nextId(), materialId: Materials.catalog[0].id, qty: 1 }]);
+  const addCatalogue = () => { const m = Materials.catalog[0]; setLines([...lines, { id: nextId(), materialId: m.id, label: m.label, qty: 1, unit: m.unit }]); };
+  const addCustom = () => setLines([...lines, { id: nextId(), materialId: null, label: "", qty: 1, unit: "", fixedRate: 0, fixedTotal: 0 }]);
   const removeLine = (id) => setLines(lines.filter((l) => l.id !== id));
   const clearLines = () => setLines([]);
 
-  // group catalogue for the dropdown
   const cats = useMemo(() => {
     const g = {};
     for (const m of Materials.catalog) { (g[m.category] = g[m.category] || []).push(m); }
     return g;
   }, []);
 
+  // resolve a line's rate & total for display, honouring fixed (file/manual) pricing
+  const lineCalc = (l) => {
+    const m = l.materialId ? Materials.get(l.materialId) : null;
+    if (l.fixedTotal != null && isFinite(l.fixedTotal) && !l.qty) return { rate: l.fixedRate || 0, total: +l.fixedTotal || 0, unit: l.unit || (m ? m.unit : "") };
+    if (l.fixedRate != null && isFinite(l.fixedRate)) { const t = (+l.fixedRate) * (+l.qty || 0); return { rate: +l.fixedRate, total: t, unit: l.unit || (m ? m.unit : "") }; }
+    if (m) { const r = Materials.rate(l.materialId, estimate.region); return { rate: r, total: r * (+l.qty || 0), unit: l.unit || m.unit }; }
+    return { rate: 0, total: +l.fixedTotal || 0, unit: l.unit || "" };
+  };
+
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
         <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>MATERIALS ONLY — SUPPLY COST</div>
         <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
-          Pick materials and quantities and get the raw supply price — no labour, plant, or builder margin. Great for checking rates or a supply-only quote.
+          Every line is editable — change the description, quantity or rate, delete what you don't need, add your own. Catalogue items price automatically; custom lines use the rate you type.
         </p>
       </div>
 
@@ -3805,30 +3838,47 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {lines.length === 0 && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, padding: "8px 0" }}>No materials yet — add a line or import a sheet.</div>}
           {lines.map((l) => {
-            const m = Materials.get(l.materialId);
-            const lineTotal = m ? Materials.rate(l.materialId, estimate.region) * (+l.qty || 0) : 0;
+            const calc = lineCalc(l);
+            const isCustom = !l.materialId;
             return (
               <div key={l.id} style={{ border: `1px solid ${TOKENS.rule}`, padding: 8, background: TOKENS.paperLight }}>
                 <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                  <select className="ec-select" style={{ flex: 1 }} value={l.materialId} onChange={(e) => updateLine(l.id, { materialId: e.target.value })}>
-                    {Object.entries(cats).map(([cat, items]) => (
-                      <optgroup key={cat} label={cat}>
-                        {items.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                      </optgroup>
-                    ))}
-                  </select>
-                  <button onClick={() => removeLine(l.id)} style={{ width: 30, flexShrink: 0, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontSize: 15 }}>×</button>
+                  {isCustom ? (
+                    <input className="ec-input" style={{ flex: 1 }} placeholder="Description (e.g. Roof area - red)" value={l.label || ""} onChange={(e) => updateLine(l.id, { label: e.target.value })} />
+                  ) : (
+                    <select className="ec-select" style={{ flex: 1 }} value={l.materialId} onChange={(e) => { const m = Materials.get(e.target.value); updateLine(l.id, { materialId: e.target.value, label: m.label, unit: m.unit }); }}>
+                      {Object.entries(cats).map(([cat, items]) => (
+                        <optgroup key={cat} label={cat}>
+                          {items.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  )}
+                  <button onClick={() => removeLine(l.id)} title="Delete line" style={{ width: 30, flexShrink: 0, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontSize: 15 }}>×</button>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input className="ec-input" style={{ width: 90 }} type="number" min="0" step="0.5" value={l.qty} onChange={(e) => updateLine(l.id, { qty: +e.target.value })} />
-                  <span className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{m?.unit}</span>
-                  <span className="ec-mono" style={{ fontSize: 12, color: TOKENS.ink, marginLeft: "auto", fontWeight: 500 }}>{currency}{fmt(lineTotal)}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input className="ec-input" style={{ width: 70 }} type="number" min="0" step="0.5" placeholder="qty"
+                    value={l.qty ?? ""} onChange={(e) => updateLine(l.id, { qty: e.target.value === "" ? null : +e.target.value, ...(l.fixedTotal != null && l.fixedRate == null ? { fixedRate: l.qty ? l.fixedTotal / l.qty : 0, fixedTotal: null } : {}) })} />
+                  <input className="ec-input" style={{ width: 56 }} placeholder="unit" value={calc.unit} onChange={(e) => updateLine(l.id, { unit: e.target.value })} />
+                  {isCustom ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>@{currency}</span>
+                      <input className="ec-input" style={{ width: 70 }} type="number" min="0" step="1" placeholder="rate"
+                        value={l.fixedRate ?? ""} onChange={(e) => updateLine(l.id, { fixedRate: e.target.value === "" ? 0 : +e.target.value, fixedTotal: null })} />
+                    </div>
+                  ) : (
+                    <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>@{currency}{fmt(calc.rate)}</span>
+                  )}
+                  <span className="ec-mono" style={{ fontSize: 12, color: TOKENS.ink, marginLeft: "auto", fontWeight: 600 }}>{currency}{fmt(calc.total)}</span>
                 </div>
               </div>
             );
           })}
         </div>
-        <button className="ec-btn ec-btn-ghost" style={{ marginTop: 12, width: "100%", justifyContent: "center" }} onClick={addLine}>+ Add material</button>
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button className="ec-btn ec-btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={addCatalogue}>+ Catalogue item</button>
+          <button className="ec-btn" style={{ flex: 1, justifyContent: "center", background: TOKENS.emberDeep }} onClick={addCustom}>+ Custom line</button>
+        </div>
       </InputCard>
 
       <div style={{ padding: 14, border: `2px solid ${TOKENS.ink}`, background: TOKENS.card }}>
