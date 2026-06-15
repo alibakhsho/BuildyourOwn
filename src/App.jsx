@@ -1408,6 +1408,48 @@ const HighRiseCodes = {
   },
 };
 
+/* =========================================================================
+   MODULE: legislation.js
+   An authoritative directory of the governing building Act + regulator for
+   each jurisdiction, linked to the official source. This is a links
+   directory (not a reproduction of the law) so it stays current and correct.
+   AU is broken down by state/territory; pick yours from the selector.
+   ========================================================================= */
+const Legislation = {
+  AU: {
+    national: { name: "National Construction Code (NCC)", body: "Australian Building Codes Board (ABCB)", url: "https://ncc.abcb.gov.au/", note: "The NCC is given legal force by each state/territory's own building Act below." },
+    jurisdictions: [
+      { code: "QLD", name: "Queensland", act: "Building Act 1975 (QLD) + QBCC Act 1991", regulator: "Queensland Building and Construction Commission (QBCC)", regulatorUrl: "https://www.qbcc.qld.gov.au/", actUrl: "https://www.legislation.qld.gov.au/view/html/inforce/current/act-1975-011", qbccActUrl: "https://www.legislation.qld.gov.au/view/html/inforce/current/act-1991-098" },
+      { code: "NSW", name: "New South Wales", act: "Home Building Act 1989 + DBP Act 2020", regulator: "Building Commission NSW", regulatorUrl: "https://www.nsw.gov.au/departments-and-agencies/building-commission", actUrl: "https://legislation.nsw.gov.au/view/html/inforce/current/act-1989-147" },
+      { code: "VIC", name: "Victoria", act: "Building Act 1993 (VIC) + Building Regulations 2018", regulator: "Building & Plumbing Commission (BPC) / VBA", regulatorUrl: "https://www.vba.vic.gov.au/", actUrl: "https://www.legislation.vic.gov.au/in-force/acts/building-act-1993" },
+      { code: "SA", name: "South Australia", act: "Planning, Development and Infrastructure Act 2016 (SA)", regulator: "Consumer & Business Services / PlanSA", regulatorUrl: "https://plan.sa.gov.au/", actUrl: "https://www.legislation.sa.gov.au/lz?path=/c/a/planning%20development%20and%20infrastructure%20act%202016" },
+      { code: "WA", name: "Western Australia", act: "Building Act 2011 (WA)", regulator: "Building & Energy (DEMIRS)", regulatorUrl: "https://www.demirs.wa.gov.au/building-and-energy", actUrl: "https://www.legislation.wa.gov.au/legislation/statutes.nsf/main_mrtitle_12333_homepage.html" },
+      { code: "TAS", name: "Tasmania", act: "Building Act 2016 (TAS)", regulator: "Consumer, Building & Occupational Services (CBOS)", regulatorUrl: "https://www.cbos.tas.gov.au/", actUrl: "https://www.legislation.tas.gov.au/view/html/inforce/current/act-2016-012" },
+      { code: "ACT", name: "Aust. Capital Territory", act: "Building Act 2004 (ACT)", regulator: "Access Canberra", regulatorUrl: "https://www.accesscanberra.act.gov.au/", actUrl: "https://www.legislation.act.gov.au/a/2004-11/" },
+      { code: "NT", name: "Northern Territory", act: "Building Act 1993 (NT)", regulator: "NT Building Advisory Services", regulatorUrl: "https://nt.gov.au/property/building-and-development", actUrl: "https://legislation.nt.gov.au/Legislation/BUILDING-ACT-1993" },
+    ],
+  },
+  US: {
+    national: { name: "International Codes (I-Codes): IRC / IBC", body: "International Code Council (ICC)", url: "https://codes.iccsafe.org/", note: "The ICC publishes model codes; each state and many local jurisdictions adopt and amend their own version. Always confirm the locally adopted code with your Authority Having Jurisdiction (AHJ)." },
+    jurisdictions: [
+      { code: "MODEL", name: "Model codes (ICC)", act: "International Residential Code (IRC) / International Building Code (IBC)", regulator: "International Code Council", regulatorUrl: "https://www.iccsafe.org/", actUrl: "https://codes.iccsafe.org/" },
+      { code: "CA", name: "California", act: "California Building Standards Code (Title 24)", regulator: "California Building Standards Commission", regulatorUrl: "https://www.dgs.ca.gov/BSC", actUrl: "https://codes.iccsafe.org/codes/california" },
+      { code: "TX", name: "Texas", act: "Adopted IRC/IBC (local adoption varies)", regulator: "Texas Dept. of Licensing & Regulation", regulatorUrl: "https://www.tdlr.texas.gov/", actUrl: "https://codes.iccsafe.org/" },
+      { code: "FL", name: "Florida", act: "Florida Building Code", regulator: "Florida Building Commission", regulatorUrl: "https://www.floridabuilding.org/", actUrl: "https://codes.iccsafe.org/codes/florida" },
+      { code: "NY", name: "New York", act: "NYS Uniform Code / NYC Construction Codes", regulator: "NYS Div. of Building Standards & Codes", regulatorUrl: "https://dos.ny.gov/building-standards-and-codes", actUrl: "https://codes.iccsafe.org/codes/new-york" },
+    ],
+  },
+  UK: {
+    national: { name: "The Building Regulations 2010 + Approved Documents", body: "Building Safety Regulator (HSE) / MHCLG", url: "https://www.gov.uk/government/collections/approved-documents", note: "England's Approved Documents shown. Scotland, Wales and Northern Ireland operate separate building standards systems — pick yours below." },
+    jurisdictions: [
+      { code: "ENG", name: "England", act: "Building Regulations 2010 + Building Safety Act 2022", regulator: "Building Safety Regulator (HSE)", regulatorUrl: "https://www.hse.gov.uk/building-safety/regulator.htm", actUrl: "https://www.gov.uk/government/collections/approved-documents" },
+      { code: "WAL", name: "Wales", act: "Building Regulations (Wales)", regulator: "Welsh Government", regulatorUrl: "https://www.gov.wales/building-regulations", actUrl: "https://www.gov.wales/building-regulations-guidance" },
+      { code: "SCO", name: "Scotland", act: "Building (Scotland) Act 2003 + Technical Handbooks", regulator: "Scottish Government Building Standards", regulatorUrl: "https://www.gov.scot/policies/building-standards/", actUrl: "https://www.gov.scot/collections/building-standards-technical-handbooks/" },
+      { code: "NI", name: "Northern Ireland", act: "Building Regulations (NI) 2012", regulator: "Dept. of Finance (NI)", regulatorUrl: "https://www.finance-ni.gov.uk/topics/building-regulations-and-energy-efficiency-buildings", actUrl: "https://www.finance-ni.gov.uk/articles/technical-booklets" },
+    ],
+  },
+};
+
 const HighRiseEstimator = {
   /* spec: { floorPlateM2, floors, floorHeightM, basementLevels, structureType,
             facadeType, occupancy, passengerLifts, goodsLifts, hasEscalators,
@@ -1548,51 +1590,97 @@ const HighRiseEstimator = {
    supply cost, plus order quantities with waste. Ideal for sanity-checking
    the catalogue and for "supply only" quotes.
    ========================================================================= */
+/* A small labour & trade rate card so labour lines can auto-price too.
+   Rates are indicative supply-of-labour day/hour/unit rates. */
+const LabourRates = {
+  catalog: [
+    { id: "lab_carpenter", label: "Carpenter", unit: "day", regions: { AU: 520, US: 360, UK: 320 } },
+    { id: "lab_apprentice", label: "Apprentice", unit: "day", regions: { AU: 280, US: 200, UK: 180 } },
+    { id: "lab_bricklayer", label: "Bricklayer", unit: "day", regions: { AU: 560, US: 380, UK: 340 } },
+    { id: "lab_concreter", label: "Concreter", unit: "day", regions: { AU: 540, US: 370, UK: 330 } },
+    { id: "lab_electrician", label: "Electrician", unit: "day", regions: { AU: 640, US: 440, UK: 390 } },
+    { id: "lab_plumber", label: "Plumber", unit: "day", regions: { AU: 640, US: 440, UK: 390 } },
+    { id: "lab_plasterer", label: "Plasterer", unit: "day", regions: { AU: 500, US: 340, UK: 300 } },
+    { id: "lab_painter", label: "Painter", unit: "day", regions: { AU: 460, US: 320, UK: 280 } },
+    { id: "lab_tiler", label: "Tiler", unit: "day", regions: { AU: 520, US: 360, UK: 320 } },
+    { id: "lab_roofer", label: "Roofer", unit: "day", regions: { AU: 540, US: 370, UK: 330 } },
+    { id: "lab_labourer", label: "General labourer", unit: "day", regions: { AU: 360, US: 250, UK: 220 } },
+    { id: "lab_supervisor", label: "Site supervisor", unit: "day", regions: { AU: 720, US: 500, UK: 440 } },
+    { id: "lab_crane", label: "Crane + operator", unit: "day", regions: { AU: 2200, US: 1500, UK: 1350 } },
+    { id: "lab_excavator", label: "Excavator + operator", unit: "day", regions: { AU: 1100, US: 760, UK: 680 } },
+  ],
+  get(id) { return this.catalog.find((l) => l.id === id); },
+  rate(id, region) { const l = this.get(id); return l ? l.regions[region] ?? 0 : 0; },
+};
+
+/* =========================================================================
+   MODULE: quote-builder.js  (was materials-only)
+   A single editable quote of mixed line items. Each line has a `kind`:
+     - "material" → priced from the Materials catalogue (or a fixed/file rate)
+     - "labour"   → priced from the LabourRates card (or a fixed rate)
+     - "element"  → a free-text job/trade/allowance with the rate you type
+   Everything sums into ONE total, grouped by kind, so a client gets a single
+   quote covering material + labour + trades, not three separate ones.
+   ========================================================================= */
 const MaterialsOnly = {
+  rateFor(item, region) {
+    if (item.kind === "labour" && item.labourId) return LabourRates.rate(item.labourId, region);
+    if ((item.kind === "material" || !item.kind) && item.materialId) return Materials.rate(item.materialId, region);
+    return null;
+  },
+  catalogLabel(item) {
+    if (item.kind === "labour" && item.labourId) return LabourRates.get(item.labourId)?.label;
+    if (item.materialId) return Materials.get(item.materialId)?.label;
+    return null;
+  },
+  catalogUnit(item) {
+    if (item.kind === "labour" && item.labourId) return LabourRates.get(item.labourId)?.unit;
+    if (item.materialId) return Materials.get(item.materialId)?.unit;
+    return "";
+  },
+
   buildEstimate(matSpec, region) {
     const lines = [];
     for (const item of (matSpec.lines || [])) {
-      const m = item.materialId ? Materials.get(item.materialId) : null;
+      const kind = item.kind || "material";
       const qty = +item.qty || 0;
-      // Fixed total from an imported file takes priority
+      const catLabel = this.catalogLabel(item);
+      const catUnit = this.catalogUnit(item);
+      const catRate = this.rateFor(item, region);
+      const materialId = kind === "material" ? (item.materialId || null) : null;
+
+      // pricing priority: file total → fixed rate → catalogue rate
+      let rate = null, total = null, priceSource = "";
       if (item.fixedTotal != null && isFinite(item.fixedTotal)) {
-        lines.push({
-          materialId: item.materialId || null,
-          category: m ? m.category : "from file",
-          label: item.label || (m ? m.label : "Item"),
-          unit: item.unit || (m ? m.unit : ""),
-          qty: qty || null, rate: item.fixedRate != null ? round(item.fixedRate, 2) : (qty ? round(item.fixedTotal / qty, 2) : null),
-          total: round(item.fixedTotal, 2),
-          priceSource: "file",
-          alloc: m && qty > 0 ? Allocation.forMaterial(item.materialId, qty) : null,
-        });
-        continue;
+        total = item.fixedTotal;
+        rate = item.fixedRate != null ? item.fixedRate : (qty ? item.fixedTotal / qty : null);
+        priceSource = "file";
+      } else if (item.fixedRate != null && isFinite(item.fixedRate)) {
+        rate = item.fixedRate; total = item.fixedRate * qty; priceSource = "manual";
+      } else if (catRate != null && qty > 0) {
+        rate = catRate; total = catRate * qty; priceSource = "catalogue";
       }
-      // Manual rate typed on a custom line
-      if (item.fixedRate != null && isFinite(item.fixedRate) && !item.materialId) {
-        lines.push({
-          materialId: null, category: "custom", label: item.label || "Item", unit: item.unit || "",
-          qty: qty || null, rate: round(item.fixedRate, 2), total: round(item.fixedRate * qty, 2),
-          priceSource: "manual", alloc: null,
-        });
-        continue;
-      }
-      // Otherwise price from catalogue (needs a recognised material + qty)
-      if (!m || qty <= 0) {
-        if (item.label) lines.push({ materialId: null, category: "from file", label: item.label, unit: item.unit || "", qty: qty || null, rate: null, total: 0, priceSource: "", needsPrice: true, alloc: null });
-        continue;
-      }
-      const rate = Materials.rate(item.materialId, region);
+
+      const needsPrice = total == null;
       lines.push({
-        materialId: item.materialId, category: m.category, label: item.label || m.label, unit: item.unit || m.unit,
-        qty: round(qty, 2), rate: round(rate, 2), total: round(rate * qty, 2), priceSource: "catalogue",
-        alloc: Allocation.forMaterial(item.materialId, qty),
+        kind, materialId,
+        labourId: kind === "labour" ? (item.labourId || null) : null,
+        category: kind === "labour" ? "labour" : kind === "element" ? "trades & elements" : (item.materialId ? Materials.get(item.materialId)?.category : "materials"),
+        label: item.label || catLabel || (kind === "labour" ? "Labour" : kind === "element" ? "Item" : "Material"),
+        unit: item.unit || catUnit || "",
+        qty: qty || null,
+        rate: rate != null ? round(rate, 2) : null,
+        total: total != null ? round(total, 2) : 0,
+        priceSource, needsPrice,
+        alloc: materialId && qty > 0 ? Allocation.forMaterial(materialId, qty) : null,
       });
     }
-    const materialsTotal = lines.reduce((a, l) => a + (l.total || 0), 0);
+    const total = lines.reduce((a, l) => a + (l.total || 0), 0);
+    const byKind = { material: 0, labour: 0, element: 0 };
+    for (const l of lines) byKind[l.kind] = (byKind[l.kind] || 0) + (l.total || 0);
     const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
     const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
-    return { mode: "materials", region, spec: matSpec, lines, materialsTotal, total: materialsTotal, taxRate, taxLabel };
+    return { mode: "materials", region, spec: matSpec, lines, materialsTotal: total, total, byKind, taxRate, taxLabel };
   },
 };
 
@@ -2560,11 +2648,12 @@ const DEFAULT_HR_SPEC = {
 
 const DEFAULT_MAT_SPEC = {
   lines: [
-    { id: "m1", materialId: "concrete_25mpa", qty: 25 },
-    { id: "m2", materialId: "brick_veneer", qty: 168 },
-    { id: "m3", materialId: "timber_mgp10", qty: 640 },
-    { id: "m4", materialId: "plasterboard", qty: 520 },
-    { id: "m5", materialId: "colorbond_sheet", qty: 215 },
+    { id: "m1", kind: "material", materialId: "concrete_25mpa", qty: 25 },
+    { id: "m2", kind: "material", materialId: "brick_veneer", qty: 168 },
+    { id: "m3", kind: "material", materialId: "timber_mgp10", qty: 640 },
+    { id: "l1", kind: "labour", labourId: "lab_carpenter", qty: 8 },
+    { id: "l2", kind: "labour", labourId: "lab_bricklayer", qty: 5 },
+    { id: "e1", kind: "element", label: "Site clean & rubbish removal", qty: 1, unit: "item", fixedRate: 850 },
   ],
 };
 
@@ -2812,11 +2901,12 @@ export default function App() {
   const applyMaterialsImport = useCallback((lines) => {
     const matLines = lines.map((l) => ({
       id: nextId(),
+      kind: "material",
       materialId: l.materialId || null,
       label: l.label || (l.catalogueLabel || "Item"),
       qty: l.qty,
       unit: l.unit || "",
-      fixedRate: l.priceSource === "file" ? l.rate : null,
+      fixedRate: (l.priceSource === "file" || l.priceSource === "manual") ? l.rate : null,
       fixedTotal: l.priceSource === "file" ? l.total : null,
     }));
     setMatSpec({ lines: matLines });
@@ -3171,7 +3261,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-              {[["residential","Residential"],["highrise","High-rise"],["materials","Materials"]].map(([m, label]) => (
+              {[["residential","Residential"],["highrise","High-rise"],["materials","Quote"]].map(([m, label]) => (
                 <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
                   className="ec-mono"
                   style={{
@@ -3390,7 +3480,7 @@ export default function App() {
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
               {buildMode === "materials" ? (
                 <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
-                  Materials only · no build model
+                  Quote builder · no build model
                 </div>
               ) : buildMode === "highrise" ? (
                 <>
@@ -3425,7 +3515,7 @@ export default function App() {
             <div style={{ position: "absolute", bottom: 16, left: 16, right: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               {buildMode === "materials" ? (
                 <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, background: "rgba(255,255,255,0.9)", padding: "8px 12px", border: `1px solid ${TOKENS.rule}` }}>
-                  Materials-only mode — pricing supply cost, no build model
+                  Quote builder — material, labour & trades in one total
                 </div>
               ) : !walkMode ? (
                 <>
@@ -3472,9 +3562,10 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16 }}>
             <StaggerReveal variant="fade-up" stagger={0.06}>
               {buildMode === "materials" ? [
-                <CostCard key="t" label="Materials total" value={`${currency}${fmt(estimate.materialsTotal)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.materialsTotal * estimate.taxRate)} ${estimate.taxLabel}` : "Supply only"} />,
-                <CostCard key="n" label="Line items" value={`${estimate.lines.length}`} sub="supply only — no build" />,
-                <CostCard key="x" label="Excludes" value="Labour + plant" sub="materials cost only" />,
+                <CostCard key="t" label="Quote total" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
+                <CostCard key="m" label="Materials" value={`${currency}${fmt((estimate.byKind || {}).material || 0)}`} />,
+                <CostCard key="l" label="Labour" value={`${currency}${fmt((estimate.byKind || {}).labour || 0)}`} />,
+                <CostCard key="e" label="Trades & jobs" value={`${currency}${fmt((estimate.byKind || {}).element || 0)}`} sub={`${estimate.lines.length} lines`} />,
               ] : buildMode === "highrise" ? [
                 <CostCard key="t" label="Total estimate" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
                 <CostCard key="s" label="Systems (adj.)" value={`${currency}${fmt(estimate.systemsTotal)}`} />,
@@ -3499,7 +3590,7 @@ export default function App() {
             {(buildMode === "highrise"
               ? [{ id: "estimate", label: "Elemental cost plan" }, { id: "timeline", label: "Programme" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
               : buildMode === "materials"
-              ? [{ id: "estimate", label: "Materials cost" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "suppliers", label: "Suppliers" }]
+              ? [{ id: "estimate", label: "Quote breakdown" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "suppliers", label: "Suppliers" }]
               : [{ id: "estimate", label: "Cost breakdown" }, { id: "timeline", label: "Programme" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
             ).map((t) => (
               <div key={t.id} className={"ec-tab" + (tab === t.id ? " ec-tab-active" : "")} onClick={() => setTab(t.id)}>{t.label}</div>
@@ -3799,92 +3890,129 @@ function stageLabel(p) {
 
 /* ---- Cost breakdown tab ---- */
 /* ---- High-rise input panel ---- */
-/* ---- Left panel shown when an imported takeoff is driving the estimate ---- */
-/* ---- Materials-only input panel ---- */
+/* ---- Unified quote builder: material + labour + trades in one list ---- */
 function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
   const lines = matSpec.lines || [];
   const setLines = (next) => setMatSpec({ lines: next });
   const updateLine = (id, patch) => setLines(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  const addCatalogue = () => { const m = Materials.catalog[0]; setLines([...lines, { id: nextId(), materialId: m.id, label: m.label, qty: 1, unit: m.unit }]); };
-  const addCustom = () => setLines([...lines, { id: nextId(), materialId: null, label: "", qty: 1, unit: "", fixedRate: 0, fixedTotal: 0 }]);
   const removeLine = (id) => setLines(lines.filter((l) => l.id !== id));
   const clearLines = () => setLines([]);
 
-  const cats = useMemo(() => {
+  const addMaterial = () => { const m = Materials.catalog[0]; setLines([...lines, { id: nextId(), kind: "material", materialId: m.id, label: m.label, qty: 1, unit: m.unit }]); };
+  const addLabour = () => { const l = LabourRates.catalog[0]; setLines([...lines, { id: nextId(), kind: "labour", labourId: l.id, label: l.label, qty: 1, unit: l.unit }]); };
+  const addElement = () => setLines([...lines, { id: nextId(), kind: "element", label: "", qty: 1, unit: "item", fixedRate: 0 }]);
+
+  const matCats = useMemo(() => {
     const g = {};
     for (const m of Materials.catalog) { (g[m.category] = g[m.category] || []).push(m); }
     return g;
   }, []);
 
-  // resolve a line's rate & total for display, honouring fixed (file/manual) pricing
-  const lineCalc = (l) => {
-    const m = l.materialId ? Materials.get(l.materialId) : null;
-    if (l.fixedTotal != null && isFinite(l.fixedTotal) && !l.qty) return { rate: l.fixedRate || 0, total: +l.fixedTotal || 0, unit: l.unit || (m ? m.unit : "") };
-    if (l.fixedRate != null && isFinite(l.fixedRate)) { const t = (+l.fixedRate) * (+l.qty || 0); return { rate: +l.fixedRate, total: t, unit: l.unit || (m ? m.unit : "") }; }
-    if (m) { const r = Materials.rate(l.materialId, estimate.region); return { rate: r, total: r * (+l.qty || 0), unit: l.unit || m.unit }; }
-    return { rate: 0, total: +l.fixedTotal || 0, unit: l.unit || "" };
+  const calcLine = (l) => {
+    if (l.fixedTotal != null && isFinite(l.fixedTotal) && !l.qty) return { rate: l.fixedRate || 0, total: +l.fixedTotal || 0 };
+    if (l.fixedRate != null && isFinite(l.fixedRate)) return { rate: +l.fixedRate, total: (+l.fixedRate) * (+l.qty || 0) };
+    if (l.kind === "labour" && l.labourId) { const r = LabourRates.rate(l.labourId, estimate.region); return { rate: r, total: r * (+l.qty || 0) }; }
+    if (l.materialId) { const r = Materials.rate(l.materialId, estimate.region); return { rate: r, total: r * (+l.qty || 0) }; }
+    return { rate: 0, total: +l.fixedTotal || 0 };
   };
 
+  const kindMeta = {
+    material: { tag: "MAT", color: TOKENS.hivisDeep },
+    labour: { tag: "LAB", color: TOKENS.emberDeep },
+    element: { tag: "JOB", color: TOKENS.steel },
+  };
+
+  const renderLine = (l) => {
+    const kind = l.kind || "material";
+    const meta = kindMeta[kind];
+    const calc = calcLine(l);
+    const usesCatalogue = (kind === "material" && l.materialId) || (kind === "labour" && l.labourId);
+    return (
+      <div key={l.id} style={{ border: `1px solid ${TOKENS.rule}`, borderLeft: `3px solid ${meta.color}`, padding: 8, background: TOKENS.paperLight }}>
+        {/* row 1: tag + name/select + delete */}
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 6, alignItems: "center", marginBottom: 6 }}>
+          <span className="ec-mono" style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: meta.color, border: `1px solid ${meta.color}`, padding: "2px 4px", borderRadius: 2 }}>{meta.tag}</span>
+          {kind === "material" ? (
+            <select className="ec-select" style={{ minWidth: 0 }} value={l.materialId || ""} onChange={(e) => { const m = Materials.get(e.target.value); updateLine(l.id, { materialId: e.target.value, label: m.label, unit: m.unit, fixedRate: null, fixedTotal: null }); }}>
+              {Object.entries(matCats).map(([cat, items]) => (
+                <optgroup key={cat} label={cat}>{items.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
+              ))}
+            </select>
+          ) : kind === "labour" ? (
+            <select className="ec-select" style={{ minWidth: 0 }} value={l.labourId || ""} onChange={(e) => { const lr = LabourRates.get(e.target.value); updateLine(l.id, { labourId: e.target.value, label: lr.label, unit: lr.unit, fixedRate: null, fixedTotal: null }); }}>
+              {LabourRates.catalog.map((lr) => <option key={lr.id} value={lr.id}>{lr.label}</option>)}
+            </select>
+          ) : (
+            <input className="ec-input" style={{ minWidth: 0 }} placeholder="Describe the job / trade / allowance" value={l.label || ""} onChange={(e) => updateLine(l.id, { label: e.target.value })} />
+          )}
+          <button onClick={() => removeLine(l.id)} title="Delete line" style={{ width: 26, height: 26, flexShrink: 0, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontSize: 14, lineHeight: 1, borderRadius: 2 }}>×</button>
+        </div>
+        {/* row 2: qty | unit | rate | total — fixed grid, never overlaps */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 0.8fr 1fr 1.1fr", gap: 5, alignItems: "center" }}>
+          <label style={{ display: "block" }}>
+            <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>QTY</span>
+            <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="0" step="0.5" value={l.qty ?? ""} onChange={(e) => updateLine(l.id, { qty: e.target.value === "" ? null : +e.target.value })} />
+          </label>
+          <label style={{ display: "block" }}>
+            <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>UNIT</span>
+            <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} value={l.unit || ""} onChange={(e) => updateLine(l.id, { unit: e.target.value })} />
+          </label>
+          <label style={{ display: "block" }}>
+            <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>RATE {currency}</span>
+            {usesCatalogue && (l.fixedRate == null) ? (
+              <div className="ec-mono" style={{ padding: "5px 5px", fontSize: 12, color: TOKENS.inkSoft, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderRadius: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(calc.rate)}</div>
+            ) : (
+              <input className="ec-input" style={{ width: "100%", padding: "4px 5px" }} type="number" min="0" step="1" value={l.fixedRate ?? ""} placeholder={fmt(calc.rate)} onChange={(e) => updateLine(l.id, { fixedRate: e.target.value === "" ? null : +e.target.value, fixedTotal: null })} />
+            )}
+          </label>
+          <label style={{ display: "block" }}>
+            <span className="ec-mono" style={{ fontSize: 8, color: TOKENS.steel, letterSpacing: "0.1em" }}>TOTAL</span>
+            <div className="ec-mono" style={{ padding: "5px 5px", fontSize: 12, fontWeight: 700, color: TOKENS.ink, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{currency}{fmt(calc.total)}</div>
+          </label>
+        </div>
+      </div>
+    );
+  };
+
+  const bk = estimate.byKind || {};
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
-        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>MATERIALS ONLY — SUPPLY COST</div>
+        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>QUOTE BUILDER — MATERIAL · LABOUR · TRADES</div>
         <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
-          Every line is editable — change the description, quantity or rate, delete what you don't need, add your own. Catalogue items price automatically; custom lines use the rate you type.
+          One quote, every line. Add materials, labour days, or any job/trade/allowance — all priced into a single total. Catalogue lines auto-price; type your own rate on anything.
         </p>
       </div>
 
-      <InputCard title="Material list" badge={`${currency}${fmt(estimate.materialsTotal)}`} onClear={clearLines}>
+      <InputCard title="Quote lines" badge={`${currency}${fmt(estimate.total)}`} onClear={clearLines}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {lines.length === 0 && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, padding: "8px 0" }}>No materials yet — add a line or import a sheet.</div>}
-          {lines.map((l) => {
-            const calc = lineCalc(l);
-            const isCustom = !l.materialId;
-            return (
-              <div key={l.id} style={{ border: `1px solid ${TOKENS.rule}`, padding: 8, background: TOKENS.paperLight }}>
-                <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-                  {isCustom ? (
-                    <input className="ec-input" style={{ flex: 1 }} placeholder="Description (e.g. Roof area - red)" value={l.label || ""} onChange={(e) => updateLine(l.id, { label: e.target.value })} />
-                  ) : (
-                    <select className="ec-select" style={{ flex: 1 }} value={l.materialId} onChange={(e) => { const m = Materials.get(e.target.value); updateLine(l.id, { materialId: e.target.value, label: m.label, unit: m.unit }); }}>
-                      {Object.entries(cats).map(([cat, items]) => (
-                        <optgroup key={cat} label={cat}>
-                          {items.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-                        </optgroup>
-                      ))}
-                    </select>
-                  )}
-                  <button onClick={() => removeLine(l.id)} title="Delete line" style={{ width: 30, flexShrink: 0, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontSize: 15 }}>×</button>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <input className="ec-input" style={{ width: 70 }} type="number" min="0" step="0.5" placeholder="qty"
-                    value={l.qty ?? ""} onChange={(e) => updateLine(l.id, { qty: e.target.value === "" ? null : +e.target.value, ...(l.fixedTotal != null && l.fixedRate == null ? { fixedRate: l.qty ? l.fixedTotal / l.qty : 0, fixedTotal: null } : {}) })} />
-                  <input className="ec-input" style={{ width: 56 }} placeholder="unit" value={calc.unit} onChange={(e) => updateLine(l.id, { unit: e.target.value })} />
-                  {isCustom ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                      <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>@{currency}</span>
-                      <input className="ec-input" style={{ width: 70 }} type="number" min="0" step="1" placeholder="rate"
-                        value={l.fixedRate ?? ""} onChange={(e) => updateLine(l.id, { fixedRate: e.target.value === "" ? 0 : +e.target.value, fixedTotal: null })} />
-                    </div>
-                  ) : (
-                    <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>@{currency}{fmt(calc.rate)}</span>
-                  )}
-                  <span className="ec-mono" style={{ fontSize: 12, color: TOKENS.ink, marginLeft: "auto", fontWeight: 600 }}>{currency}{fmt(calc.total)}</span>
-                </div>
-              </div>
-            );
-          })}
+          {lines.length === 0 && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, padding: "8px 0" }}>Empty quote — add a line below or import a sheet.</div>}
+          {lines.map(renderLine)}
         </div>
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button className="ec-btn ec-btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={addCatalogue}>+ Catalogue item</button>
-          <button className="ec-btn" style={{ flex: 1, justifyContent: "center", background: TOKENS.emberDeep }} onClick={addCustom}>+ Custom line</button>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 12 }}>
+          <button className="ec-btn ec-btn-ghost" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11 }} onClick={addMaterial}>+ Material</button>
+          <button className="ec-btn ec-btn-ghost" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11 }} onClick={addLabour}>+ Labour</button>
+          <button className="ec-btn" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11, background: TOKENS.emberDeep }} onClick={addElement}>+ Job/Trade</button>
         </div>
       </InputCard>
 
       <div style={{ padding: 14, border: `2px solid ${TOKENS.ink}`, background: TOKENS.card }}>
-        <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Supply total</div>
-        <div className="ec-display" style={{ fontSize: 30, lineHeight: 1, color: TOKENS.ink }}>{currency}{fmt(estimate.materialsTotal)}</div>
-        <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 6 }}>materials only · excludes labour & plant</div>
+        <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Quote total</div>
+        <div className="ec-display" style={{ fontSize: 30, lineHeight: 1, color: TOKENS.ink }}>{currency}{fmt(estimate.total)}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 10 }}>
+          {[["material", "Materials"], ["labour", "Labour"], ["element", "Trades & jobs"]].map(([k, lbl]) => (
+            (bk[k] > 0) ? (
+              <div key={k} className="ec-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: TOKENS.inkSoft }}>
+                <span>{lbl}</span><span>{currency}{fmt(bk[k])}</span>
+              </div>
+            ) : null
+          ))}
+          {estimate.taxRate > 0 && (
+            <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: TOKENS.steel, marginTop: 4, paddingTop: 4, borderTop: `1px dashed ${TOKENS.rule}` }}>
+              <span>+ {estimate.taxLabel}</span><span>{currency}{fmt(estimate.total * estimate.taxRate)}</span>
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
@@ -3904,7 +4032,7 @@ function MaterialsEstimateTab({ estimate, currency }) {
 
   return (
     <div>
-      <SectionHeader index="M" title="Materials — supply cost & order quantities" />
+      <SectionHeader index="M" title="Quote breakdown — material, labour & trades" />
       {Object.entries(grouped).map(([cat, lines]) => (
         <div key={cat} style={{ marginBottom: 16 }}>
           <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisDeep, marginBottom: 6, fontWeight: 700 }}>{cat}</div>
@@ -4271,6 +4399,9 @@ function TimelineTab({ estimate }) {
 /* ---- Codes tab ---- */
 function CodesTab({ region, highrise }) {
   const code = highrise ? HighRiseCodes[region] : BuildingCodes[region];
+  const leg = Legislation[region];
+  const [juris, setJuris] = useState(0);
+  const j = leg.jurisdictions[juris] || leg.jurisdictions[0];
   return (
     <div>
       <SectionHeader index="F" title="Code & compliance reference" />
@@ -4296,10 +4427,52 @@ function CodesTab({ region, highrise }) {
         ))}
       </div>
 
+      {/* ---- Legislation directory (official Acts + regulators) ---- */}
+      <div style={{ marginTop: 28 }}>
+        <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, marginBottom: 4, letterSpacing: "0.12em" }}>
+          GOVERNING LEGISLATION &amp; REGULATOR
+        </div>
+        <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 12px", lineHeight: 1.5, maxWidth: 720 }}>
+          {leg.national.note} Select your jurisdiction for the Act that applies and the regulator who administers it.
+        </p>
+
+        {/* national / model code card */}
+        <div className="ec-card" style={{ padding: 14, marginBottom: 12, borderLeft: `3px solid ${TOKENS.hivisDeep}` }}>
+          <div className="ec-display" style={{ fontSize: 15, marginBottom: 2 }}>{leg.national.name}</div>
+          <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.inkSoft, marginBottom: 8 }}>{leg.national.body}</div>
+          <a href={leg.national.url} target="_blank" rel="noopener noreferrer" className="ec-link ec-mono" style={{ fontSize: 11 }}>Open official source ↗</a>
+        </div>
+
+        {/* jurisdiction selector */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+          {leg.jurisdictions.map((jj, i) => (
+            <button key={jj.code} onClick={() => setJuris(i)} className="ec-mono"
+              style={{ padding: "6px 10px", fontSize: 10, letterSpacing: "0.08em", fontWeight: 700, cursor: "pointer",
+                border: `1px solid ${juris === i ? TOKENS.ink : TOKENS.rule}`,
+                background: juris === i ? TOKENS.ink : "transparent",
+                color: juris === i ? TOKENS.paper : TOKENS.ink }}>
+              {jj.code}
+            </button>
+          ))}
+        </div>
+
+        {/* selected jurisdiction detail */}
+        <div className="ec-card" style={{ padding: 16, borderLeft: `3px solid ${TOKENS.emberDeep}` }}>
+          <div className="ec-eyebrow" style={{ marginBottom: 4 }}>{j.name}</div>
+          <div className="ec-display" style={{ fontSize: 16, lineHeight: 1.25, marginBottom: 6 }}>{j.act}</div>
+          <div className="ec-mono" style={{ fontSize: 12, color: TOKENS.inkSoft, marginBottom: 12 }}>Regulator: {j.regulator}</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+            <a href={j.actUrl} target="_blank" rel="noopener noreferrer" className="ec-btn ec-btn-hivis" style={{ fontSize: 11 }}>Read the Act ↗</a>
+            {j.qbccActUrl && <a href={j.qbccActUrl} target="_blank" rel="noopener noreferrer" className="ec-btn ec-btn-ghost" style={{ fontSize: 11 }}>QBCC Act ↗</a>}
+            <a href={j.regulatorUrl} target="_blank" rel="noopener noreferrer" className="ec-btn ec-btn-ghost" style={{ fontSize: 11 }}>Regulator ↗</a>
+          </div>
+        </div>
+      </div>
+
       <div style={{ marginTop: 20, padding: 14, border: `1px dashed ${TOKENS.alert}`, background: "rgba(200,72,14,0.04)" }}>
         <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.alert, fontWeight: 700, marginBottom: 4 }}>NOTE</div>
         <p style={{ fontSize: 12, lineHeight: 1.5, color: TOKENS.inkSoft, margin: 0 }}>
-          This is a curated summary of common provisions. The full code text — adopted by your local authority — governs. Always verify with your certifier or building control authority before construction.
+          This is a curated summary with links to the official, current legislation — not a reproduction of the law, which is updated by each authority. Always verify with your certifier or building control authority before construction.
         </p>
       </div>
     </div>
