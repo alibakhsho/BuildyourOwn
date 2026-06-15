@@ -800,18 +800,41 @@ By Others,Bulkheads,,m,0.00,0.00
 
 const Suppliers = {
   AU: [
-    { name: "Bunnings Warehouse", url: (q) => `https://www.bunnings.com.au/search/products?q=${encodeURIComponent(q)}`,
-      coverage: "Timber, hardware, paint, tools, garden, plumbing fittings" },
-    { name: "Reece Plumbing", url: (q) => `https://www.reece.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Plumbing, hot water, bathroom, HVAC" },
-    { name: "Tradelink", url: (q) => `https://www.tradelink.com.au/search?q=${encodeURIComponent(q)}`,
+    // ---- LOCAL — Far North Queensland (Cairns region) ----
+    { name: "Cairns Hardware", tier: "Local (FNQ)", url: (q) => `https://www.cairnshardware.com.au/?s=${encodeURIComponent(q)}`,
+      coverage: "Heavy building, timber, plasterboard, steel, roofing — trade drive-thrus across FNQ" },
+    { name: "Dynamic Timbers (Cairns)", tier: "Local (FNQ)", url: () => `https://dynamictimbers.com.au/`,
+      coverage: "Timber yard, roof trusses, wall frames, masonry — Cairns / Innisfail / Tolga" },
+    { name: "Rankine Timber & Truss", tier: "Local (FNQ)", url: () => `https://www.rankinetimber.com.au/`,
+      coverage: "Trusses, frames, hardwood & pine, flooring, decking, fencing" },
+    { name: "Metroll Cairns", tier: "Local (FNQ)", url: () => `https://www.metroll.com.au/map_location/cairns-branch/`,
+      coverage: "Locally-made roofing, cladding, rainwater & structural steel" },
+
+    // ---- NATIONAL — trade suppliers (deliver to FNQ from down south) ----
+    { name: "Reece", tier: "National trade", url: (q) => `https://www.reece.com.au/search?query=${encodeURIComponent(q)}`,
+      coverage: "Plumbing, bathroom, hot water, HVAC-R — 600+ branches" },
+    { name: "Tradelink", tier: "National trade", url: (q) => `https://tradelink.com.au/search?q=${encodeURIComponent(q)}`,
       coverage: "Plumbing, bathroom, kitchen" },
-    { name: "Stratco", url: (q) => `https://www.stratco.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Roofing, sheds, fencing, structural" },
-    { name: "Mitre 10", url: (q) => `https://www.mitre10.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "General hardware, timber, paint" },
-    { name: "Kennards Hire", url: (q) => `https://www.kennards.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Equipment hire — excavators, scaffolding, scissor lifts" },
+    { name: "Stratco", tier: "National trade", url: (q) => `https://www.stratco.com.au/search?q=${encodeURIComponent(q)}`,
+      coverage: "Roofing, sheds, fencing, structural steel, patios" },
+    { name: "Metroll", tier: "National trade", url: () => `https://www.metroll.com.au/`,
+      coverage: "Steel roofing, walling, purlins, rainwater — 30 branches nationally" },
+    { name: "Bowens", tier: "National trade", url: (q) => `https://www.bowens.com.au/?s=${encodeURIComponent(q)}`,
+      coverage: "Timber & building materials, frames & trusses" },
+    { name: "Dahlsens", tier: "National trade", url: () => `https://www.dahlsens.com.au/`,
+      coverage: "Building materials, frames & trusses for builders" },
+
+    // ---- GENERAL — retail (homeowners + top-ups) ----
+    { name: "Bunnings Warehouse", tier: "General retail", url: (q) => `https://www.bunnings.com.au/search/products?q=${encodeURIComponent(q)}`,
+      coverage: "Timber, hardware, paint, tools, garden, fittings" },
+    { name: "Mitre 10", tier: "General retail", url: (q) => `https://www.mitre10.com.au/search?q=${encodeURIComponent(q)}`,
+      coverage: "General hardware, timber, paint — independent network" },
+    { name: "Total Tools", tier: "General retail", url: (q) => `https://www.totaltools.com.au/search?q=${encodeURIComponent(q)}`,
+      coverage: "Power tools, hand tools, accessories" },
+    { name: "Kennards Hire", tier: "Equipment hire", url: (q) => `https://www.kennards.com.au/search?q=${encodeURIComponent(q)}`,
+      coverage: "Excavators, scaffolding, scissor lifts, compaction" },
+    { name: "Coates Hire", tier: "Equipment hire", url: (q) => `https://www.coates.com.au/search?q=${encodeURIComponent(q)}`,
+      coverage: "Earthmoving, access, propping, site services" },
   ],
   US: [
     { name: "The Home Depot", url: (q) => `https://www.homedepot.com/s/${encodeURIComponent(q)}`,
@@ -4935,7 +4958,7 @@ function SuppliersTab({ region, estimate }) {
       </div>
 
       <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, marginBottom: 8, letterSpacing: "0.12em" }}>
-        TOP MATERIALS FROM YOUR ESTIMATE — TAP TO SEARCH
+        TOP ITEMS FROM YOUR QUOTE — TAP TO SEARCH
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 24 }}>
         {materialQueries.map((m) => (
@@ -4950,25 +4973,44 @@ function SuppliersTab({ region, estimate }) {
         ))}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12 }}>
-        {suppliers.map((s) => {
-          const q = query || materialQueries[0]?.label || "framing timber";
-          return (
-            <a key={s.name} href={s.url(q)} target="_blank" rel="noopener noreferrer"
-              className="ec-card" style={{ padding: 16, textDecoration: "none", color: TOKENS.ink, display: "block", transition: "all 0.15s" }}
-              onMouseOver={(e) => e.currentTarget.style.borderColor = TOKENS.ink}
-              onMouseOut={(e) => e.currentTarget.style.borderColor = TOKENS.rule}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                <div className="ec-display" style={{ fontSize: 18, lineHeight: 1.1 }}>{s.name}</div>
-                <span style={{ fontSize: 18, color: TOKENS.hivisDeep }}>↗</span>
-              </div>
-              <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{s.coverage}</div>
-              <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, paddingTop: 8, borderTop: `1px dashed ${TOKENS.rule}` }}>
-                SEARCH · "{q.length > 38 ? q.slice(0, 38) + "…" : q}"
-              </div>
-            </a>
-          );
-        })}
+      {(() => {
+        const q = query || materialQueries[0]?.label || "framing timber";
+        // group suppliers by tier, preserving first-seen order
+        const tiers = [];
+        const byTier = {};
+        for (const s of suppliers) {
+          const t = s.tier || "Suppliers";
+          if (!byTier[t]) { byTier[t] = []; tiers.push(t); }
+          byTier[t].push(s);
+        }
+        return tiers.map((t) => (
+          <div key={t} style={{ marginBottom: 22 }}>
+            <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.14em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 10 }}>{t.toUpperCase()}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+              {byTier[t].map((s) => (
+                <a key={s.name} href={s.url(q)} target="_blank" rel="noopener noreferrer"
+                  className="ec-card" style={{ padding: 16, textDecoration: "none", color: TOKENS.ink, display: "block", transition: "all 0.15s" }}
+                  onMouseOver={(e) => e.currentTarget.style.borderColor = TOKENS.ink}
+                  onMouseOut={(e) => e.currentTarget.style.borderColor = TOKENS.rule}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                    <div className="ec-display" style={{ fontSize: 17, lineHeight: 1.1 }}>{s.name}</div>
+                    <span style={{ fontSize: 18, color: TOKENS.hivisDeep }}>↗</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{s.coverage}</div>
+                  <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, paddingTop: 8, borderTop: `1px dashed ${TOKENS.rule}` }}>
+                    SEARCH · "{q.length > 34 ? q.slice(0, 34) + "…" : q}"
+                  </div>
+                </a>
+              ))}
+            </div>
+          </div>
+        ));
+      })()}
+
+      <div style={{ marginTop: 4, padding: 12, border: `1px dashed ${TOKENS.rule}`, background: TOKENS.paperLight }}>
+        <p className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, margin: 0, lineHeight: 1.6 }}>
+          Local FNQ suppliers are listed for the Cairns region. Some local yards quote by phone/account rather than online search — their link opens the supplier so you can request a trade quote. National suppliers deliver to FNQ from down south.
+        </p>
       </div>
     </div>
   );
