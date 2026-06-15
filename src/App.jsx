@@ -643,67 +643,107 @@ const Allocation = {
 const SpreadsheetImport = {
   /* header keywords used to auto-detect which column is which */
   headerHints: {
-    material: ["material", "item", "description", "product", "element", "trade"],
-    quantity: ["qty", "quantity", "amount", "measure", "total", "value", "no."],
+    material: ["material", "item", "description", "product", "element", "trade", "desc"],
+    quantity: ["qty", "quantity", "amount", "measure", "no.", "number"],
     unit: ["unit", "uom", "units", "measure unit"],
+    rate: ["rate", "unit price", "unit cost", "price", "cost/unit", "$/unit"],
+    total: ["total", "amount", "line total", "value", "extended", "subtotal"],
   },
 
   detectColumns(headers) {
     const lc = headers.map((h) => String(h || "").toLowerCase().trim());
-    const find = (hints) => {
+    const find = (hints, exclude = []) => {
       for (let i = 0; i < lc.length; i++) {
-        if (hints.some((k) => lc[i].includes(k))) return i;
+        if (exclude.includes(i)) continue;
+        if (hints.some((k) => lc[i] === k || lc[i].includes(k))) return i;
       }
       return -1;
     };
-    return {
-      material: find(this.headerHints.material),
-      quantity: find(this.headerHints.quantity),
-      unit: find(this.headerHints.unit),
-    };
+    // order matters: lock rate & total first so "amount"/"total" don't steal the qty column
+    const rate = find(this.headerHints.rate);
+    const total = find(this.headerHints.total, [rate]);
+    const material = find(this.headerHints.material, [rate, total]);
+    const quantity = find(this.headerHints.quantity, [rate, total, material]);
+    const unit = find(this.headerHints.unit, [rate, total, material, quantity]);
+    return { material, quantity, unit, rate, total };
   },
 
-  /* Build estimate lines from parsed rows + a column mapping + region */
+  num(v) {
+    if (v == null) return NaN;
+    return parseFloat(String(v).replace(/[^0-9.\-]/g, ""));
+  },
+
+  /* Read EVERY usable row. Never silently drop a line.
+     Pricing priority: (1) file's Total column, (2) file's Rate × Qty,
+     (3) catalogue rate if the material is recognised. Lines that have a
+     name but no usable price are still kept and flagged 'needs price'. */
   estimate(rows, mapping, region) {
     const lines = [];
-    const unmatched = [];
+    let skipped = 0;
     for (const row of rows) {
-      const name = row[mapping.material];
-      const qtyRaw = row[mapping.quantity];
-      const qty = parseFloat(String(qtyRaw).replace(/[^0-9.\-]/g, ""));
-      if (!name || !isFinite(qty) || qty <= 0) continue;
-      const matId = SketchUpImport.resolveMaterial(name);
-      if (!matId) { unmatched.push({ name: String(name), qty }); continue; }
-      const m = Materials.get(matId);
-      const rate = Materials.rate(matId, region);
-      const alloc = Allocation.forMaterial(matId, qty);
+      const name = mapping.material >= 0 ? row[mapping.material] : "";
+      const qty = mapping.quantity >= 0 ? this.num(row[mapping.quantity]) : NaN;
+      const fileRate = mapping.rate >= 0 ? this.num(row[mapping.rate]) : NaN;
+      const fileTotal = mapping.total >= 0 ? this.num(row[mapping.total]) : NaN;
+      const unitTxt = mapping.unit >= 0 ? String(row[mapping.unit] || "").trim() : "";
+
+      const hasName = name && String(name).trim().length > 0;
+      const hasAnyNumber = isFinite(qty) || isFinite(fileRate) || isFinite(fileTotal);
+      // skip rows that are clearly blank/headers/section titles with no data at all
+      if (!hasName && !hasAnyNumber) { skipped++; continue; }
+
+      const matId = hasName ? SketchUpImport.resolveMaterial(name) : null;
+      const m = matId ? Materials.get(matId) : null;
+
+      // ----- pricing priority -----
+      let rate = NaN, total = NaN, priceSource = "";
+      if (isFinite(fileTotal) && fileTotal !== 0) {
+        total = fileTotal;
+        rate = isFinite(fileRate) ? fileRate : (isFinite(qty) && qty !== 0 ? fileTotal / qty : NaN);
+        priceSource = "file";
+      } else if (isFinite(fileRate) && isFinite(qty)) {
+        rate = fileRate; total = fileRate * qty; priceSource = "file";
+      } else if (matId && isFinite(qty)) {
+        rate = Materials.rate(matId, region); total = rate * qty; priceSource = "catalogue";
+      } else if (isFinite(fileTotal)) { // includes zero ("By Others")
+        total = fileTotal; rate = isFinite(fileRate) ? fileRate : 0; priceSource = "file";
+      }
+
+      const needsPrice = !isFinite(total);
+      const alloc = matId && isFinite(qty) ? Allocation.forMaterial(matId, qty) : null;
+
       lines.push({
-        materialId: matId, category: m.category, label: m.label, unit: m.unit,
-        qty: round(qty, 2), rate: round(rate, 2), total: round(rate * qty, 2),
-        source: String(name), alloc,
+        materialId: matId || null,
+        category: m ? m.category : "uncategorised",
+        label: hasName ? String(name).trim() : (m ? m.label : "(unnamed)"),
+        catalogueLabel: m ? m.label : null,
+        unit: unitTxt || (m ? m.unit : ""),
+        qty: isFinite(qty) ? round(qty, 2) : null,
+        rate: isFinite(rate) ? round(rate, 2) : null,
+        total: isFinite(total) ? round(total, 2) : 0,
+        priceSource,         // "file" | "catalogue" | ""
+        matched: !!matId,
+        needsPrice,
+        alloc,
       });
     }
-    const materialsTotal = lines.reduce((a, l) => a + l.total, 0);
-    return { lines, unmatched, matched: lines.length, materialsTotal };
+    const materialsTotal = lines.reduce((a, l) => a + (l.total || 0), 0);
+    const matchedCount = lines.filter((l) => l.matched).length;
+    const fromFile = lines.filter((l) => l.priceSource === "file").length;
+    const needPriceCount = lines.filter((l) => l.needsPrice).length;
+    return { lines, materialsTotal, read: lines.length, matched: matchedCount, fromFile, needPriceCount, skipped };
   },
 
-  /* A sample CSV string so the feature is testable without a file */
+  /* Sample with rate + total columns, like a real trade quote */
   sampleCsv() {
-    return `Material,Quantity,Unit
-Brick veneer,168,m2
-Colorbond roofing,215,m2
-Plasterboard,520,m2
-Timber framing,640,lin.m
-Engineered timber floor,142,m2
-Floor tile,38,m2
-Paint,520,m2
-Wall insulation,156,m2
-Guttering,62,lin.m
-Concrete slab,23,m3
-External door,3,ea
-Internal door,11,ea
-Window,14,ea
-Bespoke widget,5,ea`;
+    return `Bill Ref,Description,Quantity,Unit,Rate,Total
+,Roof area - red,398.10,m2,35.00,13933.65
+,Wall plate - blue,369.15,m,6.00,2214.87
+By Others,Bulkheads,,m,0.00,0.00
+,Fascia,166.60,m,14.00,2332.37
+,Box gutter,35.48,m,65.00,2306.50
+,Timber Decking - green,29.47,m2,110.00,3242.03
+,Timber frame window nook (2400x600) to Bed 3 & 4,2.00,each,650.00,1300.00`;
   },
 };
 
@@ -1185,6 +1225,22 @@ const Estimator = {
   buildEstimate(spec, region) {
     const takeoff = this.takeoff(spec);
     const imported = spec.importedLines && spec.importedLines.length > 0;
+
+    /* Fully-cleared building → genuine zero estimate (no residual minimums) */
+    if (!imported && takeoff.gfaM2 <= 0) {
+      const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
+      const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
+      return {
+        region, spec, takeoff, imported: false,
+        materialLines: [], materialsTotal: 0,
+        labourLines: [], labourTotal: 0,
+        equipmentLines: [], equipmentTotal: 0,
+        subtotal: 0, prelims: 0, margin: 0, contingency: 0, total: 0,
+        taxRate, taxLabel,
+        timeline: { totalWeeks: 0, stages: [] },
+      };
+    }
+
     const materialLines = imported
       ? spec.importedLines.map((l) => ({ ...l }))
       : this.materialCosts(takeoff, spec, region);
@@ -1443,6 +1499,13 @@ const HighRiseEstimator = {
 
   buildEstimate(spec, region) {
     const takeoff = this.takeoff(spec);
+    const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
+    const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
+    if (takeoff.gfaM2 <= 0) {
+      return { mode: "highrise", region, spec, takeoff, systemLines: [], systemsTotal: 0,
+        prelims: 0, designFees: 0, margin: 0, contingency: 0, total: 0, taxRate, taxLabel,
+        timeline: { totalWeeks: 0, stages: [] } };
+    }
     const systemLines = this.systemCosts(takeoff, spec, region);
     const systemsTotal = systemLines.reduce((a, l) => a + l.total, 0);
     const timeline = this.timeline(takeoff, spec);
@@ -1454,14 +1517,58 @@ const HighRiseEstimator = {
     const margin = adjSystems * 0.10;      // builder margin (thinner % on large jobs)
     const contingency = adjSystems * 0.08;
     const total = adjSystems + prelims + designFees + margin + contingency;
-    const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
-    const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
     return {
       mode: "highrise", region, spec, takeoff,
       systemLines, systemsTotal: adjSystems,
       prelims, designFees, margin, contingency, total,
       taxRate, taxLabel, timeline,
     };
+  },
+};
+
+/* =========================================================================
+   MODULE: materials-only.js
+   Pure material pricing — no labour, equipment, margin, or programme.
+   You list materials + quantities (or import a sheet) and get the raw
+   supply cost, plus order quantities with waste. Ideal for sanity-checking
+   the catalogue and for "supply only" quotes.
+   ========================================================================= */
+const MaterialsOnly = {
+  buildEstimate(matSpec, region) {
+    const lines = [];
+    for (const item of (matSpec.lines || [])) {
+      const m = item.materialId ? Materials.get(item.materialId) : null;
+      const qty = +item.qty || 0;
+      // Fixed price from an imported file takes priority
+      if (item.fixedTotal != null && isFinite(item.fixedTotal)) {
+        lines.push({
+          materialId: item.materialId || null,
+          category: m ? m.category : "from file",
+          label: item.label || (m ? m.label : "Item"),
+          unit: item.unit || (m ? m.unit : ""),
+          qty: qty || null, rate: item.fixedRate != null ? round(item.fixedRate, 2) : (qty ? round(item.fixedTotal / qty, 2) : null),
+          total: round(item.fixedTotal, 2),
+          priceSource: "file",
+          alloc: m && qty > 0 ? Allocation.forMaterial(item.materialId, qty) : null,
+        });
+        continue;
+      }
+      // Otherwise price from catalogue (needs a recognised material + qty)
+      if (!m || qty <= 0) {
+        if (item.label) lines.push({ materialId: null, category: "from file", label: item.label, unit: item.unit || "", qty: qty || null, rate: null, total: 0, priceSource: "", needsPrice: true, alloc: null });
+        continue;
+      }
+      const rate = Materials.rate(item.materialId, region);
+      lines.push({
+        materialId: item.materialId, category: m.category, label: item.label || m.label, unit: item.unit || m.unit,
+        qty: round(qty, 2), rate: round(rate, 2), total: round(rate * qty, 2), priceSource: "catalogue",
+        alloc: Allocation.forMaterial(item.materialId, qty),
+      });
+    }
+    const materialsTotal = lines.reduce((a, l) => a + (l.total || 0), 0);
+    const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
+    const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
+    return { mode: "materials", region, spec: matSpec, lines, materialsTotal, total: materialsTotal, taxRate, taxLabel };
   },
 };
 
@@ -1640,6 +1747,32 @@ const Reporter = {
     lines.push("");
     lines.push(rule);
     return lines.join("\n");
+  },
+
+  buildMaterials(est, projectNo) {
+    const { region, lines: matLines, materialsTotal, taxRate, taxLabel } = est;
+    const currency = currencySymbol(region);
+    const out = [];
+    const rule = "=".repeat(78), half = "-".repeat(78);
+    out.push(rule);
+    out.push("  MATERIALS-ONLY — SUPPLY COST SCHEDULE");
+    out.push(`  Project No.: ${projectNo}   |   Region: ${region}   |   Date: ${new Date().toISOString().slice(0,10)}`);
+    out.push(rule);
+    out.push("");
+    out.push(pad("Material", 38) + pad("Qty", 12) + pad("Order (waste)", 16) + "Total");
+    out.push(half);
+    for (const l of matLines) {
+      const order = l.alloc ? `${fmt(l.alloc.orderQty)} ${l.alloc.buyUnit}` : "—";
+      out.push(pad(l.label, 38) + pad(`${l.qty} ${l.unit}`, 12) + pad(order, 16) + `${currency}${fmt(l.total)}`);
+    }
+    out.push(half);
+    out.push(pad("MATERIALS TOTAL (supply only)", 66) + `${currency}${fmt(materialsTotal)}`);
+    if (taxRate > 0) out.push(pad(`+ ${taxLabel}`, 66) + `${currency}${fmt(materialsTotal * taxRate)}`);
+    out.push("");
+    out.push("Supply only — excludes labour, equipment, delivery, and builder margin.");
+    out.push("Indicative rates; confirm with suppliers. Order quantities include trade waste.");
+    out.push(rule);
+    return out.join("\n");
   },
 };
 
@@ -2096,6 +2229,19 @@ class Engine3D {
     this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
   }
 
+  /* Empty the model entirely — materials-only mode shows just the site. */
+  clearBuilding() {
+    this.isTower = false;
+    while (this.buildingGroup.children.length) {
+      const c = this.buildingGroup.children[0];
+      this.buildingGroup.remove(c);
+      c.geometry?.dispose();
+      if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose()); else c.material?.dispose();
+    }
+    this.roofMeshes = [];
+    this.walkWaypoints = [];
+  }
+
   /* Build a high-rise tower: stacked floor plates, central core, façade. */
   buildTower(spec) {
     this.spec = spec;
@@ -2388,6 +2534,16 @@ const DEFAULT_HR_SPEC = {
   siteCondition: "flat",
 };
 
+const DEFAULT_MAT_SPEC = {
+  lines: [
+    { id: "m1", materialId: "concrete_25mpa", qty: 25 },
+    { id: "m2", materialId: "brick_veneer", qty: 168 },
+    { id: "m3", materialId: "timber_mgp10", qty: 640 },
+    { id: "m4", materialId: "plasterboard", qty: 520 },
+    { id: "m5", materialId: "colorbond_sheet", qty: 215 },
+  ],
+};
+
 let _rid = 0;
 const nextId = () => `r${++_rid}`;
 
@@ -2508,6 +2664,7 @@ export default function App() {
   const [buildMode, setBuildMode] = useState("residential"); // residential | highrise
   const [spec, setSpec] = useState(DEFAULT_SPEC);
   const [hrSpec, setHrSpec] = useState(DEFAULT_HR_SPEC);
+  const [matSpec, setMatSpec] = useState(DEFAULT_MAT_SPEC);
   const [tab, setTab] = useState("estimate");
   const [projectNo] = useState(genProjectNo);
   const [autoRotate, setAutoRotate] = useState(true);
@@ -2541,6 +2698,9 @@ export default function App() {
       eng.isTower = true;
       eng.buildTower(hrSpec);
       setProgress(1);
+    } else if (buildMode === "materials") {
+      eng.isTower = false;
+      eng.clearBuilding();   // materials-only: no model, just the empty site
     } else {
       eng.isTower = false;
       eng.buildFromSpec(spec);
@@ -2553,10 +2713,10 @@ export default function App() {
 
   /* Estimate (memoised) — switches engine by mode */
   const estimate = useMemo(
-    () => buildMode === "highrise"
-      ? HighRiseEstimator.buildEstimate(hrSpec, region)
+    () => buildMode === "highrise" ? HighRiseEstimator.buildEstimate(hrSpec, region)
+      : buildMode === "materials" ? MaterialsOnly.buildEstimate(matSpec, region)
       : Estimator.buildEstimate(spec, region),
-    [spec, hrSpec, buildMode, region]
+    [spec, hrSpec, matSpec, buildMode, region]
   );
 
   /* Spec update helper */
@@ -2624,6 +2784,22 @@ export default function App() {
       : s));
   }, []);
 
+  /* Materials-only: load imported lines as raw material entries (no build). */
+  const applyMaterialsImport = useCallback((lines) => {
+    const matLines = lines.map((l) => ({
+      id: nextId(),
+      materialId: l.materialId || null,
+      label: l.label || (l.catalogueLabel || "Item"),
+      qty: l.qty,
+      unit: l.unit || "",
+      fixedRate: l.priceSource === "file" ? l.rate : null,
+      fixedTotal: l.priceSource === "file" ? l.total : null,
+    }));
+    setMatSpec({ lines: matLines });
+    setBuildMode("materials");
+    setTab("estimate");
+  }, []);
+
   /* Toggle interior walkthrough */
   const toggleWalk = () => {
     const eng = engineRef.current;
@@ -2663,6 +2839,8 @@ export default function App() {
   const downloadReport = () => {
     const text = buildMode === "highrise"
       ? Reporter.buildHighRise(estimate, projectNo)
+      : buildMode === "materials"
+      ? Reporter.buildMaterials(estimate, projectNo)
       : Reporter.build(estimate, projectNo);
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -2969,7 +3147,7 @@ export default function App() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-              {[["residential","Residential"],["highrise","High-rise"]].map(([m, label]) => (
+              {[["residential","Residential"],["highrise","High-rise"],["materials","Materials"]].map(([m, label]) => (
                 <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
                   className="ec-mono"
                   style={{
@@ -3071,7 +3249,9 @@ export default function App() {
             </div>
           </Reveal>
 
-          {buildMode === "highrise" ? (
+          {buildMode === "materials" ? (
+            <MaterialsPanel matSpec={matSpec} setMatSpec={setMatSpec} estimate={estimate} currency={currencySymbol(region)} />
+          ) : buildMode === "highrise" ? (
             <HighRisePanel hrSpec={hrSpec} updateHr={updateHr} estimate={estimate} clearSection={clearSection} />
           ) : spec.importedLines && spec.importedLines.length > 0 ? (
             <ImportedPanel spec={spec} estimate={estimate} currency={currencySymbol(region)} onClear={clearImport} onUnlock={unlockImport} />
@@ -3184,12 +3364,29 @@ export default function App() {
             {/* Dimension annotations overlay */}
             <div style={{ position: "absolute", top: 16, left: 16, display: "flex", flexDirection: "column", gap: 6, pointerEvents: "none" }}>
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
-              <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
-                {spec.widthM}m × {spec.lengthM}m × {(spec.wallHeightM * spec.floors).toFixed(1)}m
-              </div>
-              <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
-                GFA · {estimate.takeoff.gfaM2.toFixed(0)} m²
-              </div>
+              {buildMode === "materials" ? (
+                <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                  Materials only · no build model
+                </div>
+              ) : buildMode === "highrise" ? (
+                <>
+                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    {hrSpec.floors} floors · {(estimate.takeoff?.totalHeightM || 0).toFixed(0)}m
+                  </div>
+                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    GFA · {fmt(estimate.takeoff?.gfaM2 || 0)} m²
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    {spec.widthM}m × {spec.lengthM}m × {(spec.wallHeightM * spec.floors).toFixed(1)}m
+                  </div>
+                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    GFA · {(estimate.takeoff?.gfaM2 || 0).toFixed(0)} m²
+                  </div>
+                </>
+              )}
             </div>
             {/* Live indicator + current room (walk mode) */}
             <div style={{ position: "absolute", top: 16, right: 16, pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
@@ -3202,7 +3399,11 @@ export default function App() {
             </div>
             {/* Controls */}
             <div style={{ position: "absolute", bottom: 16, left: 16, right: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              {!walkMode ? (
+              {buildMode === "materials" ? (
+                <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, background: "rgba(255,255,255,0.9)", padding: "8px 12px", border: `1px solid ${TOKENS.rule}` }}>
+                  Materials-only mode — pricing supply cost, no build model
+                </div>
+              ) : !walkMode ? (
                 <>
                   <button className="ec-btn ec-btn-hivis" onClick={playConstruction}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
@@ -3246,7 +3447,11 @@ export default function App() {
           {/* Headline cost cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16 }}>
             <StaggerReveal variant="fade-up" stagger={0.06}>
-              {buildMode === "highrise" ? [
+              {buildMode === "materials" ? [
+                <CostCard key="t" label="Materials total" value={`${currency}${fmt(estimate.materialsTotal)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.materialsTotal * estimate.taxRate)} ${estimate.taxLabel}` : "Supply only"} />,
+                <CostCard key="n" label="Line items" value={`${estimate.lines.length}`} sub="supply only — no build" />,
+                <CostCard key="x" label="Excludes" value="Labour + plant" sub="materials cost only" />,
+              ] : buildMode === "highrise" ? [
                 <CostCard key="t" label="Total estimate" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
                 <CostCard key="s" label="Systems (adj.)" value={`${currency}${fmt(estimate.systemsTotal)}`} />,
                 <CostCard key="d" label="Design fees" value={`${currency}${fmt(estimate.designFees)}`} />,
@@ -3269,6 +3474,8 @@ export default function App() {
           <div style={{ display: "flex", gap: 0, overflowX: "auto", borderBottom: `1px solid ${TOKENS.rule}` }}>
             {(buildMode === "highrise"
               ? [{ id: "estimate", label: "Elemental cost plan" }, { id: "timeline", label: "Programme" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
+              : buildMode === "materials"
+              ? [{ id: "estimate", label: "Materials cost" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "suppliers", label: "Suppliers" }]
               : [{ id: "estimate", label: "Cost breakdown" }, { id: "timeline", label: "Programme" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
             ).map((t) => (
               <div key={t.id} className={"ec-tab" + (tab === t.id ? " ec-tab-active" : "")} onClick={() => setTab(t.id)}>{t.label}</div>
@@ -3276,11 +3483,12 @@ export default function App() {
           </div>
 
           <div style={{ marginTop: 20 }}>
-            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} />)}
-            {tab === "timeline" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
+            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} />)}
+            {tab === "timeline" && buildMode !== "materials" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
             {tab === "spreadsheet" && buildMode === "residential" && <SpreadsheetTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
+            {tab === "spreadsheet" && buildMode === "materials" && <SpreadsheetTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {tab === "sketchup" && buildMode === "residential" && <SketchUpTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
-            {tab === "codes" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
+            {tab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
             {tab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
           </div>
         </section>
@@ -3568,6 +3776,118 @@ function stageLabel(p) {
 /* ---- Cost breakdown tab ---- */
 /* ---- High-rise input panel ---- */
 /* ---- Left panel shown when an imported takeoff is driving the estimate ---- */
+/* ---- Materials-only input panel ---- */
+function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
+  const lines = matSpec.lines || [];
+  const setLines = (next) => setMatSpec({ lines: next });
+  const updateLine = (id, patch) => setLines(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  const addLine = () => setLines([...lines, { id: nextId(), materialId: Materials.catalog[0].id, qty: 1 }]);
+  const removeLine = (id) => setLines(lines.filter((l) => l.id !== id));
+  const clearLines = () => setLines([]);
+
+  // group catalogue for the dropdown
+  const cats = useMemo(() => {
+    const g = {};
+    for (const m of Materials.catalog) { (g[m.category] = g[m.category] || []).push(m); }
+    return g;
+  }, []);
+
+  return (
+    <>
+      <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
+        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>MATERIALS ONLY — SUPPLY COST</div>
+        <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
+          Pick materials and quantities and get the raw supply price — no labour, plant, or builder margin. Great for checking rates or a supply-only quote.
+        </p>
+      </div>
+
+      <InputCard title="Material list" badge={`${currency}${fmt(estimate.materialsTotal)}`} onClear={clearLines}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {lines.length === 0 && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, padding: "8px 0" }}>No materials yet — add a line or import a sheet.</div>}
+          {lines.map((l) => {
+            const m = Materials.get(l.materialId);
+            const lineTotal = m ? Materials.rate(l.materialId, estimate.region) * (+l.qty || 0) : 0;
+            return (
+              <div key={l.id} style={{ border: `1px solid ${TOKENS.rule}`, padding: 8, background: TOKENS.paperLight }}>
+                <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                  <select className="ec-select" style={{ flex: 1 }} value={l.materialId} onChange={(e) => updateLine(l.id, { materialId: e.target.value })}>
+                    {Object.entries(cats).map(([cat, items]) => (
+                      <optgroup key={cat} label={cat}>
+                        {items.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <button onClick={() => removeLine(l.id)} style={{ width: 30, flexShrink: 0, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontSize: 15 }}>×</button>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input className="ec-input" style={{ width: 90 }} type="number" min="0" step="0.5" value={l.qty} onChange={(e) => updateLine(l.id, { qty: +e.target.value })} />
+                  <span className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{m?.unit}</span>
+                  <span className="ec-mono" style={{ fontSize: 12, color: TOKENS.ink, marginLeft: "auto", fontWeight: 500 }}>{currency}{fmt(lineTotal)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <button className="ec-btn ec-btn-ghost" style={{ marginTop: 12, width: "100%", justifyContent: "center" }} onClick={addLine}>+ Add material</button>
+      </InputCard>
+
+      <div style={{ padding: 14, border: `2px solid ${TOKENS.ink}`, background: TOKENS.card }}>
+        <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Supply total</div>
+        <div className="ec-display" style={{ fontSize: 30, lineHeight: 1, color: TOKENS.ink }}>{currency}{fmt(estimate.materialsTotal)}</div>
+        <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 6 }}>materials only · excludes labour & plant</div>
+      </div>
+    </>
+  );
+}
+
+/* ---- Materials-only cost breakdown (with order quantities) ---- */
+function MaterialsEstimateTab({ estimate, currency }) {
+  const grouped = useMemo(() => {
+    const g = {};
+    for (const l of estimate.lines) { (g[l.category] = g[l.category] || []).push(l); }
+    return g;
+  }, [estimate]);
+
+  if (estimate.lines.length === 0) {
+    return <div className="ec-mono" style={{ fontSize: 13, color: TOKENS.steel, padding: 20, textAlign: "center", border: `1px dashed ${TOKENS.rule}` }}>Add materials on the left, or import a spreadsheet, to see the supply cost.</div>;
+  }
+
+  return (
+    <div>
+      <SectionHeader index="M" title="Materials — supply cost & order quantities" />
+      {Object.entries(grouped).map(([cat, lines]) => (
+        <div key={cat} style={{ marginBottom: 16 }}>
+          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisDeep, marginBottom: 6, fontWeight: 700 }}>{cat}</div>
+          <div className="ec-mono" style={{ fontSize: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1.1fr 0.9fr", padding: "6px 0", fontSize: 10, letterSpacing: "0.12em", color: TOKENS.steel, borderBottom: `1px solid ${TOKENS.rule}` }}>
+              <span>MATERIAL</span><span style={{ textAlign: "right" }}>QTY</span><span style={{ textAlign: "right" }}>ORDER (waste)</span><span style={{ textAlign: "right" }}>COST</span>
+            </div>
+            {lines.map((l, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1.1fr 0.9fr", padding: "7px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "baseline" }}>
+                <span style={{ color: TOKENS.ink }}>{l.label}</span>
+                <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{l.qty} {l.unit}</span>
+                <span style={{ textAlign: "right", color: TOKENS.ink }}>
+                  {l.alloc ? `${fmt(l.alloc.orderQty)} ${l.alloc.buyUnit}` : <span style={{ color: TOKENS.steel }}>—</span>}
+                  {l.alloc && <span style={{ color: TOKENS.hivisDeep, fontSize: 10 }}> +{Math.round(l.alloc.wastePct * 100)}%</span>}
+                </span>
+                <span style={{ textAlign: "right", color: TOKENS.ink, fontWeight: 500 }}>{currency}{fmt(l.total)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
+        <span>MATERIALS TOTAL (SUPPLY ONLY)</span><span>{currency}{fmt(estimate.materialsTotal)}</span>
+      </div>
+      {estimate.taxRate > 0 && (
+        <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12, color: TOKENS.inkSoft }}>
+          <span>+ {estimate.taxLabel}</span><span>{currency}{fmt(estimate.materialsTotal * estimate.taxRate)}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ImportedPanel({ spec, estimate, currency, onClear, onUnlock }) {
   const meta = spec.importMeta || {};
   const grouped = useMemo(() => {
@@ -3939,7 +4259,7 @@ function CodesTab({ region, highrise }) {
 /* ---- Suppliers tab ---- */
 /* ---- SketchUp import tab ---- */
 /* ---- Spreadsheet import tab: read -> review -> allocate -> estimate ---- */
-function SpreadsheetTab({ region, currency, onApply, onApplyTemplate }) {
+function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMaterials, materialsMode }) {
   const [stage, setStage] = useState(1);            // 1 upload, 2 map cols, 3 review, 4 allocate
   const [headers, setHeaders] = useState([]);
   const [rows, setRows] = useState([]);
@@ -3960,10 +4280,9 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate }) {
       const detected = SpreadsheetImport.detectColumns(hdr);
       setHeaders(hdr); setRows(body); setMapping(detected);
       setFileName(name); setError(""); setResult(null);
-      setStage(detected.material >= 0 && detected.quantity >= 0 ? 3 : 2);
-      if (detected.material >= 0 && detected.quantity >= 0) {
-        runEstimate(body, detected);
-      }
+      const canEstimate = detected.material >= 0 && (detected.quantity >= 0 || detected.rate >= 0 || detected.total >= 0);
+      setStage(canEstimate ? 3 : 2);
+      if (canEstimate) runEstimate(body, detected);
     } catch (e) { setError("Couldn't read that file. Is it a valid .xlsx or .csv?"); }
   };
 
@@ -4039,57 +4358,83 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate }) {
       {/* Stage 2/3 — column mapping */}
       {headers.length > 0 && (
         <div className="ec-card" style={{ padding: 16, marginBottom: 14 }}>
-          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 10 }}>CONFIRM COLUMN MAPPING</div>
+          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 4 }}>CONFIRM COLUMN MAPPING</div>
+          <p style={{ fontSize: 11, color: TOKENS.steel, margin: "0 0 10px", lineHeight: 1.5 }}>
+            If your sheet has Rate or Total columns, they're used directly — your numbers, not ours. Material is the only required column.
+          </p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            {[["material", "Material / item column"], ["quantity", "Quantity column"]].map(([key, label]) => (
+            {[["material", "Material / description *"], ["quantity", "Quantity"], ["rate", "Rate (optional)"], ["total", "Total (optional)"], ["unit", "Unit (optional)"]].map(([key, label]) => (
               <label key={key}>
                 <span className="ec-label">{label}</span>
                 <select className="ec-select" value={mapping[key]}
-                  onChange={(e) => { const m = { ...mapping, [key]: +e.target.value }; setMapping(m); if (m.material >= 0 && m.quantity >= 0) runEstimate(rows, m); }}>
-                  <option value={-1}>— select —</option>
+                  onChange={(e) => { const mp = { ...mapping, [key]: +e.target.value }; setMapping(mp); if (mp.material >= 0 && (mp.quantity >= 0 || mp.rate >= 0 || mp.total >= 0)) runEstimate(rows, mp); }}>
+                  <option value={-1}>— none —</option>
                   {headers.map((h, i) => <option key={i} value={i}>{String(h || `Column ${i + 1}`)}</option>)}
                 </select>
               </label>
             ))}
           </div>
-          <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, marginTop: 8 }}>{rows.length} data rows detected</div>
+          <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, marginTop: 8 }}>{rows.length} rows detected</div>
         </div>
       )}
 
-      {/* Stage 4 — results with allocation */}
+      {/* Stage 4 — results: every line kept */}
       {result && (
         <Reveal variant="fade-up">
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-            <CostCard label="Materials from sheet" value={`${currency}${fmt(result.materialsTotal)}`} hivis />
-            <CostCard label="Lines matched" value={`${result.matched}`} sub={`${result.unmatched.length} unmatched`} />
+            <CostCard label="Total from sheet" value={`${currency}${fmt(result.materialsTotal)}`} hivis sub={result.fromFile > 0 ? `${result.fromFile} priced from your file` : "priced from catalogue"} />
+            <CostCard label="Lines read" value={`${result.read}`} sub={`${result.matched} catalogue-matched`} />
+            {result.needPriceCount > 0 && <CostCard label="Need a price" value={`${result.needPriceCount}`} sub="no rate/total in file" />}
           </div>
 
-          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 8 }}>MATCHED + ALLOCATED TO ORDER QUANTITIES</div>
+          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 8 }}>EVERY LINE FROM YOUR FILE</div>
           <div className="ec-mono" style={{ fontSize: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1.1fr 0.9fr", padding: "6px 0", fontSize: 10, letterSpacing: "0.12em", color: TOKENS.steel, borderBottom: `1px solid ${TOKENS.rule}` }}>
-              <span>MATERIAL</span><span style={{ textAlign: "right" }}>EST. QTY</span><span style={{ textAlign: "right" }}>ORDER (incl. waste)</span><span style={{ textAlign: "right" }}>COST</span>
+            <div style={{ display: "grid", gridTemplateColumns: "1.8fr 0.8fr 0.7fr 0.9fr 0.6fr", padding: "6px 0", fontSize: 10, letterSpacing: "0.1em", color: TOKENS.steel, borderBottom: `1px solid ${TOKENS.rule}` }}>
+              <span>DESCRIPTION</span><span style={{ textAlign: "right" }}>QTY</span><span style={{ textAlign: "right" }}>RATE</span><span style={{ textAlign: "right" }}>TOTAL</span><span style={{ textAlign: "right" }}>SRC</span>
             </div>
             {result.lines.map((l, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1.1fr 0.9fr", padding: "7px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "baseline" }}>
-                <span style={{ color: TOKENS.ink }}>{l.label}<span style={{ color: TOKENS.steel }}> · {l.source}</span></span>
-                <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{l.qty} {l.unit}</span>
-                <span style={{ textAlign: "right", color: TOKENS.ink }}>
-                  {l.alloc ? `${fmt(l.alloc.orderQty)} ${l.alloc.buyUnit}` : <span style={{ color: TOKENS.steel }}>—</span>}
-                  {l.alloc && <span style={{ color: TOKENS.hivisDeep, fontSize: 10 }}> +{Math.round(l.alloc.wastePct * 100)}%</span>}
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.8fr 0.8fr 0.7fr 0.9fr 0.6fr", padding: "7px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "baseline" }}>
+                <span style={{ color: TOKENS.ink }}>
+                  {l.label}
+                  {l.matched && l.catalogueLabel && <span style={{ color: TOKENS.ok, fontSize: 10 }}> ✓</span>}
                 </span>
-                <span style={{ textAlign: "right", color: TOKENS.ink, fontWeight: 500 }}>{currency}{fmt(l.total)}</span>
+                <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{l.qty != null ? `${l.qty} ${l.unit}` : "—"}</span>
+                <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{l.rate != null ? `${currency}${fmt(l.rate)}` : "—"}</span>
+                <span style={{ textAlign: "right", color: l.needsPrice ? TOKENS.alert : TOKENS.ink, fontWeight: 500 }}>
+                  {l.needsPrice ? "needs price" : `${currency}${fmt(l.total)}`}
+                </span>
+                <span style={{ textAlign: "right", fontSize: 9, letterSpacing: "0.08em", color: l.priceSource === "file" ? TOKENS.ok : l.priceSource === "catalogue" ? TOKENS.hivisDeep : TOKENS.steel }}>
+                  {l.priceSource === "file" ? "FILE" : l.priceSource === "catalogue" ? "CAT" : "—"}
+                </span>
               </div>
             ))}
             <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
-              <span>MATERIALS FROM SHEET</span><span>{currency}{fmt(result.materialsTotal)}</span>
+              <span>TOTAL FROM SHEET</span><span>{currency}{fmt(result.materialsTotal)}</span>
             </div>
           </div>
+
+          <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 8, lineHeight: 1.5 }}>
+            SRC = where the price came from. <span style={{ color: TOKENS.ok }}>FILE</span> = your sheet's own rate/total · <span style={{ color: TOKENS.hivisDeep }}>CAT</span> = our catalogue rate (no price in your file) · ✓ = matched to catalogue for supplier links.
+          </div>
+
+          {onApplyMaterials && (
+            <div style={{ marginTop: 18, padding: 16, border: `2px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)" }}>
+              <div className="ec-display" style={{ fontSize: 16, marginBottom: 4 }}>Use as materials list</div>
+              <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 12px", lineHeight: 1.5 }}>
+                Loads all {result.read} lines as a supply-only list, keeping your file's pricing where present.
+              </p>
+              <button className="ec-btn" style={{ background: TOKENS.emberDeep }} onClick={() => onApplyMaterials(result.lines)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4"><path d="M5 12h14M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                Load as materials list
+              </button>
+            </div>
+          )}
 
           {(onApply || onApplyTemplate) && (
             <div style={{ marginTop: 18, padding: 16, border: `2px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)" }}>
               <div className="ec-display" style={{ fontSize: 16, marginBottom: 4 }}>Use this takeoff</div>
               <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 12px", lineHeight: 1.5 }}>
-                Both clear your current inputs first. <b>Fixed takeoff</b> prices these {result.matched} lines exactly. <b>Edit as template</b> turns them into an editable design — seeded rooms, kitchens and bathrooms you can add to and play with.
+                Both clear your current inputs first. <b>Fixed takeoff</b> keeps all {result.read} lines and their pricing exactly. <b>Edit as template</b> turns the catalogue-matched ones into an editable design you can play with.
               </p>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {onApplyTemplate && (
@@ -4103,19 +4448,6 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate }) {
                     Fixed takeoff
                   </button>
                 )}
-              </div>
-            </div>
-          )}
-
-          {result.unmatched.length > 0 && (
-            <div style={{ marginTop: 16, padding: 14, border: `1px dashed ${TOKENS.alert}`, background: "rgba(200,72,14,0.04)" }}>
-              <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.alert, fontWeight: 700, marginBottom: 8 }}>UNMATCHED — RENAME IN YOUR SHEET OR PRICE MANUALLY</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {result.unmatched.map((u, i) => (
-                  <span key={i} className="ec-mono" style={{ fontSize: 11, padding: "4px 8px", border: `1px solid ${TOKENS.rule}`, background: TOKENS.card }}>
-                    {u.name} <span style={{ color: TOKENS.steel }}>({u.qty})</span>
-                  </span>
-                ))}
               </div>
             </div>
           )}
@@ -4289,7 +4621,7 @@ function SuppliersTab({ region, estimate }) {
   /* Build a unique list of labels from the takeoff, ordered by total cost desc.
      Residential estimates expose materialLines; high-rise exposes systemLines. */
   const materialQueries = useMemo(() => {
-    const lines = estimate.materialLines || estimate.systemLines || [];
+    const lines = estimate.materialLines || estimate.systemLines || estimate.lines || [];
     const seen = new Set();
     return lines
       .filter((l) => !seen.has(l.label) && seen.add(l.label))
