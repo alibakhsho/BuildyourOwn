@@ -651,11 +651,13 @@ const SpreadsheetImport = {
   },
 
   detectColumns(headers) {
-    const lc = headers.map((h) => String(h || "").toLowerCase().trim());
+    const lc = (headers || []).map((h) => String(h == null ? "" : h).toLowerCase().trim());
     const find = (hints, exclude = []) => {
       for (let i = 0; i < lc.length; i++) {
         if (exclude.includes(i)) continue;
-        if (hints.some((k) => lc[i] === k || lc[i].includes(k))) return i;
+        const cell = lc[i];
+        if (!cell) continue;
+        if (hints.some((k) => cell === k || cell.includes(k))) return i;
       }
       return -1;
     };
@@ -666,6 +668,37 @@ const SpreadsheetImport = {
     const quantity = find(this.headerHints.quantity, [rate, total, material]);
     const unit = find(this.headerHints.unit, [rate, total, material, quantity]);
     return { material, quantity, unit, rate, total };
+  },
+
+  /* How many distinct column-types a row's cells match — used to score
+     which row is the real header (real quotes often have a title row first). */
+  headerScore(row) {
+    const cols = this.detectColumns(row);
+    let score = 0;
+    for (const k of ["material", "quantity", "unit", "rate", "total"]) if (cols[k] >= 0) score++;
+    return score;
+  },
+
+  /* Scan the first ~12 rows and return the index of the row that most looks
+     like the header (highest column-match score). Falls back to row 0. */
+  findHeaderRow(aoa) {
+    let best = 0, bestScore = -1;
+    const limit = Math.min(aoa.length, 12);
+    for (let i = 0; i < limit; i++) {
+      const s = this.headerScore(aoa[i] || []);
+      if (s > bestScore) { bestScore = s; best = i; }
+    }
+    return { index: best, score: bestScore };
+  },
+
+  /* Is this data row actually a repeated/stray header row? (e.g. the words
+     "Description / Quantity / Rate" sitting in the body). It has header
+     keywords but no real numbers in its qty/rate/total cells. */
+  isHeaderLikeRow(row, mapping) {
+    const looksHeader = this.headerScore(row) >= 3;
+    if (!looksHeader) return false;
+    const anyNumber = ["quantity", "rate", "total"].some((k) => mapping[k] >= 0 && isFinite(this.num(row[mapping[k]])));
+    return !anyNumber;
   },
 
   num(v) {
@@ -706,6 +739,9 @@ const SpreadsheetImport = {
 
       // skip summary/total/GST/fees rows — they're not materials and would double-count
       if (this.isSummaryRow(name, hasName, fileTotal, isFinite(qty), isFinite(fileRate))) { skipped++; continue; }
+
+      // skip a stray/repeated header row sitting in the body ("Description / Qty / Rate")
+      if (this.isHeaderLikeRow(row, mapping)) { skipped++; continue; }
 
       const matId = hasName ? SketchUpImport.resolveMaterial(name) : null;
       const m = matId ? Materials.get(matId) : null;
@@ -1862,27 +1898,33 @@ const Reporter = {
   },
 
   buildMaterials(est, projectNo) {
-    const { region, lines: matLines, materialsTotal, taxRate, taxLabel } = est;
+    const { region, lines: matLines, total, byKind, taxRate, taxLabel } = est;
     const currency = currencySymbol(region);
     const out = [];
     const rule = "=".repeat(78), half = "-".repeat(78);
+    const kindLabel = { material: "MATERIAL", labour: "LABOUR", element: "JOB/TRADE" };
     out.push(rule);
-    out.push("  MATERIALS-ONLY — SUPPLY COST SCHEDULE");
+    out.push("  QUOTE — MATERIAL, LABOUR & TRADES");
     out.push(`  Project No.: ${projectNo}   |   Region: ${region}   |   Date: ${new Date().toISOString().slice(0,10)}`);
     out.push(rule);
     out.push("");
-    out.push(pad("Material", 38) + pad("Qty", 12) + pad("Order (waste)", 16) + "Total");
+    out.push(pad("Type", 11) + pad("Description", 34) + pad("Qty", 11) + "Total");
     out.push(half);
     for (const l of matLines) {
-      const order = l.alloc ? `${fmt(l.alloc.orderQty)} ${l.alloc.buyUnit}` : "—";
-      out.push(pad(l.label, 38) + pad(`${l.qty} ${l.unit}`, 12) + pad(order, 16) + `${currency}${fmt(l.total)}`);
+      out.push(pad(kindLabel[l.kind] || "ITEM", 11) + pad(l.label, 34) + pad(l.qty != null ? `${l.qty} ${l.unit}` : "—", 11) + `${currency}${fmt(l.total)}`);
     }
     out.push(half);
-    out.push(pad("MATERIALS TOTAL (supply only)", 66) + `${currency}${fmt(materialsTotal)}`);
-    if (taxRate > 0) out.push(pad(`+ ${taxLabel}`, 66) + `${currency}${fmt(materialsTotal * taxRate)}`);
+    if (byKind) {
+      if (byKind.material) out.push(pad("  Materials", 56) + `${currency}${fmt(byKind.material)}`);
+      if (byKind.labour) out.push(pad("  Labour", 56) + `${currency}${fmt(byKind.labour)}`);
+      if (byKind.element) out.push(pad("  Trades & jobs", 56) + `${currency}${fmt(byKind.element)}`);
+      out.push(half);
+    }
+    out.push(pad("QUOTE TOTAL", 56) + `${currency}${fmt(total)}`);
+    if (taxRate > 0) out.push(pad(`+ ${taxLabel}`, 56) + `${currency}${fmt(total * taxRate)}`);
     out.push("");
-    out.push("Supply only — excludes labour, equipment, delivery, and builder margin.");
-    out.push("Indicative rates; confirm with suppliers. Order quantities include trade waste.");
+    out.push("Feasibility-grade. Indicative rates; confirm materials with suppliers and");
+    out.push("labour with your trades. Material order quantities include trade waste.");
     out.push(rule);
     return out.join("\n");
   },
@@ -4498,8 +4540,10 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
       if (!aoa.length) { setError("That sheet looks empty."); return; }
-      const hdr = aoa[0];
-      const body = aoa.slice(1);
+      // find the real header row (real quotes often have a title/blank rows above the table)
+      const hr = SpreadsheetImport.findHeaderRow(aoa);
+      const hdr = aoa[hr.index] || aoa[0];
+      const body = aoa.slice(hr.index + 1);
       const detected = SpreadsheetImport.detectColumns(hdr);
       setHeaders(hdr); setRows(body); setMapping(detected);
       setFileName(name); setError(""); setResult(null);
