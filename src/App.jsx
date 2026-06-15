@@ -730,7 +730,7 @@ const SpreadsheetImport = {
       lines.push({
         materialId: matId || null,
         category: m ? m.category : "uncategorised",
-        label: hasName ? String(name).trim() : (m ? m.label : "(unnamed)"),
+        label: hasName ? String(name).trim() : (m ? m.label : "Unnamed item"),
         catalogueLabel: m ? m.label : null,
         unit: unitTxt || (m ? m.unit : ""),
         qty: isFinite(qty) ? round(qty, 2) : null,
@@ -4353,6 +4353,29 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
     setResult(est); setStage(4);
   };
 
+  // Edit/delete lines directly in the preview, before applying anywhere
+  const recompute = (lines) => ({
+    lines,
+    materialsTotal: lines.reduce((a, l) => a + (l.total || 0), 0),
+    read: lines.length,
+    matched: lines.filter((l) => l.matched).length,
+    fromFile: lines.filter((l) => l.priceSource === "file").length,
+    needPriceCount: lines.filter((l) => l.needsPrice).length,
+    skipped: result ? result.skipped : 0,
+  });
+  const removePreviewLine = (idx) => setResult((r) => recompute(r.lines.filter((_, i) => i !== idx)));
+  const updatePreviewLine = (idx, patch) => setResult((r) => recompute(r.lines.map((l, i) => {
+    if (i !== idx) return l;
+    const next = { ...l, ...patch };
+    // recompute this line's total from whichever of qty/rate/total changed
+    if ("rate" in patch || "qty" in patch) {
+      const q = +next.qty || 0, rt = +next.rate || 0;
+      if (isFinite(q) && isFinite(rt) && (next.qty != null && next.rate != null)) { next.total = round(q * rt, 2); next.needsPrice = false; }
+    }
+    if ("total" in patch) { next.total = +patch.total || 0; next.needsPrice = false; }
+    return next;
+  })));
+
   useEffect(() => {
     if (result && mapping.material >= 0 && mapping.quantity >= 0) {
       setResult(SpreadsheetImport.estimate(rows, mapping, region));
@@ -4437,25 +4460,29 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
             {result.needPriceCount > 0 && <CostCard label="Need a price" value={`${result.needPriceCount}`} sub="no rate/total in file" />}
           </div>
 
-          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 8 }}>EVERY LINE FROM YOUR FILE</div>
+          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 4 }}>EVERY LINE FROM YOUR FILE — EDIT OR DELETE HERE</div>
+          <p style={{ fontSize: 11, color: TOKENS.steel, margin: "0 0 8px", lineHeight: 1.5 }}>Rename anything (including unnamed lines), fix a qty or rate, or remove a row with ×. Changes here flow through when you apply.</p>
           <div className="ec-mono" style={{ fontSize: 12 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.8fr 0.8fr 0.7fr 0.9fr 0.6fr", padding: "6px 0", fontSize: 10, letterSpacing: "0.1em", color: TOKENS.steel, borderBottom: `1px solid ${TOKENS.rule}` }}>
-              <span>DESCRIPTION</span><span style={{ textAlign: "right" }}>QTY</span><span style={{ textAlign: "right" }}>RATE</span><span style={{ textAlign: "right" }}>TOTAL</span><span style={{ textAlign: "right" }}>SRC</span>
+            <div style={{ display: "grid", gridTemplateColumns: "1.7fr 0.7fr 0.7fr 0.8fr 0.4fr 28px", gap: 4, padding: "6px 0", fontSize: 9, letterSpacing: "0.08em", color: TOKENS.steel, borderBottom: `1px solid ${TOKENS.rule}` }}>
+              <span>DESCRIPTION</span><span style={{ textAlign: "right" }}>QTY</span><span style={{ textAlign: "right" }}>RATE</span><span style={{ textAlign: "right" }}>TOTAL</span><span style={{ textAlign: "right" }}>SRC</span><span></span>
             </div>
             {result.lines.map((l, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.8fr 0.8fr 0.7fr 0.9fr 0.6fr", padding: "7px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "baseline" }}>
-                <span style={{ color: TOKENS.ink }}>
-                  {l.label}
-                  {l.matched && l.catalogueLabel && <span style={{ color: TOKENS.ok, fontSize: 10 }}> ✓</span>}
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1.7fr 0.7fr 0.7fr 0.8fr 0.4fr 28px", gap: 4, padding: "5px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "center" }}>
+                <input className="ec-input" style={{ fontSize: 11, padding: "3px 5px" }} value={l.label}
+                  placeholder="(name this line)"
+                  onChange={(e) => updatePreviewLine(i, { label: e.target.value })} />
+                <input className="ec-input" style={{ fontSize: 11, padding: "3px 5px", textAlign: "right" }} type="number" placeholder="—"
+                  value={l.qty ?? ""} onChange={(e) => updatePreviewLine(i, { qty: e.target.value === "" ? null : +e.target.value })} />
+                <input className="ec-input" style={{ fontSize: 11, padding: "3px 5px", textAlign: "right" }} type="number" placeholder="—"
+                  value={l.rate ?? ""} onChange={(e) => updatePreviewLine(i, { rate: e.target.value === "" ? null : +e.target.value })} />
+                <span style={{ textAlign: "right", color: l.needsPrice ? TOKENS.alert : TOKENS.ink, fontWeight: 600, fontSize: 11 }}>
+                  {l.needsPrice ? "—" : `${currency}${fmt(l.total)}`}
                 </span>
-                <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{l.qty != null ? `${l.qty} ${l.unit}` : "—"}</span>
-                <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{l.rate != null ? `${currency}${fmt(l.rate)}` : "—"}</span>
-                <span style={{ textAlign: "right", color: l.needsPrice ? TOKENS.alert : TOKENS.ink, fontWeight: 500 }}>
-                  {l.needsPrice ? "needs price" : `${currency}${fmt(l.total)}`}
+                <span style={{ textAlign: "right", fontSize: 9, letterSpacing: "0.06em", color: l.priceSource === "file" ? TOKENS.ok : l.priceSource === "catalogue" ? TOKENS.hivisDeep : TOKENS.steel }}>
+                  {l.priceSource === "file" ? "FILE" : l.priceSource === "catalogue" ? "CAT" : l.priceSource === "manual" ? "YOU" : "—"}
                 </span>
-                <span style={{ textAlign: "right", fontSize: 9, letterSpacing: "0.08em", color: l.priceSource === "file" ? TOKENS.ok : l.priceSource === "catalogue" ? TOKENS.hivisDeep : TOKENS.steel }}>
-                  {l.priceSource === "file" ? "FILE" : l.priceSource === "catalogue" ? "CAT" : "—"}
-                </span>
+                <button onClick={() => removePreviewLine(i)} title="Delete this line"
+                  style={{ width: 24, height: 24, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontSize: 14, lineHeight: 1, borderRadius: 2 }}>×</button>
               </div>
             ))}
             <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
@@ -4464,7 +4491,7 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
           </div>
 
           <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 8, lineHeight: 1.5 }}>
-            SRC = where the price came from. <span style={{ color: TOKENS.ok }}>FILE</span> = your sheet's own rate/total · <span style={{ color: TOKENS.hivisDeep }}>CAT</span> = our catalogue rate (no price in your file) · ✓ = matched to catalogue for supplier links.
+            SRC: <span style={{ color: TOKENS.ok }}>FILE</span> = your sheet's price · <span style={{ color: TOKENS.hivisDeep }}>CAT</span> = catalogue rate · YOU = you edited it. Summary rows (Subtotal, GST, Total) are skipped automatically.
           </div>
 
           {onApplyMaterials && (
