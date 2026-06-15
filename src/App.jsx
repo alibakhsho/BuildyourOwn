@@ -640,6 +640,75 @@ const Allocation = {
    material + quantity columns, maps materials to the catalogue, and applies
    allocation rules. Mirrors the read -> review -> allocate pipeline.
    ========================================================================= */
+/* =========================================================================
+   MODULE: validate.js  — input sanitisation & validation layer
+   One place that every external input passes through. Three jobs:
+     1. sanitise()      — coerce a value to a safe number in a sane range
+     2. checkColumns()  — verify a spreadsheet mapping, return structured issues
+     3. detectUnits()   — spot feet/inches vs metres and convert/flag
+   Returns STRUCTURED results ({ level, code, message, fix }) so the UI can
+   show notices and offer fixes, rather than throwing or silently coercing.
+   ========================================================================= */
+const Validate = {
+  /* Coerce anything to a finite number, clamped to [min,max]. Returns
+     { value, changed, reason } so callers can warn if a value was altered. */
+  sanitiseNumber(raw, { min = 0, max = Infinity, fallback = 0 } = {}) {
+    let n = typeof raw === "number" ? raw : parseFloat(String(raw == null ? "" : raw).replace(/[^0-9.\-]/g, ""));
+    if (!isFinite(n)) return { value: fallback, changed: true, reason: "not a number" };
+    if (n < min) return { value: min, changed: true, reason: `below minimum (${min})` };
+    if (n > max) return { value: max, changed: true, reason: `above maximum (${max})` };
+    return { value: n, changed: false, reason: null };
+  },
+
+  /* Validate a detected spreadsheet column mapping. Returns an array of
+     structured issues; empty array = all good. */
+  checkColumns(mapping, headerRow) {
+    const issues = [];
+    if (!mapping || mapping.material < 0) {
+      issues.push({ level: "error", code: "NO_MATERIAL_COL", message: "No description/material column was detected.", fix: "Pick which column holds the item description in the mapping step." });
+    }
+    const hasPrice = mapping && (mapping.rate >= 0 || mapping.total >= 0);
+    const hasQty = mapping && mapping.quantity >= 0;
+    if (!hasPrice && !hasQty) {
+      issues.push({ level: "warn", code: "NO_PRICE_OR_QTY", message: "No Rate, Total, or Quantity column found — lines will need prices added by hand.", fix: "Map a Rate or Total column, or fill prices in the editable preview." });
+    } else if (!hasPrice) {
+      issues.push({ level: "info", code: "NO_PRICE_COL", message: "No Rate or Total column — catalogue rates will be used where a material is recognised.", fix: "Map a Rate or Total column to use your own prices." });
+    }
+    return issues;
+  },
+
+  /* Heuristic unit detection on a column of numbers. If values look like feet
+     (lots of values with inch-fractions, or a header mentioning ft/inch),
+     flag it. Returns { unit, convertToM, note } or null. */
+  detectLengthUnit(headerText, sampleValues) {
+    const h = String(headerText || "").toLowerCase();
+    if (/\b(ft|feet|foot|inch|in\b|")/.test(h)) {
+      return { unit: "ft", convertToM: 0.3048, note: "Header suggests feet/inches — converting to metres." };
+    }
+    if (/\b(mm|millim)/.test(h)) return { unit: "mm", convertToM: 0.001, note: "Header suggests millimetres — converting to metres." };
+    if (/\b(cm|centim)/.test(h)) return { unit: "cm", convertToM: 0.01, note: "Header suggests centimetres — converting to metres." };
+    return null; // assume metres (the app default)
+  },
+
+  /* Validate a parametric spec before estimating. Returns structured issues
+     and a sanitised copy of the spec (numbers clamped to sane ranges). */
+  checkSpec(spec) {
+    const issues = [];
+    const ranges = {
+      widthM: [0, 200], lengthM: [0, 200], floors: [1, 8], wallHeightM: [2, 6],
+      roofPitch: [0, 60], slabThicknessM: [0.05, 0.5],
+    };
+    const clean = { ...spec };
+    for (const [key, [min, max]] of Object.entries(ranges)) {
+      if (spec[key] == null) continue;
+      const r = this.sanitiseNumber(spec[key], { min, max, fallback: min });
+      clean[key] = r.value;
+      if (r.changed) issues.push({ level: "warn", code: "CLAMP_" + key.toUpperCase(), message: `${key} was ${r.reason}; adjusted to ${r.value}.`, fix: null });
+    }
+    return { issues, clean };
+  },
+};
+
 const SpreadsheetImport = {
   /* header keywords used to auto-detect which column is which */
   headerHints: {
@@ -1300,16 +1369,21 @@ const Estimator = {
     const takeoff = this.takeoff(spec);
     const imported = spec.importedLines && spec.importedLines.length > 0;
 
-    /* Fully-cleared building → genuine zero estimate (no residual minimums) */
+    /* Fully-cleared building → genuine zero estimate (no residual minimums).
+       But still honour any added extras (e.g. just adding a single wall). */
     if (!imported && takeoff.gfaM2 <= 0) {
       const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
       const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
+      const extrasEst = (spec.extras && spec.extras.length) ? MaterialsOnly.buildEstimate({ lines: spec.extras }, region) : null;
+      const extrasTotal = extrasEst ? extrasEst.total : 0;
       return {
         region, spec, takeoff, imported: false,
         materialLines: [], materialsTotal: 0,
         labourLines: [], labourTotal: 0,
         equipmentLines: [], equipmentTotal: 0,
-        subtotal: 0, prelims: 0, margin: 0, contingency: 0, total: 0,
+        subtotal: 0, prelims: 0, margin: 0, contingency: 0,
+        buildTotal: 0, extrasLines: extrasEst ? extrasEst.lines : [], extrasTotal, extrasByKind: extrasEst ? extrasEst.byKind : null,
+        total: extrasTotal,
         taxRate, taxLabel,
         timeline: { totalWeeks: 0, stages: [] },
       };
@@ -1330,7 +1404,14 @@ const Estimator = {
     const prelims = subtotal * 0.08;
     const margin = subtotal * 0.15;
     const contingency = subtotal * 0.07;
-    const total = subtotal + prelims + margin + contingency;
+    const buildTotal = subtotal + prelims + margin + contingency;
+    /* Additional jobs/scope (the quote-builder extras) — added at entered price,
+       no extra markup, shown as a transparent block. */
+    const extrasEst = (spec.extras && spec.extras.length)
+      ? MaterialsOnly.buildEstimate({ lines: spec.extras }, region)
+      : null;
+    const extrasTotal = extrasEst ? extrasEst.total : 0;
+    const total = buildTotal + extrasTotal;
     /* Tax (GST/VAT) — informational */
     const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
     const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
@@ -1339,7 +1420,9 @@ const Estimator = {
       materialLines, materialsTotal,
       labourLines, labourTotal,
       equipmentLines, equipmentTotal,
-      subtotal, prelims, margin, contingency, total,
+      subtotal, prelims, margin, contingency,
+      buildTotal, extrasLines: extrasEst ? extrasEst.lines : [], extrasTotal, extrasByKind: extrasEst ? extrasEst.byKind : null,
+      total,
       taxRate, taxLabel,
       timeline,
     };
@@ -3015,6 +3098,9 @@ const DEFAULT_SPEC = {
     { id: nextId(), label: "Main bathroom", widthM: 3.0, lengthM: 2.4, hasBath: true, hasShower: true, vanityCount: 1, toiletCount: 1, wallTileFullHeight: false },
     { id: nextId(), label: "Ensuite", widthM: 2.6, lengthM: 2.0, hasBath: false, hasShower: true, vanityCount: 1, toiletCount: 1, wallTileFullHeight: true },
   ],
+
+  /* Additional jobs / scope added on top of the base build (quote-builder lines) */
+  extras: [],
 };
 
 /* ---- Reset templates ----
@@ -3028,6 +3114,7 @@ const EMPTY_SPEC = {
   slabThicknessM: 0.1,
   openings: { windowsCount: 0, windowsM2: 0, doors: 1 },
   rooms: [], kitchens: [], bathrooms: [],
+  extras: [],
 };
 
 const RES_SECTION_CLEAR = {
@@ -3696,7 +3783,7 @@ export default function App() {
           </Reveal>
 
           {buildMode === "materials" ? (
-            <MaterialsPanel matSpec={matSpec} setMatSpec={setMatSpec} estimate={estimate} currency={currencySymbol(region)} />
+            <MaterialsPanel lines={matSpec.lines} setLines={(l) => setMatSpec({ lines: l })} region={region} currency={currencySymbol(region)} summary={estimate} />
           ) : buildMode === "highrise" ? (
             <HighRisePanel hrSpec={hrSpec} updateHr={updateHr} estimate={estimate} clearSection={clearSection} />
           ) : spec.importedLines && spec.importedLines.length > 0 ? (
@@ -3793,6 +3880,11 @@ export default function App() {
               Sloping sites add ~12% to labour, difficult sites add ~25%, reflecting earthworks, retaining, and crane access.
             </p>
           </InputCard>
+
+          {/* Additional jobs / scope on top of the base build */}
+          <div style={{ marginTop: 20, paddingTop: 16, borderTop: `2px dashed ${TOKENS.rule}` }}>
+            <MaterialsPanel lines={spec.extras || []} setLines={(l) => update({ extras: l })} region={region} currency={currencySymbol(region)} embed />
+          </div>
           </>
           )}
         </section>
@@ -4223,9 +4315,9 @@ function stageLabel(p) {
 /* ---- Cost breakdown tab ---- */
 /* ---- High-rise input panel ---- */
 /* ---- Unified quote builder: material + labour + trades in one list ---- */
-function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
-  const lines = matSpec.lines || [];
-  const setLines = (next) => setMatSpec({ lines: next });
+function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, currency, embed, summary }) {
+  const lines = linesProp || [];
+  const setLines = setLinesProp;
   const updateLine = (id, patch) => setLines(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   const removeLine = (id) => setLines(lines.filter((l) => l.id !== id));
   const clearLines = () => setLines([]);
@@ -4234,7 +4326,7 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
   const addLabour = () => { const l = LabourRates.catalog[0]; setLines([...lines, { id: nextId(), kind: "labour", labourId: l.id, label: l.label, workers: 1, hours: 8 }]); };
   const addElement = () => setLines([...lines, { id: nextId(), kind: "element", label: "", qty: 1, unit: "item", fixedRate: 0 }]);
 
-  /* "What do you want to build?" — unified element builder */
+  /* element builder ("What do you want to build/add?") */
   const [showBuild, setShowBuild] = useState(false);
   const [buildId, setBuildId] = useState("timber_wall");
   const [bDim, setBDim] = useState(20);          // area or length for non-wall presets
@@ -4255,7 +4347,7 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
     const opts = isWall
       ? { lengthM: bLen, heightM: bHt, finish: bFinish, sides: bSides, insulated: bInsulated, labour: bLabour, addonList }
       : { dim: bDim, variant: bVariant || (buildPreset.variants ? buildPreset.variants[0].id : undefined), labour: bLabour, addonList };
-    const newLines = WallBuilder.presetToLines(buildId, opts, estimate.region, nextId);
+    const newLines = WallBuilder.presetToLines(buildId, opts, region, nextId);
     if (newLines.length) setLines([...lines, ...newLines]);
     setShowBuild(false); setBAddonQty({});
   };
@@ -4269,12 +4361,12 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
   const calcLine = (l) => {
     if (l.kind === "labour") {
       const workers = +l.workers || 1, hours = +l.hours || 0;
-      const hourly = l.fixedRate != null && isFinite(l.fixedRate) ? +l.fixedRate : (l.labourId ? LabourRates.rate(l.labourId, estimate.region) : 0);
+      const hourly = l.fixedRate != null && isFinite(l.fixedRate) ? +l.fixedRate : (l.labourId ? LabourRates.rate(l.labourId, region) : 0);
       return { rate: hourly, total: workers * hours * hourly };
     }
     if (l.fixedTotal != null && isFinite(l.fixedTotal) && !l.qty) return { rate: l.fixedRate || 0, total: +l.fixedTotal || 0 };
     if (l.fixedRate != null && isFinite(l.fixedRate)) return { rate: +l.fixedRate, total: (+l.fixedRate) * (+l.qty || 0) };
-    if (l.materialId) { const r = Materials.rate(l.materialId, estimate.region); return { rate: r, total: r * (+l.qty || 0) }; }
+    if (l.materialId) { const r = Materials.rate(l.materialId, region); return { rate: r, total: r * (+l.qty || 0) }; }
     return { rate: 0, total: +l.fixedTotal || 0 };
   };
 
@@ -4365,19 +4457,24 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
     );
   };
 
-  const bk = estimate.byKind || {};
+  const bk = (summary && summary.byKind) || {};
+  const linesTotal = lines.reduce((a, l) => a + (calcLine(l).total || 0), 0);
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
-        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>QUOTE BUILDER — MATERIAL · LABOUR · TRADES</div>
+        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>
+          {embed ? "ADD TO YOUR BUILD — MATERIAL · LABOUR · ELEMENTS" : "QUOTE BUILDER — MATERIAL · LABOUR · TRADES"}
+        </div>
         <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
-          One quote, every line — from a single wall to a whole job. Quick-add a wall by its size, or add materials, labour days, or any trade/allowance. Everything prices into one total.
+          {embed
+            ? "Add scope on top of the base build — extra rooms, a deck, a feature wall, fit-out, allowances. Each line adds to your total at its entered price."
+            : "One quote, every line — from a single wall to a whole job. Quick-add a wall by its size, or add materials, labour days, or any trade/allowance. Everything prices into one total."}
         </p>
       </div>
 
-      <InputCard title="Quote lines" badge={`${currency}${fmt(estimate.total)}`} onClear={clearLines}>
+      <InputCard title={embed ? "What do you want to add?" : "Quote lines"} badge={`${currency}${fmt(linesTotal)}`} onClear={clearLines}>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {lines.length === 0 && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, padding: "8px 0" }}>Empty quote — add a line below or import a sheet.</div>}
+          {lines.length === 0 && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, padding: "8px 0" }}>{embed ? "Nothing added yet — add scope below or leave empty." : "Empty quote — add a line below or import a sheet."}</div>}
           {lines.map(renderLine)}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 12 }}>
@@ -4387,7 +4484,7 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
         </div>
 
         <button className="ec-btn ec-btn-hivis" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={() => setShowBuild((v) => !v)}>
-          {showBuild ? "× Close" : "▦ What do you want to build?"}
+          {showBuild ? "× Close" : (embed ? "▦ What do you want to add?" : "▦ What do you want to build?")}
         </button>
 
         {showBuild && (
@@ -4452,7 +4549,7 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {addonIds.map((id) => { const a = WallBuilder.getAddon(id); if (!a) return null; return (
                       <div key={id} style={{ display: "grid", gridTemplateColumns: "1fr 64px", gap: 6, alignItems: "center" }}>
-                        <span style={{ fontSize: 12, color: TOKENS.ink }}>{a.label} <span style={{ color: TOKENS.steel }}>· {currency}{fmt(a.regions[estimate.region])}/{a.unit}</span></span>
+                        <span style={{ fontSize: 12, color: TOKENS.ink }}>{a.label} <span style={{ color: TOKENS.steel }}>· {currency}{fmt(a.regions[region])}/{a.unit}</span></span>
                         <input className="ec-input" type="number" min="0" step="1" placeholder="0" value={bAddonQty[id] ?? ""} onChange={(e) => setBAddonQty((m) => ({ ...m, [id]: e.target.value }))} />
                       </div>
                     ); })}
@@ -4475,24 +4572,26 @@ function MaterialsPanel({ matSpec, setMatSpec, estimate, currency }) {
         )}
       </InputCard>
 
-      <div style={{ padding: 14, border: `2px solid ${TOKENS.ink}`, background: TOKENS.card }}>
-        <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Quote total</div>
-        <div className="ec-display" style={{ fontSize: 30, lineHeight: 1, color: TOKENS.ink }}>{currency}{fmt(estimate.total)}</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 10 }}>
-          {[["material", "Materials"], ["labour", "Labour"], ["element", "Trades & jobs"]].map(([k, lbl]) => (
-            (bk[k] > 0) ? (
-              <div key={k} className="ec-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: TOKENS.inkSoft }}>
-                <span>{lbl}</span><span>{currency}{fmt(bk[k])}</span>
+      {!embed && summary && (
+        <div style={{ padding: 14, border: `2px solid ${TOKENS.ink}`, background: TOKENS.card }}>
+          <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Quote total</div>
+          <div className="ec-display" style={{ fontSize: 30, lineHeight: 1, color: TOKENS.ink }}>{currency}{fmt(summary.total)}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 10 }}>
+            {[["material", "Materials"], ["labour", "Labour"], ["element", "Trades & jobs"]].map(([k, lbl]) => (
+              (bk[k] > 0) ? (
+                <div key={k} className="ec-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: TOKENS.inkSoft }}>
+                  <span>{lbl}</span><span>{currency}{fmt(bk[k])}</span>
+                </div>
+              ) : null
+            ))}
+            {summary.taxRate > 0 && (
+              <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: TOKENS.steel, marginTop: 4, paddingTop: 4, borderTop: `1px dashed ${TOKENS.rule}` }}>
+                <span>+ {summary.taxLabel}</span><span>{currency}{fmt(summary.total * summary.taxRate)}</span>
               </div>
-            ) : null
-          ))}
-          {estimate.taxRate > 0 && (
-            <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: TOKENS.steel, marginTop: 4, paddingTop: 4, borderTop: `1px dashed ${TOKENS.rule}` }}>
-              <span>+ {estimate.taxLabel}</span><span>{currency}{fmt(estimate.total * estimate.taxRate)}</span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }
@@ -4799,6 +4898,22 @@ function EstimateTab({ estimate, currency }) {
               <span>{label}</span><span>{currency}{fmt(val)}</span>
             </div>
           ))}
+          {estimate.extrasTotal > 0 && (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}`, fontWeight: 600 }}>
+                <span>Base build</span><span>{currency}{fmt(estimate.buildTotal)}</span>
+              </div>
+              {(estimate.extrasLines || []).map((l, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0 5px 12px", borderBottom: `1px dotted ${TOKENS.rule}`, fontSize: 12, color: TOKENS.inkSoft }}>
+                  <span>+ {l.label}{l.kind === "labour" ? ` (${l.workers || 1}×${l.hours || 0}hr)` : l.qty ? ` (${l.qty} ${l.unit})` : ""}</span>
+                  <span>{currency}{fmt(l.total)}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}`, fontWeight: 600 }}>
+                <span>Additional items (added at entered price)</span><span>{currency}{fmt(estimate.extrasTotal)}</span>
+              </div>
+            </>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", marginTop: 4, fontSize: 18, fontWeight: 700, color: TOKENS.ink, background: TOKENS.hivis, marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16, marginBottom: -16 }}>
             <span>TOTAL ESTIMATE</span><span>{currency}{fmt(estimate.total)}</span>
           </div>
@@ -4971,6 +5086,7 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
   const [mapping, setMapping] = useState({ material: -1, quantity: -1, unit: -1 });
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [issues, setIssues] = useState([]);
   const [fileName, setFileName] = useState("");
   const fileRef = useRef(null);
 
@@ -4986,10 +5102,11 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
       const body = aoa.slice(hr.index + 1);
       const detected = SpreadsheetImport.detectColumns(hdr);
       setHeaders(hdr); setRows(body); setMapping(detected);
-      setFileName(name); setError(""); setResult(null);
+      setFileName(name); setError("");
+      setIssues(Validate.checkColumns(detected, hdr));
       const canEstimate = detected.material >= 0 && (detected.quantity >= 0 || detected.rate >= 0 || detected.total >= 0);
       setStage(canEstimate ? 3 : 2);
-      if (canEstimate) runEstimate(body, detected);
+      if (canEstimate) runEstimate(body, detected); else setResult(null);
     } catch (e) { setError("Couldn't read that file. Is it a valid .xlsx or .csv?"); }
   };
 
@@ -5085,6 +5202,22 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
       </div>
       {error && <div style={{ marginBottom: 14, padding: 10, border: `1px solid ${TOKENS.alert}`, color: TOKENS.alert, fontSize: 12, background: "rgba(200,72,14,0.05)" }} className="ec-mono">{error}</div>}
 
+      {issues.length > 0 && (
+        <div style={{ marginBottom: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          {issues.map((iss, i) => {
+            const c = iss.level === "error" ? TOKENS.alert : iss.level === "warn" ? TOKENS.emberDeep : TOKENS.steel;
+            const tag = iss.level === "error" ? "MUST FIX" : iss.level === "warn" ? "HEADS UP" : "NOTE";
+            return (
+              <div key={i} style={{ padding: 10, border: `1px solid ${c}`, background: "rgba(0,0,0,0.015)", borderLeft: `3px solid ${c}` }}>
+                <div className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: c, fontWeight: 700, marginBottom: 3 }}>{tag}</div>
+                <div style={{ fontSize: 12, color: TOKENS.ink, lineHeight: 1.45 }}>{iss.message}</div>
+                {iss.fix && <div style={{ fontSize: 11, color: TOKENS.inkSoft, marginTop: 4 }}>→ {iss.fix}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Stage 2/3 — column mapping */}
       {headers.length > 0 && (
         <div className="ec-card" style={{ padding: 16, marginBottom: 14 }}>
@@ -5097,7 +5230,7 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
               <label key={key}>
                 <span className="ec-label">{label}</span>
                 <select className="ec-select" value={mapping[key]}
-                  onChange={(e) => { const mp = { ...mapping, [key]: +e.target.value }; setMapping(mp); if (mp.material >= 0 && (mp.quantity >= 0 || mp.rate >= 0 || mp.total >= 0)) runEstimate(rows, mp); }}>
+                  onChange={(e) => { const mp = { ...mapping, [key]: +e.target.value }; setMapping(mp); setIssues(Validate.checkColumns(mp, headers)); if (mp.material >= 0 && (mp.quantity >= 0 || mp.rate >= 0 || mp.total >= 0)) runEstimate(rows, mp); }}>
                   <option value={-1}>— none —</option>
                   {headers.map((h, i) => <option key={i} value={i}>{String(h || `Column ${i + 1}`)}</option>)}
                 </select>
