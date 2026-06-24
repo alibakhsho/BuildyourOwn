@@ -380,6 +380,252 @@ const Materials = {
       regions: { AU: 3800, US: 2400, UK: 2600 } },
     { id: "solar_pv", label: "Solar PV 6.6kW + inverter", unit: "ea", category: "services",
       regions: { AU: 7500, US: 12000, UK: 8500 } },
+
+    // ---- TIMBER (structural & sizes) ----
+    { id: "timber_90x45", label: "Pine MGP10 90×45", unit: "lin.m", category: "frame",
+      regions: { AU: 6.40, US: 3.40, UK: 3.80 } },
+    { id: "timber_140x45", label: "Pine MGP10 140×45", unit: "lin.m", category: "frame",
+      regions: { AU: 9.80, US: 5.40, UK: 6.00 } },
+    { id: "timber_190x45", label: "Pine MGP10 190×45", unit: "lin.m", category: "frame",
+      regions: { AU: 13.50, US: 7.40, UK: 8.20 } },
+    { id: "timber_treated_post", label: "Treated pine post 90×90 (H4)", unit: "lin.m", category: "frame",
+      regions: { AU: 16, US: 9, UK: 10 }, note: "In-ground rated" },
+    { id: "hardwood_post", label: "Hardwood post 100×100", unit: "lin.m", category: "frame",
+      regions: { AU: 38, US: 22, UK: 25 } },
+    { id: "lvl_15", label: "LVL beam 150×45", unit: "lin.m", category: "frame",
+      regions: { AU: 26, US: 15, UK: 18 } },
+    { id: "lvl_30", label: "LVL beam 300×63", unit: "lin.m", category: "frame",
+      regions: { AU: 58, US: 34, UK: 40 } },
+
+    // ---- DECKING ----
+    { id: "deck_merbau", label: "Merbau decking board 90×19", unit: "m²", category: "decking",
+      regions: { AU: 145, US: 95, UK: 105 }, note: "Hardwood, premium" },
+    { id: "deck_treated_pine", label: "Treated pine decking 90×22", unit: "m²", category: "decking",
+      regions: { AU: 75, US: 48, UK: 54 } },
+    { id: "deck_composite", label: "Composite decking (e.g. Trex/Modwood)", unit: "m²", category: "decking",
+      regions: { AU: 165, US: 105, UK: 120 }, note: "Low-maintenance" },
+    { id: "deck_substructure", label: "Bearers, joists & framing (deck)", unit: "m²", category: "decking",
+      regions: { AU: 85, US: 55, UK: 60 } },
+    { id: "deck_joist_hangers", label: "Joist hangers & framing brackets", unit: "ea", category: "decking",
+      regions: { AU: 6.50, US: 3.50, UK: 4.00 } },
+
+    // ---- STRUCTURAL FIXINGS / GROUND ----
+    { id: "post_stirrup", label: "Galvanised post stirrup / bracket", unit: "ea", category: "fixings",
+      regions: { AU: 28, US: 16, UK: 18 }, note: "Bolt-down or in-ground post base" },
+    { id: "post_anchor_bolt", label: "Chemical / through bolts (set)", unit: "ea", category: "fixings",
+      regions: { AU: 12, US: 7, UK: 8 } },
+    { id: "footing_concrete", label: "Footing concrete (post holes)", unit: "m³", category: "fixings",
+      regions: { AU: 340, US: 220, UK: 240 } },
+    { id: "bracket_framing", label: "Framing anchors / tie-down brackets", unit: "ea", category: "fixings",
+      regions: { AU: 4.50, US: 2.50, UK: 3.00 }, note: "Cyclone tie-down" },
+
+    // ---- ROOF (expanded) ----
+    { id: "metal_roof_sheet", label: "Metal roof sheet (Trimdek/corrugated)", unit: "m²", category: "roof",
+      regions: { AU: 36, US: 26, UK: 30 } },
+    { id: "metal_roof_insulated", label: "Insulated roof panel (sandwich)", unit: "m²", category: "roof",
+      regions: { AU: 88, US: 58, UK: 65 } },
+    { id: "roof_flashing", label: "Ridge capping & flashings", unit: "lin.m", category: "roof",
+      regions: { AU: 32, US: 19, UK: 22 } },
+    { id: "polycarb_roof", label: "Polycarbonate roofing (patio)", unit: "m²", category: "roof",
+      regions: { AU: 55, US: 34, UK: 38 } },
+
+    // ---- OPENINGS (expanded) ----
+    { id: "window_alum_single", label: "Aluminium window, single-glazed", unit: "m²", category: "openings",
+      regions: { AU: 480, US: 300, UK: 330 } },
+    { id: "window_timber", label: "Timber window, double-glazed", unit: "m²", category: "openings",
+      regions: { AU: 950, US: 580, UK: 640 } },
+    { id: "window_sliding_door", label: "Aluminium sliding door (glass)", unit: "m²", category: "openings",
+      regions: { AU: 780, US: 480, UK: 530 } },
+    { id: "door_prehung", label: "Pre-hung internal door (factory)", unit: "ea", category: "openings",
+      regions: { AU: 320, US: 160, UK: 190 } },
+    { id: "door_bifold_glass", label: "Bi-fold glass door (per panel)", unit: "ea", category: "openings",
+      regions: { AU: 1100, US: 680, UK: 760 } },
+
+    // ---- STAIRS (expanded) ----
+    { id: "stair_steel_prefab", label: "Staircase — prefab metal flight", unit: "flight", category: "stairs",
+      regions: { AU: 5200, US: 3200, UK: 3600 }, note: "Factory-made, craned in" },
+
+    // ---- CONCRETE / SLAB FINISHES ----
+    { id: "concrete_plain", label: "Concrete — plain / broom finish", unit: "m²", category: "concrete",
+      regions: { AU: 85, US: 55, UK: 60 } },
+    { id: "concrete_exposed", label: "Concrete — exposed aggregate", unit: "m²", category: "concrete",
+      regions: { AU: 130, US: 85, UK: 95 } },
+    { id: "concrete_polished", label: "Concrete — polished finish", unit: "m²", category: "concrete",
+      regions: { AU: 150, US: 95, UK: 105 } },
+    { id: "concrete_stencil", label: "Concrete — stencil / coloured", unit: "m²", category: "concrete",
+      regions: { AU: 110, US: 70, UK: 78 } },
+
+    // ---- EARTHWORKS / GROUND ----
+    { id: "fill_road_base", label: "Road base / crusher dust", unit: "m³", category: "earthworks",
+      regions: { AU: 65, US: 42, UK: 46 } },
+    { id: "fill_sand", label: "Fill sand", unit: "m³", category: "earthworks",
+      regions: { AU: 55, US: 35, UK: 40 } },
+    { id: "fill_topsoil", label: "Garden topsoil", unit: "m³", category: "earthworks",
+      regions: { AU: 70, US: 45, UK: 50 } },
+    { id: "fill_gravel", label: "Drainage gravel / blue metal", unit: "m³", category: "earthworks",
+      regions: { AU: 80, US: 52, UK: 58 } },
+    { id: "fill_fcr", label: "Fine crushed rock (compactable)", unit: "m³", category: "earthworks",
+      regions: { AU: 68, US: 44, UK: 48 } },
+
+    // ---- WET AREAS ----
+    { id: "waterproofing", label: "Wet-area waterproofing membrane", unit: "m²", category: "wet area",
+      regions: { AU: 75, US: 48, UK: 54 }, note: "AS 3740 compliant" },
+    { id: "shower_screen_glass", label: "Frameless glass shower screen", unit: "ea", category: "wet area",
+      regions: { AU: 950, US: 600, UK: 680 } },
+    { id: "shower_screen_semi", label: "Semi-frameless shower screen", unit: "ea", category: "wet area",
+      regions: { AU: 620, US: 390, UK: 440 } },
+    { id: "bath_glass_panel", label: "Glass bath / splash panel", unit: "ea", category: "wet area",
+      regions: { AU: 420, US: 270, UK: 300 } },
+    { id: "floor_waste", label: "Floor waste / drain (tiled)", unit: "ea", category: "wet area",
+      regions: { AU: 180, US: 110, UK: 125 } },
+
+    // ---- FOUNDATION / SLAB ----
+    { id: "slab_mesh", label: "Reinforcing mesh (SL82)", unit: "m²", category: "foundation",
+      regions: { AU: 9.50, US: 6, UK: 7 } },
+    { id: "rebar", label: "Reinforcing bar (N12)", unit: "lin.m", category: "foundation",
+      regions: { AU: 4.20, US: 2.60, UK: 3 } },
+    { id: "vapour_barrier", label: "Vapour barrier / damp-proof membrane", unit: "m²", category: "foundation",
+      regions: { AU: 4.50, US: 2.80, UK: 3.20 } },
+    { id: "pier_screw", label: "Screw pier / pile", unit: "ea", category: "foundation",
+      regions: { AU: 280, US: 180, UK: 200 } },
+    { id: "termite_barrier", label: "Termite barrier (physical/chemical)", unit: "m²", category: "foundation",
+      regions: { AU: 18, US: 11, UK: 0 }, note: "AS 3660" },
+    { id: "stumps_steel", label: "Adjustable steel stumps", unit: "ea", category: "foundation",
+      regions: { AU: 65, US: 42, UK: 46 } },
+
+    // ---- FRAME (more) ----
+    { id: "steel_stud", label: "Steel wall stud / track (light gauge)", unit: "lin.m", category: "frame",
+      regions: { AU: 7.80, US: 4.50, UK: 5 } },
+    { id: "ply_bracing", label: "Structural ply bracing 12mm", unit: "m²", category: "frame",
+      regions: { AU: 42, US: 26, UK: 30 } },
+    { id: "roof_truss", label: "Prefab roof truss (per truss)", unit: "ea", category: "frame",
+      regions: { AU: 165, US: 100, UK: 115 } },
+    { id: "wall_frame_prefab", label: "Prefab wall frame (per lin.m)", unit: "lin.m", category: "frame",
+      regions: { AU: 95, US: 58, UK: 65 } },
+    { id: "particleboard_floor", label: "Structural flooring (yellowtongue 19mm)", unit: "m²", category: "frame",
+      regions: { AU: 32, US: 19, UK: 22 } },
+
+    // ---- ROOF (more) ----
+    { id: "zincalume_sheet", label: "Zincalume roof sheet", unit: "m²", category: "roof",
+      regions: { AU: 32, US: 23, UK: 26 } },
+    { id: "terracotta_tile", label: "Terracotta roof tiles", unit: "m²", category: "roof",
+      regions: { AU: 58, US: 38, UK: 42 } },
+    { id: "sarking", label: "Roof sarking / reflective foil", unit: "m²", category: "roof",
+      regions: { AU: 6.50, US: 4, UK: 4.50 } },
+    { id: "whirlybird", label: "Roof ventilator / whirlybird", unit: "ea", category: "roof",
+      regions: { AU: 120, US: 75, UK: 85 } },
+    { id: "skylight", label: "Skylight / roof window", unit: "ea", category: "roof",
+      regions: { AU: 680, US: 420, UK: 470 } },
+    { id: "downpipe", label: "Downpipe (PVC/metal)", unit: "lin.m", category: "roof",
+      regions: { AU: 18, US: 11, UK: 13 } },
+
+    // ---- CLADDING (more) ----
+    { id: "cladding_timber", label: "Timber cladding (shiplap/board)", unit: "m²", category: "cladding",
+      regions: { AU: 95, US: 58, UK: 65 } },
+    { id: "cladding_compressed_sheet", label: "Compressed fibre cement sheet", unit: "m²", category: "cladding",
+      regions: { AU: 68, US: 42, UK: 47 } },
+    { id: "cladding_metal", label: "Metal cladding (mini-orb/standing seam)", unit: "m²", category: "cladding",
+      regions: { AU: 88, US: 54, UK: 60 } },
+    { id: "cladding_brick_face", label: "Face brick (full brick)", unit: "m²", category: "cladding",
+      regions: { AU: 120, US: 78, UK: 70 } },
+    { id: "stone_veneer", label: "Stone cladding / veneer", unit: "m²", category: "cladding",
+      regions: { AU: 165, US: 105, UK: 115 } },
+    { id: "blueboard_render", label: "Blueboard + acrylic render system", unit: "m²", category: "cladding",
+      regions: { AU: 110, US: 68, UK: 76 } },
+
+    // ---- INSULATION ----
+    { id: "ceiling_insulation", label: "Ceiling batts R4.0", unit: "m²", category: "insulation",
+      regions: { AU: 16, US: 10, UK: 12 } },
+    { id: "acoustic_insulation", label: "Acoustic insulation batts", unit: "m²", category: "insulation",
+      regions: { AU: 18, US: 11, UK: 13 } },
+    { id: "underfloor_insulation", label: "Underfloor insulation", unit: "m²", category: "insulation",
+      regions: { AU: 15, US: 9, UK: 11 } },
+
+    // ---- INTERIOR (more) ----
+    { id: "plasterboard_wet", label: "Wet-area plasterboard (Aquacheck)", unit: "m²", category: "interior",
+      regions: { AU: 46, US: 28, UK: 32 } },
+    { id: "plasterboard_fire", label: "Fire-rated plasterboard", unit: "m²", category: "interior",
+      regions: { AU: 52, US: 32, UK: 36 } },
+    { id: "skirting", label: "Skirting board + install", unit: "lin.m", category: "interior",
+      regions: { AU: 22, US: 13, UK: 15 } },
+    { id: "architrave", label: "Architrave + install", unit: "lin.m", category: "interior",
+      regions: { AU: 18, US: 11, UK: 13 } },
+    { id: "floor_vinyl", label: "Vinyl plank flooring + lay", unit: "m²", category: "interior",
+      regions: { AU: 65, US: 40, UK: 45 } },
+    { id: "floor_laminate", label: "Laminate flooring + lay", unit: "m²", category: "interior",
+      regions: { AU: 55, US: 34, UK: 38 } },
+    { id: "floor_polished_timber", label: "Solid timber floor + sand & finish", unit: "m²", category: "interior",
+      regions: { AU: 185, US: 115, UK: 128 } },
+    { id: "wall_tile", label: "Wall tile + adhesive + lay", unit: "m²", category: "interior",
+      regions: { AU: 130, US: 80, UK: 90 } },
+
+    // ---- KITCHEN (more) ----
+    { id: "kit_bench_timber_solid", label: "Benchtop — solid timber", unit: "lin.m", category: "kitchen",
+      regions: { AU: 480, US: 300, UK: 330 } },
+    { id: "kit_appliance_pack", label: "Appliance pack (oven/cooktop/rangehood)", unit: "ea", category: "kitchen",
+      regions: { AU: 3200, US: 2000, UK: 2200 } },
+    { id: "kit_dishwasher", label: "Dishwasher", unit: "ea", category: "kitchen",
+      regions: { AU: 850, US: 540, UK: 600 } },
+    { id: "kit_pantry", label: "Walk-in pantry fit-out", unit: "ea", category: "kitchen",
+      regions: { AU: 2400, US: 1500, UK: 1650 } },
+
+    // ---- BATHROOM (more) ----
+    { id: "bath_shower_base", label: "Shower base / tray", unit: "ea", category: "bathroom",
+      regions: { AU: 320, US: 200, UK: 225 } },
+    { id: "bath_freestanding", label: "Freestanding bath", unit: "ea", category: "bathroom",
+      regions: { AU: 1450, US: 900, UK: 1000 } },
+    { id: "bath_towel_rail", label: "Heated towel rail", unit: "ea", category: "bathroom",
+      regions: { AU: 380, US: 240, UK: 265 } },
+    { id: "bath_exhaust_fan", label: "Exhaust fan + light", unit: "ea", category: "bathroom",
+      regions: { AU: 220, US: 140, UK: 155 } },
+    { id: "bath_mirror_cabinet", label: "Mirror shaving cabinet", unit: "ea", category: "bathroom",
+      regions: { AU: 290, US: 180, UK: 200 } },
+
+    // ---- SERVICES (more) ----
+    { id: "switchboard", label: "Switchboard upgrade", unit: "ea", category: "services",
+      regions: { AU: 1800, US: 1100, UK: 1250 } },
+    { id: "ceiling_fan", label: "Ceiling fan + install", unit: "ea", category: "services",
+      regions: { AU: 280, US: 175, UK: 195 } },
+    { id: "downlight", label: "LED downlight + install", unit: "ea", category: "services",
+      regions: { AU: 75, US: 46, UK: 52 } },
+    { id: "power_point", label: "Power point (GPO) + install", unit: "ea", category: "services",
+      regions: { AU: 145, US: 90, UK: 100 } },
+    { id: "data_point", label: "Data / TV point + install", unit: "ea", category: "services",
+      regions: { AU: 160, US: 100, UK: 110 } },
+    { id: "ducted_ac", label: "Ducted A/C system (whole home)", unit: "ea", category: "services",
+      regions: { AU: 14000, US: 9000, UK: 10000 } },
+    { id: "rainwater_tank", label: "Rainwater tank + pump", unit: "ea", category: "services",
+      regions: { AU: 2200, US: 1400, UK: 1550 } },
+    { id: "septic_system", label: "Septic / wastewater system", unit: "ea", category: "services",
+      regions: { AU: 12000, US: 7500, UK: 8500 } },
+
+    // ---- OUTDOOR / SITE ----
+    { id: "fence_colorbond", label: "Colorbond fence (supply+install)", unit: "lin.m", category: "outdoor",
+      regions: { AU: 110, US: 70, UK: 78 } },
+    { id: "fence_timber_paling", label: "Timber paling fence", unit: "lin.m", category: "outdoor",
+      regions: { AU: 95, US: 60, UK: 67 } },
+    { id: "retaining_wall", label: "Retaining wall (besser/sleeper)", unit: "m²", category: "outdoor",
+      regions: { AU: 320, US: 200, UK: 225 } },
+    { id: "driveway_concrete", label: "Concrete driveway", unit: "m²", category: "outdoor",
+      regions: { AU: 110, US: 70, UK: 78 } },
+    { id: "paving", label: "Paving (supply + lay)", unit: "m²", category: "outdoor",
+      regions: { AU: 95, US: 60, UK: 67 } },
+    { id: "turf", label: "Turf / instant lawn", unit: "m²", category: "outdoor",
+      regions: { AU: 18, US: 11, UK: 13 } },
+    { id: "pergola_kit", label: "Pergola kit (per m² covered)", unit: "m²", category: "outdoor",
+      regions: { AU: 220, US: 140, UK: 155 } },
+    { id: "carport", label: "Carport (single, supply+build)", unit: "ea", category: "outdoor",
+      regions: { AU: 6500, US: 4200, UK: 4700 } },
+
+    // ---- DEMOLITION / PREP ----
+    { id: "demo_strip_out", label: "Strip-out / demolition (internal)", unit: "m²", category: "demolition",
+      regions: { AU: 65, US: 42, UK: 46 } },
+    { id: "skip_bin", label: "Skip bin / waste removal", unit: "ea", category: "demolition",
+      regions: { AU: 480, US: 300, UK: 330 } },
+    { id: "asbestos_removal", label: "Asbestos removal (licensed)", unit: "m²", category: "demolition",
+      regions: { AU: 95, US: 60, UK: 67 }, note: "Licensed removal only" },
+    { id: "site_scaffold", label: "Scaffolding hire (per m² face)", unit: "m²", category: "demolition",
+      regions: { AU: 45, US: 28, UK: 32 } },
   ],
 
   byCategory(cat) {
@@ -391,6 +637,49 @@ const Materials = {
   rate(id, region) {
     const m = this.get(id);
     return m ? m.regions[region] ?? 0 : 0;
+  },
+
+  /* List all categories currently in the catalogue (for grouped pickers). */
+  categories() {
+    return [...new Set(this.catalog.map((m) => m.category))];
+  },
+
+  /* ---- API-READY: supplier feed adaptor ----
+     When a live supplier feed connects, each incoming product is normalised
+     into the catalogue shape and merged in. A feed item is expected to look
+     roughly like { sku, name, unit, price, category, region }. Unknown fields
+     are ignored; missing ones get safe defaults so a partial feed still loads.
+     Call: Materials.loadFeed(items, "AU") — returns { added, updated }. */
+  loadFeed(items, region = "AU") {
+    if (!Array.isArray(items)) return { added: 0, updated: 0 };
+    let added = 0, updated = 0;
+    for (const raw of items) {
+      if (!raw) continue;
+      const id = String(raw.sku || raw.id || raw.code || "").trim() || ("feed_" + (raw.name || "item").toLowerCase().replace(/[^a-z0-9]+/g, "_")).slice(0, 40);
+      const price = Validate ? Validate.sanitiseNumber(raw.price ?? raw.rate ?? raw.cost, { min: 0, max: 1e7, fallback: 0 }).value : (+raw.price || 0);
+      const existing = this.get(id);
+      if (existing) {
+        // update price for this region, keep other regions
+        existing.regions = { ...existing.regions, [region]: price };
+        existing.supplier = raw.supplier || existing.supplier;
+        existing.live = true;
+        updated++;
+      } else {
+        this.catalog.push({
+          id,
+          label: String(raw.name || raw.label || raw.description || id).trim(),
+          unit: String(raw.unit || raw.uom || "ea").trim(),
+          category: String(raw.category || "supplier feed").trim().toLowerCase(),
+          regions: { AU: 0, US: 0, UK: 0, [region]: price },
+          supplier: raw.supplier || null,
+          sku: raw.sku || null,
+          live: true,
+          note: raw.note || null,
+        });
+        added++;
+      }
+    }
+    return { added, updated };
   },
 };
 
@@ -1934,17 +2223,26 @@ const WallBuilder = {
     },
     {
       id: "deck", label: "Deck / pergola", dim: "area", dimLabel: "Deck area (m²)",
-      note: "Timber deck on bearers/joists, or pergola frame.",
-      lines: (a, region, mk) => {
-        const deckRate = { AU: 145, US: 100, UK: 90 }[region];   // decking boards per m²
-        const frameRate = { AU: 85, US: 60, UK: 54 }[region];    // bearers/joists per m²
+      note: "Timber/composite deck on a framed substructure, posts set on stirrups into concrete footings.",
+      variants: [
+        { id: "deck_merbau", label: "Merbau hardwood" },
+        { id: "deck_treated_pine", label: "Treated pine" },
+        { id: "deck_composite", label: "Composite (Trex/Modwood)" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const boardId = variant || "deck_merbau";
+        const board = Materials.get(boardId);
+        // posts: roughly one per ~2.5m² for a low deck; footings ~0.03m³ each
+        const posts = Math.max(2, Math.ceil(a / 2.5));
         return [
-          { id: mk(), kind: "element", label: "Decking boards (merbau / treated)", qty: round(a, 2), unit: "m²", fixedRate: deckRate },
-          { id: mk(), kind: "element", label: "Bearers, joists & posts", qty: round(a, 2), unit: "m²", fixedRate: frameRate },
-          { id: mk(), kind: "material", materialId: "concrete_25mpa", label: "Footings concrete", qty: round(a * 0.04, 2), unit: "m³" },
+          { id: mk(), kind: "material", materialId: boardId, label: board.label, qty: round(a, 2), unit: "m²" },
+          { id: mk(), kind: "material", materialId: "deck_substructure", label: "Bearers, joists & framing", qty: round(a, 2), unit: "m²" },
+          { id: mk(), kind: "material", materialId: "timber_treated_post", label: "Treated posts (in-ground)", qty: round(posts * 0.9, 2), unit: "lin.m" },
+          { id: mk(), kind: "material", materialId: "post_stirrup", label: "Post stirrups / brackets", qty: posts, unit: "ea" },
+          { id: mk(), kind: "material", materialId: "footing_concrete", label: "Footing concrete (post holes)", qty: round(posts * 0.03, 2), unit: "m³" },
         ];
       },
-      labour: (a) => [{ labourId: "lab_carpenter", label: "Carpenter", days: Math.max(1, round(a / 10, 1)) }],
+      labour: (a) => [{ labourId: "lab_carpenter", label: "Carpenter (deck build)", days: Math.max(1, round(a / 10, 1)) }],
       addons: [],
     },
   ],
@@ -3368,20 +3666,56 @@ export default function App() {
     requestAnimationFrame(tick);
   };
 
-  /* Download report as .txt */
-  const downloadReport = () => {
-    const text = buildMode === "highrise"
-      ? Reporter.buildHighRise(estimate, projectNo)
-      : buildMode === "materials"
-      ? Reporter.buildMaterials(estimate, projectNo)
-      : Reporter.build(estimate, projectNo);
-    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${projectNo}_${buildMode}_estimate.txt`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const [copied, setCopied] = useState(false);
+
+  /* Save/share report as text — works across desktop and mobile.
+     Phones: use the native share sheet (Save to Files, Notes, message, etc.).
+     Desktop: download a .txt. Always offer copy-to-clipboard as a fallback. */
+  const buildReportText = () => (
+    buildMode === "highrise" ? Reporter.buildHighRise(estimate, projectNo)
+    : buildMode === "materials" ? Reporter.buildMaterials(estimate, projectNo)
+    : Reporter.build(estimate, projectNo)
+  );
+
+  const downloadReport = async () => {
+    const text = buildReportText();
+    const filename = `${projectNo}_${buildMode}_estimate.txt`;
+    // 1. On phones with a share sheet, share a text file (or the text itself)
+    try {
+      if (navigator.share) {
+        const file = new File([text], filename, { type: "text/plain" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: "Estimate", text: "Estimate from BYO" });
+          return;
+        }
+        await navigator.share({ title: "Estimate", text });
+        return;
+      }
+    } catch (e) { /* user cancelled or unsupported — fall through to download */ }
+    // 2. Desktop / Android: trigger a file download
+    try {
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // 3. Last resort: copy to clipboard
+      copyReport();
+    }
+  };
+
+  const copyReport = async () => {
+    const text = buildReportText();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true); setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      // very old browsers: open the text so they can select & copy manually
+      const w = window.open("", "_blank");
+      if (w) { w.document.write("<pre>" + text.replace(/</g, "&lt;") + "</pre>"); }
+    }
   };
 
   const updateHr = useCallback((patch) => setHrSpec((s) => ({ ...s, ...patch })), []);
@@ -3710,7 +4044,10 @@ export default function App() {
             </div>
             <button className="ec-btn ec-btn-hivis" onClick={downloadReport}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" /></svg>
-              Download report
+              Save / share
+            </button>
+            <button className="ec-btn ec-btn-ghost" onClick={copyReport} title="Copy estimate text">
+              {copied ? "Copied ✓" : "Copy"}
             </button>
           </div>
         </div>
@@ -4396,9 +4733,21 @@ function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, curr
               ))}
             </select>
           ) : kind === "labour" ? (
-            <select className="ec-select" style={{ minWidth: 0 }} value={l.labourId || ""} onChange={(e) => { const lr = LabourRates.get(e.target.value); updateLine(l.id, { labourId: e.target.value, label: lr.label, fixedRate: null }); }}>
-              {LabourRates.catalog.map((lr) => <option key={lr.id} value={lr.id}>{lr.label}</option>)}
-            </select>
+            l.labourId === "custom" || (l.labourId == null && l.label != null && !LabourRates.get(l.labourId)) ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, minWidth: 0 }}>
+                <input className="ec-input" style={{ minWidth: 0 }} placeholder="Trade / role name" value={l.label || ""} onChange={(e) => updateLine(l.id, { label: e.target.value })} />
+                <button title="Back to trade list" onClick={() => { const lr = LabourRates.catalog[0]; updateLine(l.id, { labourId: lr.id, label: lr.label, fixedRate: null }); }}
+                  style={{ border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.steel, fontSize: 10, padding: "0 6px", cursor: "pointer" }}>list</button>
+              </div>
+            ) : (
+              <select className="ec-select" style={{ minWidth: 0 }} value={l.labourId || ""} onChange={(e) => {
+                if (e.target.value === "custom") { updateLine(l.id, { labourId: "custom", label: "", fixedRate: 0 }); return; }
+                const lr = LabourRates.get(e.target.value); updateLine(l.id, { labourId: e.target.value, label: lr.label, fixedRate: null });
+              }}>
+                {LabourRates.catalog.map((lr) => <option key={lr.id} value={lr.id}>{lr.label}</option>)}
+                <option value="custom">+ Custom trade / role…</option>
+              </select>
+            )
           ) : (
             <input className="ec-input" style={{ minWidth: 0 }} placeholder="Describe the job / trade / allowance" value={l.label || ""} onChange={(e) => updateLine(l.id, { label: e.target.value })} />
           )}
