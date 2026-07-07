@@ -626,6 +626,58 @@ const Materials = {
       regions: { AU: 95, US: 60, UK: 67 }, note: "Licensed removal only" },
     { id: "site_scaffold", label: "Scaffolding hire (per m² face)", unit: "m²", category: "demolition",
       regions: { AU: 45, US: 28, UK: 32 } },
+
+    // ---- TIMBER (species & products) ----
+    { id: "timber_treated_70x35", label: "Treated pine 70×35 (H3)", unit: "lin.m", category: "frame",
+      regions: { AU: 5.20, US: 2.90, UK: 3.20 } },
+    { id: "timber_hardwood_f17", label: "Hardwood F17 90×45", unit: "lin.m", category: "frame",
+      regions: { AU: 18, US: 11, UK: 12 } },
+    { id: "timber_oregon", label: "Oregon / Douglas fir 90×45", unit: "lin.m", category: "frame",
+      regions: { AU: 14, US: 8, UK: 9 } },
+    { id: "timber_merbau_post", label: "Merbau post 90×90", unit: "lin.m", category: "frame",
+      regions: { AU: 52, US: 32, UK: 36 } },
+    { id: "timber_ply_form", label: "Formply 17mm", unit: "m²", category: "frame",
+      regions: { AU: 48, US: 30, UK: 34 } },
+    { id: "timber_cca_sleeper", label: "Treated sleeper 200×75", unit: "lin.m", category: "frame",
+      regions: { AU: 28, US: 17, UK: 19 } },
+    { id: "timber_dressed_pine", label: "Dressed pine (DAR) 90×19", unit: "lin.m", category: "interior",
+      regions: { AU: 7.50, US: 4.50, UK: 5 } },
+    { id: "timber_marine_ply", label: "Marine ply 12mm", unit: "m²", category: "frame",
+      regions: { AU: 95, US: 60, UK: 67 } },
+
+    // ---- SINKS, TUBS & TAPWARE ----
+    { id: "sink_single_bowl", label: "Kitchen sink — single bowl (stainless)", unit: "ea", category: "kitchen",
+      regions: { AU: 220, US: 140, UK: 155 } },
+    { id: "sink_double_bowl", label: "Kitchen sink — double bowl", unit: "ea", category: "kitchen",
+      regions: { AU: 380, US: 240, UK: 265 } },
+    { id: "sink_undermount", label: "Kitchen sink — undermount", unit: "ea", category: "kitchen",
+      regions: { AU: 450, US: 290, UK: 320 } },
+    { id: "sink_farmhouse", label: "Farmhouse / butler sink", unit: "ea", category: "kitchen",
+      regions: { AU: 650, US: 420, UK: 460 } },
+    { id: "tap_kitchen_mixer", label: "Kitchen mixer tap", unit: "ea", category: "kitchen",
+      regions: { AU: 240, US: 150, UK: 165 } },
+    { id: "tap_pull_out", label: "Pull-out spray mixer", unit: "ea", category: "kitchen",
+      regions: { AU: 360, US: 230, UK: 255 } },
+    { id: "tub_laundry", label: "Laundry tub + cabinet", unit: "ea", category: "bathroom",
+      regions: { AU: 320, US: 200, UK: 225 } },
+    { id: "tap_basin_mixer", label: "Basin mixer tap", unit: "ea", category: "bathroom",
+      regions: { AU: 180, US: 115, UK: 128 } },
+    { id: "tap_shower_mixer", label: "Shower mixer + rail set", unit: "ea", category: "bathroom",
+      regions: { AU: 280, US: 180, UK: 200 } },
+    { id: "basin_vanity", label: "Vanity basin (ceramic)", unit: "ea", category: "bathroom",
+      regions: { AU: 160, US: 100, UK: 110 } },
+    { id: "tap_outdoor", label: "Outdoor garden tap + hose bib", unit: "ea", category: "services",
+      regions: { AU: 95, US: 60, UK: 67 } },
+
+    // ---- POOL / OUTDOOR EQUIPMENT ----
+    { id: "pool_pump", label: "Pool pump + filter", unit: "ea", category: "outdoor",
+      regions: { AU: 1400, US: 900, UK: 1000 } },
+    { id: "pool_heater", label: "Pool heat pump", unit: "ea", category: "outdoor",
+      regions: { AU: 3200, US: 2100, UK: 2350 } },
+    { id: "pool_chlorinator", label: "Salt water chlorinator", unit: "ea", category: "outdoor",
+      regions: { AU: 1100, US: 700, UK: 780 } },
+    { id: "pool_paving", label: "Pool surround paving", unit: "m²", category: "outdoor",
+      regions: { AU: 130, US: 85, UK: 95 } },
   ],
 
   byCategory(cat) {
@@ -2208,18 +2260,171 @@ const WallBuilder = {
     },
     {
       id: "fencing", label: "Fencing", dim: "length", dimLabel: "Fence length (m)",
-      note: "Timber paling fence ~1.8m high (posts, rails, palings).",
-      lines: (a, region, mk) => {
-        const fenceRate = { AU: 95, US: 68, UK: 60 }[region];   // per lin.m supply
+      note: "Various fence types ~1.8m high (panels/palings, posts, footings).",
+      variants: [
+        { id: "timber_paling", label: "Timber paling" },
+        { id: "colorbond", label: "Colorbond steel" },
+        { id: "aluminium_slat", label: "Aluminium slat" },
+        { id: "pool_glass", label: "Frameless glass (pool)" },
+        { id: "chainmesh", label: "Chain mesh" },
+        { id: "picket", label: "Timber picket" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const v = variant || "timber_paling";
+        const rates = {
+          timber_paling: { AU: 95, US: 68, UK: 60 }, colorbond: { AU: 110, US: 78, UK: 70 },
+          aluminium_slat: { AU: 220, US: 150, UK: 135 }, pool_glass: { AU: 380, US: 260, UK: 235 },
+          chainmesh: { AU: 55, US: 38, UK: 34 }, picket: { AU: 120, US: 82, UK: 74 },
+        };
+        const labels = {
+          timber_paling: "Timber paling fence + rails", colorbond: "Colorbond fence panels",
+          aluminium_slat: "Aluminium slat fence", pool_glass: "Frameless glass pool fence + spigots",
+          chainmesh: "Chain mesh fence", picket: "Timber picket fence",
+        };
+        const fenceRate = rates[v][region];
         const postRate = { AU: 38, US: 27, UK: 24 }[region];
         const posts = Math.ceil(a / 2.4) + 1;
+        const out = [{ id: mk(), kind: "element", label: labels[v], qty: round(a, 2), unit: "m", fixedRate: fenceRate }];
+        if (v !== "pool_glass") out.push({ id: mk(), kind: "element", label: "Posts + concrete footings", qty: posts, unit: "ea", fixedRate: postRate });
+        return out;
+      },
+      labour: (a) => [{ labourId: "lab_carpenter", label: "Fencer", days: Math.max(0.5, round(a / 15, 1)) }],
+      addons: ["wa_door"],
+    },
+    {
+      id: "pool", label: "Swimming pool", dim: "area", dimLabel: "Pool surface area (m²)",
+      note: "In-ground pool shell + filtration. Excludes deck, fencing & landscaping (add separately).",
+      variants: [
+        { id: "concrete", label: "Concrete / gunite" },
+        { id: "fibreglass", label: "Fibreglass shell" },
+        { id: "vinyl", label: "Vinyl liner" },
+        { id: "plunge", label: "Plunge / small" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const v = variant || "concrete";
+        const m2Rate = { concrete: { AU: 2200, US: 1500, UK: 1700 }, fibreglass: { AU: 1500, US: 1050, UK: 1200 },
+          vinyl: { AU: 1100, US: 800, UK: 900 }, plunge: { AU: 1800, US: 1250, UK: 1400 } }[v][region];
+        const labels = { concrete: "Concrete pool shell + finish", fibreglass: "Fibreglass pool shell (supply+set)",
+          vinyl: "Vinyl liner pool", plunge: "Plunge pool (compact)" };
+        const filterRate = { AU: 3500, US: 2400, UK: 2700 }[region];
+        const excavRate = { AU: 95, US: 65, UK: 72 }[region];
         return [
-          { id: mk(), kind: "element", label: "Fence panels / palings + rails", qty: round(a, 2), unit: "m", fixedRate: fenceRate },
-          { id: mk(), kind: "element", label: "Posts + concrete footings", qty: posts, unit: "ea", fixedRate: postRate },
+          { id: mk(), kind: "element", label: labels[v], qty: round(a, 2), unit: "m²", fixedRate: m2Rate },
+          { id: mk(), kind: "element", label: "Excavation + spoil removal", qty: round(a * 1.6, 2), unit: "m³", fixedRate: excavRate },
+          { id: mk(), kind: "element", label: "Filtration, pump & plumbing", qty: 1, unit: "ea", fixedRate: filterRate },
+          { id: mk(), kind: "material", materialId: "concrete_25mpa", label: "Surround / bond beam concrete", qty: round(a * 0.15, 2), unit: "m³" },
         ];
       },
-      labour: (a) => [{ labourId: "lab_carpenter", label: "Fencer / carpenter", days: Math.max(0.5, round(a / 15, 1)) }],
-      addons: ["wa_door"],
+      labour: (a) => [{ labourId: "lab_concreter", label: "Pool builder / crew", days: Math.max(3, round(a / 4, 1)) }],
+      addons: [],
+    },
+    {
+      id: "concreting", label: "Concrete slab / driveway", dim: "area", dimLabel: "Area (m²)",
+      note: "Reinforced concrete slab — driveway, shed slab, path, patio.",
+      variants: [
+        { id: "plain", label: "Plain / broom finish" },
+        { id: "exposed", label: "Exposed aggregate" },
+        { id: "coloured", label: "Coloured / stencil" },
+        { id: "polished", label: "Polished" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const v = variant || "plain";
+        const finId = { plain: "concrete_plain", exposed: "concrete_exposed", coloured: "concrete_stencil", polished: "concrete_polished" }[v];
+        const fin = Materials.get(finId);
+        return [
+          { id: mk(), kind: "material", materialId: finId, label: fin.label, qty: round(a, 2), unit: "m²" },
+          { id: mk(), kind: "material", materialId: "slab_mesh", label: "Reinforcing mesh", qty: round(a, 2), unit: "m²" },
+          { id: mk(), kind: "material", materialId: "fill_road_base", label: "Road base sub-grade", qty: round(a * 0.1, 2), unit: "m³" },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_concreter", label: "Concreter crew", days: Math.max(0.5, round(a / 30, 1)) }],
+      addons: [],
+    },
+    {
+      id: "retaining", label: "Retaining wall", dim: "area", dimLabel: "Wall face area (m²)",
+      note: "Retaining wall — sleeper, besser block or concrete sleeper.",
+      variants: [
+        { id: "timber_sleeper", label: "Treated timber sleeper" },
+        { id: "concrete_sleeper", label: "Concrete sleeper + steel posts" },
+        { id: "besser", label: "Besser block (core-filled)" },
+        { id: "rock", label: "Rock / boulder wall" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const v = variant || "concrete_sleeper";
+        const rate = { timber_sleeper: { AU: 260, US: 175, UK: 195 }, concrete_sleeper: { AU: 360, US: 245, UK: 270 },
+          besser: { AU: 420, US: 285, UK: 320 }, rock: { AU: 480, US: 325, UK: 360 } }[v][region];
+        const labels = { timber_sleeper: "Timber sleeper retaining wall", concrete_sleeper: "Concrete sleeper wall + posts",
+          besser: "Besser block wall (core-filled)", rock: "Rock / boulder retaining wall" };
+        return [
+          { id: mk(), kind: "element", label: labels[v], qty: round(a, 2), unit: "m²", fixedRate: rate },
+          { id: mk(), kind: "element", label: "Ag drain + gravel backfill", qty: round(a, 2), unit: "m²", fixedRate: { AU: 45, US: 30, UK: 34 }[region] },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_concreter", label: "Retaining crew", days: Math.max(1, round(a / 8, 1)) }],
+      addons: [],
+    },
+    {
+      id: "tiling", label: "Tiling (wall or floor)", dim: "area", dimLabel: "Area to tile (m²)",
+      note: "Tile supply + lay, including adhesive and grout.",
+      variants: [
+        { id: "ceramic", label: "Ceramic" },
+        { id: "porcelain", label: "Porcelain" },
+        { id: "stone", label: "Natural stone" },
+        { id: "mosaic", label: "Mosaic / feature" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const v = variant || "ceramic";
+        const rate = { ceramic: { AU: 110, US: 75, UK: 82 }, porcelain: { AU: 140, US: 95, UK: 105 },
+          stone: { AU: 190, US: 130, UK: 145 }, mosaic: { AU: 220, US: 150, UK: 165 } }[v][region];
+        const labels = { ceramic: "Ceramic tiles + lay", porcelain: "Porcelain tiles + lay", stone: "Natural stone tiles + lay", mosaic: "Mosaic / feature tiles + lay" };
+        return [
+          { id: mk(), kind: "element", label: labels[v], qty: round(a, 2), unit: "m²", fixedRate: rate },
+          { id: mk(), kind: "element", label: "Waterproofing (wet areas)", qty: round(a, 2), unit: "m²", fixedRate: { AU: 35, US: 24, UK: 27 }[region] },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_tiler", label: "Tiler", days: Math.max(0.5, round(a / 12, 1)) }],
+      addons: [],
+    },
+    {
+      id: "roofing", label: "Roofing / re-roof", dim: "area", dimLabel: "Roof area (m²)",
+      note: "Roof covering — sheet or tile, including flashings.",
+      variants: [
+        { id: "colorbond", label: "Colorbond / metal sheet" },
+        { id: "zincalume", label: "Zincalume" },
+        { id: "concrete_tile", label: "Concrete tile" },
+        { id: "terracotta", label: "Terracotta tile" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const v = variant || "colorbond";
+        const matId = { colorbond: "metal_roof_sheet", zincalume: "zincalume_sheet", concrete_tile: "concrete_tile", terracotta: "terracotta_tile" }[v];
+        const m = Materials.get(matId);
+        return [
+          { id: mk(), kind: "material", materialId: matId, label: m.label, qty: round(a, 2), unit: "m²" },
+          { id: mk(), kind: "material", materialId: "sarking", label: "Sarking / reflective foil", qty: round(a, 2), unit: "m²" },
+          { id: mk(), kind: "material", materialId: "roof_flashing", label: "Ridge capping & flashings", qty: round(Math.sqrt(a) * 2, 2), unit: "lin.m" },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_roofer", label: "Roofer", days: Math.max(0.5, round(a / 20, 1)) }],
+      addons: [],
+    },
+    {
+      id: "carport", label: "Carport / shed", dim: "area", dimLabel: "Covered area (m²)",
+      note: "Steel-frame carport or shed — frame, roof, slab.",
+      variants: [
+        { id: "carport_single", label: "Open carport" },
+        { id: "shed_enclosed", label: "Enclosed shed / garage" },
+      ],
+      lines: (a, region, mk, variant) => {
+        const v = variant || "carport_single";
+        const rate = { carport_single: { AU: 320, US: 220, UK: 245 }, shed_enclosed: { AU: 520, US: 355, UK: 395 } }[v][region];
+        const label = v === "carport_single" ? "Carport frame + roof (steel)" : "Shed frame, roof & walls (steel)";
+        return [
+          { id: mk(), kind: "element", label, qty: round(a, 2), unit: "m²", fixedRate: rate },
+          { id: mk(), kind: "material", materialId: "concrete_plain", label: "Concrete slab", qty: round(a, 2), unit: "m²" },
+        ];
+      },
+      labour: (a) => [{ labourId: "lab_carpenter", label: "Builder / installer", days: Math.max(1, round(a / 12, 1)) }],
+      addons: [],
     },
     {
       id: "deck", label: "Deck / pergola", dim: "area", dimLabel: "Deck area (m²)",
@@ -3743,7 +3948,8 @@ export default function App() {
           --grid: ${TOKENS.grid};
         }
         html { scroll-behavior: smooth; }
-        body { background: var(--paper); }
+        body { background: var(--paper); overflow-x: hidden; }
+        html { overflow-x: hidden; max-width: 100%; }
         .ec-display { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: 0.01em; }
         .ec-mono { font-family: 'JetBrains Mono', monospace; font-feature-settings: "tnum"; }
         .ec-eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--steel); }
@@ -4091,8 +4297,15 @@ export default function App() {
       {/* ============== MAIN GRID (estimator tool) ============== */}
       <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "48px 24px 64px", display: "grid", gridTemplateColumns: "minmax(320px, 380px) 1fr", gap: 28 }} className="grid-responsive">
         <style>{`
+          main.grid-responsive { box-sizing: border-box; }
+          main.grid-responsive * { min-width: 0; }
+          input, select, textarea, button { max-width: 100%; }
           @media (max-width: 960px) {
-            main.grid-responsive, main[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+            main.grid-responsive { grid-template-columns: 1fr !important; padding: 32px 16px 48px !important; gap: 20px !important; }
+          }
+          @media (max-width: 560px) {
+            main.grid-responsive { padding: 24px 12px 40px !important; }
+            .ec-viewport { height: 320px !important; }
           }
         `}</style>
 
@@ -4234,10 +4447,10 @@ export default function App() {
           </Reveal>
 
           {/* 3D viewport */}
-          <div className="ec-card ec-paper" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden" }}>
+          <div className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden" }}>
             <div ref={viewportRef} style={{ position: "absolute", inset: 0 }} />
             {/* Dimension annotations overlay */}
-            <div style={{ position: "absolute", top: 16, left: 16, display: "flex", flexDirection: "column", gap: 6, pointerEvents: "none" }}>
+            <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
               {buildMode === "materials" ? (
                 <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
@@ -4264,7 +4477,7 @@ export default function App() {
               )}
             </div>
             {/* Live indicator + current room (walk mode) */}
-            <div style={{ position: "absolute", top: 16, right: 16, pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <div style={{ position: "absolute", top: 16, right: 16, maxWidth: "42%", pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
               <span className="ec-tag"><span className="ec-live" style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} />{walkMode ? "WALKTHROUGH" : "LIVE"}</span>
               {walkMode && walkRoom && (
                 <div className="ec-mono" style={{ fontSize: 12, background: TOKENS.ink, color: TOKENS.hivis, padding: "5px 10px", letterSpacing: "0.04em" }}>
@@ -4273,7 +4486,7 @@ export default function App() {
               )}
             </div>
             {/* Controls */}
-            <div style={{ position: "absolute", bottom: 16, left: 16, right: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ position: "absolute", bottom: 12, left: 12, right: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "rgba(246,247,248,0.82)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", padding: 8, borderRadius: 4, border: `1px solid ${TOKENS.rule}` }}>
               {buildMode === "materials" ? (
                 <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, background: "rgba(255,255,255,0.9)", padding: "8px 12px", border: `1px solid ${TOKENS.rule}` }}>
                   Quote builder — material, labour & trades in one total
@@ -4675,11 +4888,27 @@ function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, curr
   const [bVariant, setBVariant] = useState("");
   const [bLabour, setBLabour] = useState(false);
   const [bAddonQty, setBAddonQty] = useState({});
-  const buildPreset = WallBuilder.getPreset(buildId);
+  // custom ("something else") fields
+  const [cLabel, setCLabel] = useState("");
+  const [cQty, setCQty] = useState(1);
+  const [cUnit, setCUnit] = useState("ea");
+  const [cRate, setCRate] = useState(0);
+  const isCustom = buildId === "custom";
+  const buildPreset = isCustom ? null : WallBuilder.getPreset(buildId);
   const isWall = buildPreset && buildPreset.dim === "wall";
-  const buildPreview = isWall ? (+bLen || 0) * (+bHt || 0) : (+bDim || 0);
+  const buildPreview = isCustom ? ((+cQty || 0) * (+cRate || 0) > 0 || (cLabel.trim() ? 1 : 0)) : (isWall ? (+bLen || 0) * (+bHt || 0) : (+bDim || 0));
+
+  const UNIT_OPTIONS = ["ea", "item", "lin.m", "m²", "m³", "hr", "kg", "L", "pack", "day"];
 
   const doBuild = () => {
+    if (isCustom) {
+      if (!cLabel.trim()) { setShowBuild(false); return; }
+      const newLines = [{ id: nextId(), kind: "element", materialId: null, labourId: null, label: cLabel.trim(), qty: +cQty || 0, unit: cUnit, fixedRate: +cRate || 0 }];
+      if (bLabour) newLines.push({ id: nextId(), kind: "labour", labourId: "custom", label: cLabel.trim() + " — labour", workers: 1, hours: 8, fixedRate: 0 });
+      setLines([...lines, ...newLines]);
+      setShowBuild(false); setCLabel(""); setCQty(1); setCRate(0);
+      return;
+    }
     const addonList = Object.entries(bAddonQty).filter(([, q]) => +q > 0).map(([id, q]) => ({ id, qty: +q }));
     const opts = isWall
       ? { lengthM: bLen, heightM: bHt, finish: bFinish, sides: bSides, insulated: bInsulated, labour: bLabour, addonList }
@@ -4687,6 +4916,77 @@ function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, curr
     const newLines = WallBuilder.presetToLines(buildId, opts, region, nextId);
     if (newLines.length) setLines([...lines, ...newLines]);
     setShowBuild(false); setBAddonQty({});
+  };
+
+  /* ---- AI: describe the job in plain words → structured preset instructions ----
+     The AI ONLY classifies the request into our presets + dimensions. It never
+     invents prices — our engine prices every line from the catalogue. */
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiNote, setAiNote] = useState("");
+
+  const runAI = async () => {
+    if (!aiText.trim() || aiBusy) return;
+    setAiBusy(true); setAiError(""); setAiNote("");
+    const presetSpec = WallBuilder.presets.map((p) => {
+      const v = p.variants ? ` variants:[${p.variants.map((x) => x.id).join(", ")}]` : "";
+      return `- "${p.id}" (${p.label}): dim=${p.dim}${v}`;
+    }).join("\n");
+    const addonSpec = WallBuilder.addons.map((a) => `"${a.id}" (${a.label})`).join(", ");
+    const sys = `You convert a homeowner/tradie's plain-English building request into structured JSON for an estimator. You ONLY classify into the presets below — you never invent prices or materials.
+
+Available presets:
+${presetSpec}
+
+Available wall add-ons (only for the timber_wall preset): ${addonSpec}
+
+Rules:
+- For "timber_wall" (dim=wall): provide lengthM and heightM in metres (default height 2.4 if not stated). finish is one of paint|render|tile|none. sides is 1 or 2 (default 2).
+- For presets with dim=area: provide "dim" as the area in m².
+- For presets with dim=length: provide "dim" as the length in metres.
+- If a preset has variants, optionally pick one variant id.
+- Set "labour": true only if the user implies they want labour/installation included; otherwise false.
+- Convert feet/inches to metres. A "single garage" ≈ 18m² floor / use timber_wall only if they ask for a wall; for a garage with no preset, map to the closest preset or omit and add a note.
+- Respond with ONLY a JSON object, no markdown, no prose:
+{"items":[{"preset":"<id>","lengthM":<n>,"heightM":<n>,"dim":<n>,"finish":"<s>","sides":<n>,"variant":"<id>","labour":<bool>,"addons":[{"id":"<addonId>","qty":<n>}],"label":"<short human label>"}],"note":"<anything you couldn't map, or empty>"}`;
+
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          messages: [{ role: "user", content: `${sys}\n\nRequest: "${aiText.trim()}"` }],
+        }),
+      });
+      const data = await resp.json();
+      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const clean = textOut.replace(/```json/gi, "").replace(/```/g, "").trim();
+      const parsed = JSON.parse(clean);
+      const items = Array.isArray(parsed.items) ? parsed.items : [];
+      if (!items.length) { setAiError("I couldn't map that to a job I can price. Try naming a wall, deck, fence, flooring, painting, drywall, or cabinetry with a size."); setAiBusy(false); return; }
+
+      let allLines = [];
+      for (const it of items) {
+        const p = WallBuilder.getPreset(it.preset);
+        if (!p) continue;
+        const addonList = Array.isArray(it.addons) ? it.addons.filter((a) => a && a.id).map((a) => ({ id: a.id, qty: +a.qty || 1 })) : [];
+        const opts = p.dim === "wall"
+          ? { lengthM: +it.lengthM || 3, heightM: +it.heightM || 2.4, finish: it.finish || "paint", sides: +it.sides || 2, insulated: it.insulated !== false, labour: !!it.labour, addonList }
+          : { dim: +it.dim || 0, variant: it.variant || (p.variants ? p.variants[0].id : undefined), labour: !!it.labour, addonList };
+        const newLines = WallBuilder.presetToLines(it.preset, opts, region, nextId);
+        allLines = allLines.concat(newLines);
+      }
+      if (!allLines.length) { setAiError("I understood the request but couldn't generate priced lines. Try being a bit more specific about sizes."); setAiBusy(false); return; }
+      setLines([...lines, ...allLines]);
+      setAiText("");
+      if (parsed.note) setAiNote(parsed.note);
+    } catch (e) {
+      setAiError("Something went wrong reading that. Try rephrasing, or use the manual builder below.");
+    }
+    setAiBusy(false);
   };
 
   const matCats = useMemo(() => {
@@ -4832,7 +5132,29 @@ function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, curr
           <button className="ec-btn" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11, background: TOKENS.emberDeep }} onClick={addElement}>+ Job/Trade</button>
         </div>
 
-        <button className="ec-btn ec-btn-hivis" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={() => setShowBuild((v) => !v)}>
+        {/* ---- AI: describe the job in plain words ---- */}
+        <div style={{ marginTop: 12, padding: 12, border: `1px solid ${TOKENS.ink}`, background: TOKENS.card }}>
+          <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.ink, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ background: TOKENS.hivis, color: TOKENS.ink, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
+            DESCRIBE YOUR JOB
+          </div>
+          <p style={{ fontSize: 11, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
+            Type it like you'd say it. e.g. <span style={{ color: TOKENS.ink }}>"a partition wall 4m by 2.4 painted both sides with 2 power points, and a 20m² merbau deck"</span>
+          </p>
+          <textarea className="ec-input" rows={3} value={aiText} placeholder="What do you want to build or add?"
+            onChange={(e) => setAiText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runAI(); }}
+            style={{ width: "100%", resize: "vertical", marginBottom: 8, fontFamily: "inherit", fontSize: 13, lineHeight: 1.4 }} />
+          <button className="ec-btn ec-btn-hivis" style={{ width: "100%", justifyContent: "center" }} onClick={runAI} disabled={aiBusy || !aiText.trim()}>
+            {aiBusy ? "Working it out…" : "✦ Generate estimate"}
+          </button>
+          {aiError && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8, lineHeight: 1.45 }}>{aiError}</div>}
+          {aiNote && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.emberDeep, marginTop: 8, lineHeight: 1.45 }}>Note: {aiNote}</div>}
+        </div>
+
+        <div className="ec-mono" style={{ textAlign: "center", fontSize: 9, color: TOKENS.steel, letterSpacing: "0.1em", margin: "12px 0 0" }}>— OR BUILD IT MANUALLY —</div>
+
+        <button className="ec-btn ec-btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={() => setShowBuild((v) => !v)}>
           {showBuild ? "× Close" : (embed ? "▦ What do you want to add?" : "▦ What do you want to build?")}
         </button>
 
@@ -4842,13 +5164,40 @@ function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, curr
               <span className="ec-label">I want to build…</span>
               <select className="ec-select" value={buildId} onChange={(e) => { setBuildId(e.target.value); setBVariant(""); setBAddonQty({}); }}>
                 {WallBuilder.presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+                <option value="custom">✏️ Something else (type your own)</option>
               </select>
             </label>
             {buildPreset && buildPreset.note && (
               <div style={{ fontSize: 11, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{buildPreset.note}</div>
             )}
 
-            {isWall ? (
+            {isCustom ? (
+              <>
+                <div style={{ fontSize: 11, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>
+                  Type anything we don't have a template for — describe it, set the quantity, pick the unit, and put your rate. It'll add a priced line you can edit later.
+                </div>
+                <label style={{ display: "block", marginBottom: 8 }}>
+                  <span className="ec-label">What is it?</span>
+                  <input className="ec-input" placeholder="e.g. Steel beam install, pool fencing, render patch…" value={cLabel} onChange={(e) => setCLabel(e.target.value)} />
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <label><span className="ec-label">Qty</span>
+                    <input className="ec-input" type="number" min="0" step="0.5" value={cQty} onChange={(e) => setCQty(+e.target.value)} />
+                  </label>
+                  <label><span className="ec-label">Unit</span>
+                    <select className="ec-select" value={cUnit} onChange={(e) => setCUnit(e.target.value)}>
+                      {UNIT_OPTIONS.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </label>
+                  <label><span className="ec-label">Rate {currency}</span>
+                    <input className="ec-input" type="number" min="0" step="1" value={cRate} onChange={(e) => setCRate(+e.target.value)} />
+                  </label>
+                </div>
+                <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.ink, textAlign: "right", marginBottom: 4 }}>
+                  Line total: {currency}{fmt((+cQty || 0) * (+cRate || 0))}
+                </div>
+              </>
+            ) : isWall ? (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
                   <label><span className="ec-label">Length (m)</span><input className="ec-input" type="number" min="0" step="0.1" value={bLen} onChange={(e) => setBLen(+e.target.value)} /></label>
@@ -4912,9 +5261,9 @@ function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, curr
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: 6, margin: "6px 0 10px" }}>
               <input type="checkbox" checked={bLabour} onChange={(e) => setBLabour(e.target.checked)} />
-              <span className="ec-mono" style={{ fontSize: 11 }}>Add labour estimate (trade days)</span>
+              <span className="ec-mono" style={{ fontSize: 11 }}>{isCustom ? "Add a labour line too" : "Add labour estimate (trade days)"}</span>
             </label>
-            <button className="ec-btn" style={{ width: "100%", justifyContent: "center", background: TOKENS.emberDeep }} onClick={doBuild} disabled={buildPreview <= 0}>
+            <button className="ec-btn" style={{ width: "100%", justifyContent: "center", background: TOKENS.emberDeep }} onClick={doBuild} disabled={isCustom ? !cLabel.trim() : buildPreview <= 0}>
               + Add to quote
             </button>
           </div>
@@ -5054,6 +5403,69 @@ function ImportedPanel({ spec, estimate, currency, onClear, onUnlock }) {
 
 function HighRisePanel({ hrSpec, updateHr, estimate, clearSection }) {
   const t = estimate.takeoff;
+
+  /* AI: describe the tower → fill the parameters (engine still does the maths). */
+  const [aiText, setAiText] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiNote, setAiNote] = useState("");
+
+  const runHrAI = async () => {
+    if (!aiText.trim() || aiBusy) return;
+    setAiBusy(true); setAiError(""); setAiNote("");
+    const sys = `You convert a plain-English description of a high-rise/commercial building into structured parameters for an estimator. You ONLY set parameters — you never invent costs.
+
+Fields and allowed values:
+- floorPlateM2: number, 300–5000 (floor plate area in m²)
+- floors: integer, 5–120 (storeys above ground)
+- floorHeightM: number, 3.0–6.0 (floor-to-floor height in metres; default 3.6)
+- basementLevels: integer, 0–8
+- structureType: one of "rc" (reinforced concrete), "steel", "composite"
+- facadeType: one of "curtain_wall", "precast", "brick", "render"
+- occupancy: one of "office", "residential", "hotel", "mixed", "retail"
+- passengerLifts: integer 0–20
+- goodsLifts: integer 0–6
+- hasEscalators: boolean
+- siteCondition: one of "flat", "sloping", "difficult"
+
+Rules:
+- Convert feet to metres. Infer sensible values only when strongly implied; otherwise omit the field so the current value stays.
+- "office tower" → occupancy office; "apartments"/"units" → residential; "hotel" → hotel.
+- Respond with ONLY a JSON object, no markdown, no prose:
+{"spec":{<only the fields you're confident about>},"note":"<anything you couldn't map, or empty>"}`;
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 500, messages: [{ role: "user", content: `${sys}\n\nDescription: "${aiText.trim()}"` }] }),
+      });
+      const data = await resp.json();
+      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const parsed = JSON.parse(textOut.replace(/```json/gi, "").replace(/```/g, "").trim());
+      const s = parsed.spec || {};
+      // clamp to the field ranges so nothing invalid reaches the engine
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+      const patch = {};
+      if (s.floorPlateM2 != null) patch.floorPlateM2 = clamp(+s.floorPlateM2, 300, 5000);
+      if (s.floors != null) patch.floors = clamp(Math.round(+s.floors), 5, 120);
+      if (s.floorHeightM != null) patch.floorHeightM = clamp(+s.floorHeightM, 3, 6);
+      if (s.basementLevels != null) patch.basementLevels = clamp(Math.round(+s.basementLevels), 0, 8);
+      if (["rc", "steel", "composite"].includes(s.structureType)) patch.structureType = s.structureType;
+      if (["curtain_wall", "precast", "brick", "render"].includes(s.facadeType)) patch.facadeType = s.facadeType;
+      if (["office", "residential", "hotel", "mixed", "retail"].includes(s.occupancy)) patch.occupancy = s.occupancy;
+      if (s.passengerLifts != null) patch.passengerLifts = clamp(Math.round(+s.passengerLifts), 0, 20);
+      if (s.goodsLifts != null) patch.goodsLifts = clamp(Math.round(+s.goodsLifts), 0, 6);
+      if (typeof s.hasEscalators === "boolean") patch.hasEscalators = s.hasEscalators;
+      if (["flat", "sloping", "difficult"].includes(s.siteCondition)) patch.siteCondition = s.siteCondition;
+      if (!Object.keys(patch).length) { setAiError("I couldn't pull tower details from that. Try e.g. \"20-storey office tower, 1,200m² floor plate, 3 basements\"."); setAiBusy(false); return; }
+      updateHr(patch);
+      setAiText("");
+      if (parsed.note) setAiNote(parsed.note);
+    } catch (e) {
+      setAiError("Something went wrong reading that. Try rephrasing, or use the fields below.");
+    }
+    setAiBusy(false);
+  };
+
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
@@ -5061,6 +5473,26 @@ function HighRisePanel({ hrSpec, updateHr, estimate, clearSection }) {
         <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
           Costed by structural & façade systems per m² GFA, with a per-floor structural cycle. Feasibility-grade — not a tender figure.
         </p>
+      </div>
+
+      {/* AI: describe the tower → fills the fields below */}
+      <div style={{ marginBottom: 12, padding: 12, border: `1px solid ${TOKENS.ink}`, background: TOKENS.card }}>
+        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.ink, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ background: TOKENS.hivis, color: TOKENS.ink, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
+          DESCRIBE THE TOWER
+        </div>
+        <p style={{ fontSize: 11, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
+          e.g. <span style={{ color: TOKENS.ink }}>"a 20-storey office tower, 1,200m² floor plate, 3 basement levels, concrete structure, curtain wall façade"</span> — it fills the fields, you can adjust anything after.
+        </p>
+        <textarea className="ec-input" rows={3} value={aiText} placeholder="Describe the building…"
+          onChange={(e) => setAiText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runHrAI(); }}
+          style={{ width: "100%", resize: "vertical", marginBottom: 8, fontFamily: "inherit", fontSize: 13, lineHeight: 1.4 }} />
+        <button className="ec-btn ec-btn-hivis" style={{ width: "100%", justifyContent: "center" }} onClick={runHrAI} disabled={aiBusy || !aiText.trim()}>
+          {aiBusy ? "Working it out…" : "✦ Fill the fields"}
+        </button>
+        {aiError && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8, lineHeight: 1.45 }}>{aiError}</div>}
+        {aiNote && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.emberDeep, marginTop: 8, lineHeight: 1.45 }}>Note: {aiNote}</div>}
       </div>
 
       <InputCard title="Massing" badge={`${fmt(t.gfaM2)} m² GFA`} onClear={() => clearSection("massing")}>
