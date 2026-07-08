@@ -2835,25 +2835,38 @@ class Engine3D {
     this.renderer.setSize(this.width, this.height);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap; // cheaper than PCFSoft
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    if ("outputColorSpace" in this.renderer) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     mountEl.appendChild(this.renderer.domElement);
 
-    // Lights
-    const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+    // Lights — sky/ground hemisphere for natural fill, key light for form, soft fill to lift shadows
+    const hemi = new THREE.HemisphereLight(0xdfeeff, 0xb9a98a, 0.55);
+    this.scene.add(hemi);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.25);
     this.scene.add(ambient);
-    const dir = new THREE.DirectionalLight(0xfff4d6, 0.85);
-    dir.position.set(20, 30, 15);
+    const dir = new THREE.DirectionalLight(0xfff4d6, 1.05);
+    dir.position.set(24, 34, 18);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(1024, 1024);
-    dir.shadow.camera.left = -30;
-    dir.shadow.camera.right = 30;
-    dir.shadow.camera.top = 30;
-    dir.shadow.camera.bottom = -30;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.camera.left = -40;
+    dir.shadow.camera.right = 40;
+    dir.shadow.camera.top = 40;
+    dir.shadow.camera.bottom = -40;
+    dir.shadow.camera.near = 1;
+    dir.shadow.camera.far = 120;
+    dir.shadow.bias = -0.0004;
     this.scene.add(dir);
+    // Cool fill from the opposite side to stop shadowed faces going dead black
+    const fill = new THREE.DirectionalLight(0xcfe0ff, 0.25);
+    fill.position.set(-18, 14, -12);
+    this.scene.add(fill);
 
-    // Ground
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0xb8b3a0, roughness: 0.95 });
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), groundMat);
+    // Ground — subtle two-tone so the model reads against it
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0xc4bfae, roughness: 1.0 });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), groundMat);
     ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.02;
     ground.receiveShadow = true;
     this.scene.add(ground);
 
@@ -2889,6 +2902,52 @@ class Engine3D {
 
     this._resizeObs = new ResizeObserver(() => this.resize());
     this._resizeObs.observe(mountEl);
+
+    // ---- User camera controls: drag to orbit, wheel/pinch to zoom ----
+    this.zoomFactor = 1;      // 0.4 (close) .. 2.2 (far)
+    this.tiltFactor = 1;      // vertical
+    this._userOrbiting = false;
+    const el = this.renderer.domElement;
+    el.style.touchAction = "none";
+    let dragging = false, lastX = 0, lastY = 0, pinchDist = 0;
+    const clampZoom = (z) => Math.max(0.4, Math.min(2.2, z));
+    const clampTilt = (t) => Math.max(0.35, Math.min(1.8, t));
+
+    el.addEventListener("pointerdown", (e) => {
+      if (this.mode === "walk") return;
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      this.autoRotate = false; this._userOrbiting = true; this.requestRender && this.requestRender();
+      el.setPointerCapture && el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (!dragging || this.mode === "walk") return;
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      this.cameraAngle -= dx * 0.008;
+      this.tiltFactor = clampTilt(this.tiltFactor + dy * 0.004);
+      this._needsRender = true;
+    });
+    const endDrag = (e) => { dragging = false; try { el.releasePointerCapture && el.releasePointerCapture(e.pointerId); } catch (x) {} };
+    el.addEventListener("pointerup", endDrag);
+    el.addEventListener("pointercancel", endDrag);
+    el.addEventListener("wheel", (e) => {
+      if (this.mode === "walk") return;
+      e.preventDefault();
+      this.autoRotate = false; this._userOrbiting = true;
+      this.zoomFactor = clampZoom(this.zoomFactor + (e.deltaY > 0 ? 0.12 : -0.12));
+      this._needsRender = true;
+    }, { passive: false });
+    // pinch zoom
+    el.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2) { pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }
+    }, { passive: true });
+    el.addEventListener("touchmove", (e) => {
+      if (e.touches.length === 2 && this.mode !== "walk") {
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        if (pinchDist) { this.autoRotate = false; this._userOrbiting = true; this.zoomFactor = clampZoom(this.zoomFactor * (pinchDist / d)); this._needsRender = true; }
+        pinchDist = d;
+      }
+    }, { passive: true });
   }
 
   resize() {
@@ -3244,6 +3303,96 @@ class Engine3D {
     this.walkWaypoints = [];
   }
 
+  /* Quote mode: lay out simple massing blocks so you can SEE what you're
+     quoting. Not accurate geometry — a readable representation: walls as
+     panels, decks/slabs as platforms, fences as picket lines, roofs as
+     pitched caps, cabinetry as low boxes. Items are placed on a tidy grid. */
+  buildMassing(lines) {
+    this.clearBuilding();
+    this.isTower = false;
+    this.spec = null;
+    const items = (lines || []).filter((l) => l.kind === "material" || l.kind === "element");
+    if (!items.length) { this._needsRender = true; return; }
+
+    const palette = {
+      wall: 0xe8e2d6, deck: 0x9c6b3f, slab: 0xa9a9a9, fence: 0x8a6a44,
+      roof: 0x6a7075, tile: 0xd9d2c4, cabinet: 0xb98a5e, generic: 0xc7cdd2,
+    };
+    const mat = (c, rough = 0.85, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
+    const classify = (l) => {
+      const s = (l.label || "").toLowerCase() + " " + (l.materialId || "");
+      if (/deck|bearer|joist/.test(s)) return "deck";
+      if (/wall|framing|plasterboard|brick|render|cladding|lining/.test(s)) return "wall";
+      if (/slab|concrete|footing|driveway|paving/.test(s)) return "slab";
+      if (/fence|paling|colorbond fence|picket/.test(s)) return "fence";
+      if (/roof|sheet|flashing|sarking|truss/.test(s)) return "roof";
+      if (/tile|tiling/.test(s)) return "tile";
+      if (/cabinet|bench|joinery|vanity|cabinetry/.test(s)) return "cabinet";
+      return "generic";
+    };
+
+    // group items by class so we draw one representative block per class
+    const groups = {};
+    for (const l of items) { const k = classify(l); (groups[k] = groups[k] || []).push(l); }
+    const keys = Object.keys(groups);
+    const spacing = 9;
+    const cols = Math.ceil(Math.sqrt(keys.length));
+    const startX = -((cols - 1) * spacing) / 2;
+
+    keys.forEach((k, i) => {
+      const gx = startX + (i % cols) * spacing;
+      const gz = startX + Math.floor(i / cols) * spacing;
+      const g = new THREE.Group();
+      g.position.set(gx, 0, gz);
+      const qty = groups[k].reduce((a, l) => a + (+l.qty || 0), 0);
+      const size = Math.max(2, Math.min(6, Math.sqrt(qty || 4)));
+
+      if (k === "wall") {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(size * 1.6, 3, 0.25), mat(palette.wall));
+        m.position.y = 1.5; m.castShadow = true; m.receiveShadow = true; g.add(m);
+      } else if (k === "deck") {
+        const board = new THREE.Mesh(new THREE.BoxGeometry(size * 1.4, 0.25, size * 1.4), mat(palette.deck, 0.7));
+        board.position.y = 0.7; board.castShadow = true; board.receiveShadow = true; g.add(board);
+        for (const dx of [-1, 1]) for (const dz of [-1, 1]) {
+          const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.7, 0.2), mat(0x5a4530));
+          post.position.set(dx * size * 0.6, 0.35, dz * size * 0.6); g.add(post);
+        }
+      } else if (k === "slab") {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(size * 1.6, 0.18, size * 1.6), mat(palette.slab, 0.95));
+        m.position.y = 0.09; m.receiveShadow = true; g.add(m);
+      } else if (k === "fence") {
+        for (let p = 0; p < 6; p++) {
+          const pk = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.8, 0.12), mat(palette.fence, 0.8));
+          pk.position.set(-2.5 + p, 0.9, 0); pk.castShadow = true; g.add(pk);
+        }
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(6, 0.12, 0.08), mat(palette.fence, 0.8));
+        rail.position.y = 1.4; g.add(rail);
+      } else if (k === "roof") {
+        const geo = new THREE.ConeGeometry(size, size * 0.7, 4);
+        const m = new THREE.Mesh(geo, mat(palette.roof, 0.5, 0.3));
+        m.position.y = size * 0.35 + 0.5; m.rotation.y = Math.PI / 4; m.castShadow = true; g.add(m);
+        const base = new THREE.Mesh(new THREE.BoxGeometry(size * 1.4, 0.5, size * 1.4), mat(palette.wall));
+        base.position.y = 0.25; g.add(base);
+      } else if (k === "tile") {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(size * 1.4, 0.05, size * 1.4), mat(palette.tile, 0.4));
+        m.position.y = 0.05; m.receiveShadow = true; g.add(m);
+      } else if (k === "cabinet") {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(size * 1.4, 0.9, 0.6), mat(palette.cabinet, 0.6));
+        m.position.y = 0.45; m.castShadow = true; g.add(m);
+        const top = new THREE.Mesh(new THREE.BoxGeometry(size * 1.5, 0.06, 0.7), mat(0x2a2a2a, 0.3));
+        top.position.y = 0.93; g.add(top);
+      } else {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mat(palette.generic));
+        m.position.y = size / 2; m.castShadow = true; g.add(m);
+      }
+      this.buildingGroup.add(g);
+    });
+
+    // frame the camera on the layout
+    this.zoomFactor = Math.max(0.8, Math.min(1.6, cols * 0.45));
+    this._needsRender = true;
+  }
+
   /* Build a high-rise tower: stacked floor plates, central core, façade. */
   buildTower(spec) {
     this.spec = spec;
@@ -3463,20 +3612,22 @@ class Engine3D {
       return;
     }
 
-    if (this.autoRotate) {
-      this.cameraAngle += 0.0025;
+    if (this.autoRotate || this._userOrbiting) {
+      if (this.autoRotate) this.cameraAngle += 0.0025;
+      const zoom = this.zoomFactor || 1;
+      const tilt = this.tiltFactor != null ? this.tiltFactor : 1;
       if (this.isTower && this.towerHeight) {
         const h = this.towerHeight;
-        const r = Math.max(30, h * 1.1);
+        const r = Math.max(30, h * 1.1) * zoom;
         this.camera.position.x = Math.cos(this.cameraAngle) * r;
         this.camera.position.z = Math.sin(this.cameraAngle) * r;
-        this.camera.position.y = h * 0.6 + 6;
+        this.camera.position.y = (h * 0.6 + 6) * tilt;
         this.camera.lookAt(0, h * 0.45, 0);
       } else {
-        const r = 30;
+        const r = 30 * zoom;
         this.camera.position.x = Math.cos(this.cameraAngle) * r;
         this.camera.position.z = Math.sin(this.cameraAngle) * r;
-        this.camera.position.y = 18;
+        this.camera.position.y = 18 * tilt;
         this.camera.lookAt(0, 4, 0);
       }
     }
@@ -3735,13 +3886,13 @@ export default function App() {
       setProgress(1);
     } else if (buildMode === "materials") {
       eng.isTower = false;
-      eng.clearBuilding();   // materials-only: no model, just the empty site
+      eng.buildMassing(matSpec.lines || []);   // show simple blocks of what's quoted
     } else {
       eng.isTower = false;
       eng.buildFromSpec(spec);
       eng.setProgress(progress);
     }
-  }, [spec, hrSpec, buildMode]);
+  }, [spec, hrSpec, matSpec, buildMode]);
 
   useEffect(() => { if (buildMode === "residential") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
@@ -3774,6 +3925,7 @@ export default function App() {
 
   const clearAll = useCallback(() => {
     if (buildMode === "highrise") setHrSpec({ ...EMPTY_HR_SPEC });
+    else if (buildMode === "materials") setMatSpec({ lines: [] });
     else setSpec({ ...EMPTY_SPEC });
   }, [buildMode]);
 
@@ -4454,7 +4606,7 @@ export default function App() {
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
               {buildMode === "materials" ? (
                 <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
-                  Quote builder · no build model
+                  Quote massing · simple blocks
                 </div>
               ) : buildMode === "highrise" ? (
                 <>
@@ -4947,9 +5099,12 @@ Rules:
 - For presets with dim=length: provide "dim" as the length in metres.
 - If a preset has variants, optionally pick one variant id.
 - Set "labour": true only if the user implies they want labour/installation included; otherwise false.
-- Convert feet/inches to metres. A "single garage" ≈ 18m² floor / use timber_wall only if they ask for a wall; for a garage with no preset, map to the closest preset or omit and add a note.
-- Respond with ONLY a JSON object, no markdown, no prose:
-{"items":[{"preset":"<id>","lengthM":<n>,"heightM":<n>,"dim":<n>,"finish":"<s>","sides":<n>,"variant":"<id>","labour":<bool>,"addons":[{"id":"<addonId>","qty":<n>}],"label":"<short human label>"}],"note":"<anything you couldn't map, or empty>"}`;
+- Convert feet/inches to metres.
+- COMPOSITE STRUCTURES (cabin, shed, garage, granny flat, studio, bungalow, room): DECOMPOSE into multiple preset items. Example — "3x3 cabin with tin roof": four walls = 4 timber_wall items (or one timber_wall of total perimeter length 12m), plus roofing (dim ≈ footprint × 1.15 for pitch, variant colorbond for "tin"), plus concreting for the slab if implied. Add what you assumed to "note".
+- "tin roof" / "metal roof" → roofing variant "colorbond". "weatherboard"/"weather board"/"weatherproof board" → the walls are clad; note that cladding is approximated by the wall finish.
+- NEVER refuse a buildable small structure — decompose it. Only use "note" for parts with no reasonable preset.
+- Respond with ONLY a JSON object, no markdown fences, no prose before or after:
+{"items":[{"preset":"<id>","lengthM":<n>,"heightM":<n>,"dim":<n>,"finish":"<s>","sides":<n>,"variant":"<id>","labour":<bool>,"addons":[{"id":"<addonId>","qty":<n>}],"label":"<short human label>"}],"note":"<assumptions or unmapped parts, or empty>"}`;
 
     try {
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -4957,16 +5112,34 @@ Rules:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          messages: [{ role: "user", content: `${sys}\n\nRequest: "${aiText.trim()}"` }],
+          max_tokens: 1500,
+          system: sys,
+          messages: [{ role: "user", content: `Request: "${aiText.trim()}"` }],
         }),
       });
+      if (!resp.ok) {
+        setAiError(`The AI service returned an error (${resp.status}). Give it a second and try again.`);
+        setAiBusy(false); return;
+      }
       const data = await resp.json();
+      if (data.error) {
+        setAiError(`AI error: ${data.error.message || "unknown"}. Try again in a moment.`);
+        setAiBusy(false); return;
+      }
       const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-      const clean = textOut.replace(/```json/gi, "").replace(/```/g, "").trim();
-      const parsed = JSON.parse(clean);
+      // Robust JSON extraction: find the outermost {...} block even if prose surrounds it
+      let parsed = null;
+      const start = textOut.indexOf("{");
+      const end = textOut.lastIndexOf("}");
+      if (start >= 0 && end > start) {
+        try { parsed = JSON.parse(textOut.slice(start, end + 1)); } catch (e2) { /* fall through */ }
+      }
+      if (!parsed) {
+        setAiError("The AI's answer didn't come back in a readable format. Hit Generate again — it usually works on a retry.");
+        setAiBusy(false); return;
+      }
       const items = Array.isArray(parsed.items) ? parsed.items : [];
-      if (!items.length) { setAiError("I couldn't map that to a job I can price. Try naming a wall, deck, fence, flooring, painting, drywall, or cabinetry with a size."); setAiBusy(false); return; }
+      if (!items.length) { setAiError("I couldn't map that to a job I can price. Try naming a wall, deck, fence, roof, slab, flooring, painting, drywall, or cabinetry with a size."); setAiBusy(false); return; }
 
       let allLines = [];
       for (const it of items) {
@@ -4984,7 +5157,7 @@ Rules:
       setAiText("");
       if (parsed.note) setAiNote(parsed.note);
     } catch (e) {
-      setAiError("Something went wrong reading that. Try rephrasing, or use the manual builder below.");
+      setAiError("Couldn't reach the AI service — check your connection and try again. The manual builder below always works.");
     }
     setAiBusy(false);
   };
@@ -5027,11 +5200,23 @@ Rules:
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 6, alignItems: "center", marginBottom: 6 }}>
           <span className="ec-mono" style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: meta.color, border: `1px solid ${meta.color}`, padding: "2px 4px", borderRadius: 2 }}>{meta.tag}</span>
           {kind === "material" ? (
-            <select className="ec-select" style={{ minWidth: 0 }} value={l.materialId || ""} onChange={(e) => { const m = Materials.get(e.target.value); updateLine(l.id, { materialId: e.target.value, label: m.label, unit: m.unit, fixedRate: null, fixedTotal: null }); }}>
-              {Object.entries(matCats).map(([cat, items]) => (
-                <optgroup key={cat} label={cat}>{items.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
-              ))}
-            </select>
+            l.freeText ? (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, minWidth: 0 }}>
+                <input className="ec-input" style={{ minWidth: 0 }} placeholder="Material description" value={l.label || ""} onChange={(e) => updateLine(l.id, { label: e.target.value })} />
+                <button title="Pick from catalogue" onClick={() => { const m = Materials.catalog[0]; updateLine(l.id, { freeText: false, materialId: m.id, label: m.label, unit: m.unit, fixedRate: null, fixedTotal: null }); }}
+                  style={{ border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.steel, fontSize: 10, padding: "0 6px", cursor: "pointer" }}>list</button>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, minWidth: 0 }}>
+                <select className="ec-select" style={{ minWidth: 0 }} value={l.materialId || ""} onChange={(e) => { const m = Materials.get(e.target.value); updateLine(l.id, { materialId: e.target.value, label: m.label, unit: m.unit, fixedRate: null, fixedTotal: null }); }}>
+                  {Object.entries(matCats).map(([cat, items]) => (
+                    <optgroup key={cat} label={cat}>{items.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
+                  ))}
+                </select>
+                <button title="Rename / type your own" onClick={() => updateLine(l.id, { freeText: true, materialId: null, fixedRate: l.rate != null ? l.rate : (l.materialId ? Materials.rate(l.materialId, region) : 0) })}
+                  style={{ border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.steel, fontSize: 11, padding: "0 6px", cursor: "pointer" }}>✎</button>
+              </div>
+            )
           ) : kind === "labour" ? (
             l.labourId === "custom" || (l.labourId == null && l.label != null && !LabourRates.get(l.labourId)) ? (
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4, minWidth: 0 }}>
@@ -5108,6 +5293,35 @@ Rules:
 
   const bk = (summary && summary.byKind) || {};
   const linesTotal = lines.reduce((a, l) => a + (calcLine(l).total || 0), 0);
+
+  /* Build-sequence explainer: ask the AI to lay out the job step by step. */
+  const [steps, setSteps] = useState(null);
+  const [stepsBusy, setStepsBusy] = useState(false);
+  const [stepsErr, setStepsErr] = useState("");
+  const runSteps = async () => {
+    if (!lines.length || stepsBusy) return;
+    setStepsBusy(true); setStepsErr(""); setSteps(null);
+    const itemList = lines.map((l) => `- ${l.label}${l.qty ? ` (${l.qty} ${l.unit || ""})` : ""} [${l.kind}]`).join("\n");
+    const sys = `You are an experienced Australian builder. Given a list of quoted materials, labour and jobs, write the ACTUAL build sequence — the order the work happens on site, from ground prep to finishing. Be practical and specific to what's in the list. For each step give: a short title, what happens, and which of the listed materials/trades are used.
+Respond as ONLY JSON, no markdown:
+{"steps":[{"n":1,"title":"<step>","detail":"<what happens, 1-2 sentences>","uses":"<materials/trades from the list>"}],"summary":"<one line on total sequence>"}`;
+    try {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1500, system: sys, messages: [{ role: "user", content: `The quote contains:\n${itemList}` }] }),
+      });
+      if (!resp.ok) { setStepsErr(`AI service error (${resp.status}). Try again shortly.`); setStepsBusy(false); return; }
+      const data = await resp.json();
+      if (data.error) { setStepsErr("AI error — try again in a moment."); setStepsBusy(false); return; }
+      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const st = textOut.indexOf("{"), en = textOut.lastIndexOf("}");
+      let parsed = null;
+      if (st >= 0 && en > st) { try { parsed = JSON.parse(textOut.slice(st, en + 1)); } catch (e2) {} }
+      if (!parsed || !Array.isArray(parsed.steps)) { setStepsErr("Couldn't read the steps — hit the button again."); setStepsBusy(false); return; }
+      setSteps(parsed);
+    } catch (e) { setStepsErr("Couldn't reach the AI service — check your connection."); }
+    setStepsBusy(false);
+  };
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
@@ -5269,6 +5483,36 @@ Rules:
           </div>
         )}
       </InputCard>
+
+      {lines.length > 0 && (
+        <div style={{ marginTop: 12, marginBottom: 12 }}>
+          <button className="ec-btn ec-btn-ghost" style={{ width: "100%", justifyContent: "center" }} onClick={runSteps} disabled={stepsBusy}>
+            {stepsBusy ? "Working out the sequence…" : "✦ Show me the build steps"}
+          </button>
+          {stepsErr && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8 }}>{stepsErr}</div>}
+          {steps && (
+            <div style={{ marginTop: 10, border: `1px solid ${TOKENS.rule}`, background: TOKENS.paperLight, padding: 12 }}>
+              <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>HOW THIS GETS BUILT</div>
+              {steps.summary && <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 10px", lineHeight: 1.5 }}>{steps.summary}</p>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {steps.steps.map((s, i) => (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: 10, alignItems: "start" }}>
+                    <div className="ec-mono" style={{ width: 26, height: 26, borderRadius: 13, background: TOKENS.ink, color: TOKENS.paper, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{s.n || i + 1}</div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: TOKENS.ink, marginBottom: 2 }}>{s.title}</div>
+                      <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.45 }}>{s.detail}</div>
+                      {s.uses && <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 3 }}>Uses: {s.uses}</div>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${TOKENS.rule}`, lineHeight: 1.4 }}>
+                Indicative sequence — a guide, not a construction plan. Confirm with your builder and engineer.
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {!embed && summary && (
         <div style={{ padding: 14, border: `2px solid ${TOKENS.ink}`, background: TOKENS.card }}>
@@ -5436,11 +5680,16 @@ Rules:
     try {
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 500, messages: [{ role: "user", content: `${sys}\n\nDescription: "${aiText.trim()}"` }] }),
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 500, system: sys, messages: [{ role: "user", content: `Description: "${aiText.trim()}"` }] }),
       });
+      if (!resp.ok) { setAiError(`The AI service returned an error (${resp.status}). Try again in a moment.`); setAiBusy(false); return; }
       const data = await resp.json();
+      if (data.error) { setAiError(`AI error: ${data.error.message || "unknown"}. Try again shortly.`); setAiBusy(false); return; }
       const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
-      const parsed = JSON.parse(textOut.replace(/```json/gi, "").replace(/```/g, "").trim());
+      let parsed = null;
+      const jStart = textOut.indexOf("{"); const jEnd = textOut.lastIndexOf("}");
+      if (jStart >= 0 && jEnd > jStart) { try { parsed = JSON.parse(textOut.slice(jStart, jEnd + 1)); } catch (e2) { /* noop */ } }
+      if (!parsed) { setAiError("The AI's answer didn't come back readable — hit the button again, it usually works on retry."); setAiBusy(false); return; }
       const s = parsed.spec || {};
       // clamp to the field ranges so nothing invalid reaches the engine
       const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
