@@ -840,7 +840,57 @@ const SketchUpImport = {
 
     const matched = lines.length;
     const materialsTotal = lines.reduce((a, l) => a + l.total, 0);
+    model.__lines = lines;   // stash for labourFromModel
     return { lines, matched, unmatched, materialsTotal };
+  },
+
+  /* Estimate LABOUR from the same model quantities. Uses simple trade
+     productivity rates (hours per unit) × the region's hourly labour rate,
+     so a model.json yields materials AND labour — a workable estimate. */
+  labourFromModel(model, region) {
+    const lines = [];
+    // hours per unit for each kind of work, keyed by the catalogue material it maps to
+    const productivity = {
+      // surfaces (hours per m²)
+      brick_veneer: { trade: "lab_bricklayer", hrPerUnit: 0.9, label: "Bricklaying" },
+      weatherboard: { trade: "lab_carpenter", hrPerUnit: 0.45, label: "Cladding install" },
+      render: { trade: "lab_plasterer", hrPerUnit: 0.5, label: "Rendering" },
+      colorbond_sheet: { trade: "lab_roofer", hrPerUnit: 0.25, label: "Roof sheeting" },
+      concrete_tile: { trade: "lab_roofer", hrPerUnit: 0.4, label: "Roof tiling" },
+      plasterboard: { trade: "lab_plasterer", hrPerUnit: 0.35, label: "Plasterboard + set" },
+      paint: { trade: "lab_painter", hrPerUnit: 0.18, label: "Painting" },
+      floor_tile: { trade: "lab_tiler", hrPerUnit: 0.7, label: "Floor tiling" },
+      floor_timber: { trade: "lab_carpenter", hrPerUnit: 0.3, label: "Timber floor lay" },
+      window_alum_double: { trade: "lab_carpenter", hrPerUnit: 0.8, label: "Glazing install" },
+      // edges (hours per lin.m)
+      timber_mgp10: { trade: "lab_carpenter", hrPerUnit: 0.12, label: "Framing / carpentry" },
+      lvl_beam: { trade: "lab_carpenter", hrPerUnit: 0.35, label: "Beam install" },
+      guttering: { trade: "lab_roofer", hrPerUnit: 0.2, label: "Guttering install" },
+      // volumes (hours per m³)
+      concrete_25mpa: { trade: "lab_concreter", hrPerUnit: 2.5, label: "Concreting" },
+      // components (hours each)
+      door_internal: { trade: "lab_carpenter", hrPerUnit: 1.2, label: "Door hang" },
+      door_external: { trade: "lab_carpenter", hrPerUnit: 2.0, label: "External door install" },
+    };
+    // accumulate hours per trade+task from matched lines
+    const agg = {};
+    for (const l of model.__lines || []) {
+      const p = productivity[l.materialId];
+      if (!p) continue;
+      const key = p.label + "|" + p.trade;
+      agg[key] = agg[key] || { trade: p.trade, label: p.label, hours: 0 };
+      agg[key].hours += p.hrPerUnit * l.qty;
+    }
+    let labourTotal = 0;
+    for (const k of Object.keys(agg)) {
+      const a = agg[k];
+      const rate = LabourRates.rate(a.trade, region);
+      const hours = round(a.hours, 1);
+      const total = round(hours * rate, 2);
+      labourTotal += total;
+      lines.push({ kind: "labour", labourId: a.trade, label: a.label, workers: 1, hours, rate, total });
+    }
+    return { lines, labourTotal };
   },
 
   /* A realistic sample model.json so the feature is testable without SketchUp */
@@ -5101,6 +5151,7 @@ Rules:
 - Set "labour": true only if the user implies they want labour/installation included; otherwise false.
 - Convert feet/inches to metres.
 - COMPOSITE STRUCTURES (cabin, shed, garage, granny flat, studio, bungalow, room): DECOMPOSE into multiple preset items. Example — "3x3 cabin with tin roof": four walls = 4 timber_wall items (or one timber_wall of total perimeter length 12m), plus roofing (dim ≈ footprint × 1.15 for pitch, variant colorbond for "tin"), plus concreting for the slab if implied. Add what you assumed to "note".
+- MULTIPLE SEPARATE STRUCTURES in one request (e.g. "a studio AND an outdoor kitchen AND a separate toilet/shower block"): treat each structure independently and decompose EACH into its own walls + roof + slab items. An "outdoor kitchen" ≈ a bench/cabinetry run (kitchen_bench) + a small slab + optional roof. A "toilet/shower block" or "amenities" ≈ a small timber_wall structure + slab + roofing + tiling + waterproofing. Do your best with sensible default sizes when not given, and list every assumption in "note". NEVER fail on a multi-structure request — break it down as far as you can.
 - "tin roof" / "metal roof" → roofing variant "colorbond". "weatherboard"/"weather board"/"weatherproof board" → the walls are clad; note that cladding is approximated by the wall finish.
 - NEVER refuse a buildable small structure — decompose it. Only use "note" for parts with no reasonable preset.
 - Respond with ONLY a JSON object, no markdown fences, no prose before or after:
@@ -5705,12 +5756,12 @@ Rules:
       if (s.goodsLifts != null) patch.goodsLifts = clamp(Math.round(+s.goodsLifts), 0, 6);
       if (typeof s.hasEscalators === "boolean") patch.hasEscalators = s.hasEscalators;
       if (["flat", "sloping", "difficult"].includes(s.siteCondition)) patch.siteCondition = s.siteCondition;
-      if (!Object.keys(patch).length) { setAiError("I couldn't pull tower details from that. Try e.g. \"20-storey office tower, 1,200m² floor plate, 3 basements\"."); setAiBusy(false); return; }
+      if (!Object.keys(patch).length) { setAiError("I couldn't pull tower details from that. This box is for multi-storey buildings — for a studio, cabin, deck or renovation, use the Quote tab. Try e.g. \"20-storey office tower, 1,200m² floor plate, 3 basements\"."); setAiBusy(false); return; }
       updateHr(patch);
       setAiText("");
       if (parsed.note) setAiNote(parsed.note);
     } catch (e) {
-      setAiError("Something went wrong reading that. Try rephrasing, or use the fields below.");
+      setAiError("Couldn't reach the AI service — check your connection and try again. You can always fill the fields below by hand.");
     }
     setAiBusy(false);
   };
@@ -6366,9 +6417,10 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
     const parsed = SketchUpImport.parse(raw);
     if (!parsed.ok) { setError(parsed.error); setResult(null); return; }
     const est = SketchUpImport.estimateFromModel(parsed.model, region);
+    const lab = SketchUpImport.labourFromModel(parsed.model, region);
     setError("");
     setFileName(name || "model.json");
-    setResult({ model: parsed.model, est });
+    setResult({ model: parsed.model, est, lab });
   };
 
   const onFile = (e) => {
@@ -6390,7 +6442,7 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
   // re-estimate when region changes and we have a model
   useEffect(() => {
     if (result?.model) {
-      setResult((r) => ({ ...r, est: SketchUpImport.estimateFromModel(r.model, region) }));
+      setResult((r) => ({ ...r, est: SketchUpImport.estimateFromModel(r.model, region), lab: SketchUpImport.labourFromModel(r.model, region) }));
     }
   }, [region]);
 
@@ -6455,8 +6507,8 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
             <SectionHeader index="✓" title={`Mapped: ${fileName}`} />
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
               <CostCard label="Materials from model" value={`${currency}${fmt(result.est.materialsTotal)}`} hivis />
+              <CostCard label="Labour (estimated)" value={`${currency}${fmt(result.lab ? result.lab.labourTotal : 0)}`} />
               <CostCard label="Lines matched" value={`${result.est.matched}`} sub={`${result.est.unmatched.length} need attention`} />
-              <CostCard label="Surfaces / edges / parts" value={`${result.model.surfaces.length}/${result.model.edges.length}/${result.model.components.length}`} />
             </div>
 
             {Object.entries(grouped).map(([cat, lines]) => (
@@ -6466,8 +6518,21 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
               </div>
             ))}
 
+            {result.lab && result.lab.lines.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisDeep, marginBottom: 6, fontWeight: 700 }}>Labour · trades</div>
+                <TakeoffTable rows={result.lab.lines.map((l) => ({ label: l.label, qty: `${l.hours} hr`, rate: `${currency}${fmt(l.rate)}/hr`, total: `${currency}${fmt(l.total)}` }))} />
+              </div>
+            )}
+
+            <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12, color: TOKENS.inkSoft }}>
+              <span>Materials</span><span>{currency}{fmt(result.est.materialsTotal)}</span>
+            </div>
+            <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12, color: TOKENS.inkSoft }}>
+              <span>Labour (estimated)</span><span>{currency}{fmt(result.lab ? result.lab.labourTotal : 0)}</span>
+            </div>
             <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
-              <span>MATERIALS FROM MODEL</span><span>{currency}{fmt(result.est.materialsTotal)}</span>
+              <span>MATERIALS + LABOUR</span><span>{currency}{fmt(result.est.materialsTotal + (result.lab ? result.lab.labourTotal : 0))}</span>
             </div>
 
             {(onApply || onApplyTemplate) && (
