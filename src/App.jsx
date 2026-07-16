@@ -18,6 +18,8 @@ import {
   hideSampleSupplier, resetSuppliersToSample,
   resolveEquipmentRate, setEquipmentRateOverride, clearEquipmentRateOverrides,
 } from "./data/pricing-providers.js";
+import { RESIDENTIAL_PRESETS } from "./presets/residential-presets.js";
+import { HIGHRISE_PRESETS } from "./presets/highrise-presets.js";
 
 /* =========================================================================
    MODULE: shader.js
@@ -1314,6 +1316,21 @@ export default function App() {
     else setSpec({ ...DEFAULT_SPEC, rooms: DEFAULT_SPEC.rooms.map((r) => ({ ...r, id: nextId() })), kitchens: DEFAULT_SPEC.kitchens.map((k) => ({ ...k, id: nextId() })), bathrooms: DEFAULT_SPEC.bathrooms.map((b) => ({ ...b, id: nextId() })) });
   }, [buildMode]);
 
+  /* Load a whole-building preset — sets a complete spec in one action,
+     the same way an import does, but from a curated template rather than
+     a file. */
+  const applyPreset = useCallback((presetId) => {
+    if (!presetId) return;
+    if (buildMode === "highrise") {
+      const preset = HIGHRISE_PRESETS.find((p) => p.id === presetId);
+      if (preset) setHrSpec({ ...EMPTY_HR_SPEC, ...preset.buildSpec() });
+    } else if (buildMode === "residential") {
+      const preset = RESIDENTIAL_PRESETS.find((p) => p.id === presetId);
+      if (preset) setSpec(preset.buildSpec());
+    }
+    setTab("estimate");
+  }, [buildMode]);
+
   /* Push imported takeoff lines into the estimator: clears everything first,
      sizes a representative 3D massing from the data, and infers settings. */
   const applyImport = useCallback((lines, sourceLabel) => {
@@ -1862,6 +1879,16 @@ export default function App() {
                 ↺ Reset to sample
               </button>
             </div>
+            {buildMode !== "materials" && (
+              <select className="ec-input ec-mono" defaultValue=""
+                style={{ width: "100%", marginBottom: 16, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase" }}
+                onChange={(e) => { applyPreset(e.target.value); e.target.value = ""; }}>
+                <option value="" disabled>▤ Load a building preset…</option>
+                {(buildMode === "highrise" ? HIGHRISE_PRESETS : RESIDENTIAL_PRESETS).map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+            )}
           </Reveal>
 
           {buildMode === "materials" ? (
