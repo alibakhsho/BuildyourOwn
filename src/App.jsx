@@ -849,7 +849,7 @@ const Reporter = {
   build(estimate, projectNo) {
     const { region, spec, takeoff, materialLines, materialsTotal,
             labourLines, labourTotal, equipmentLines, equipmentTotal,
-            subtotal, prelims, margin, contingency, total, taxRate, taxLabel,
+            subtotal, prelims, prelimsPct, margin, contingency, contingencyPct, total, taxRate, taxLabel,
             timeline } = estimate;
     const currency = currencySymbol(region);
     const lines = [];
@@ -920,9 +920,9 @@ const Reporter = {
     lines.push("BUILDER ADD-ONS");
     lines.push(half);
     lines.push(pad("Direct costs subtotal", 62) + `${currency}${fmt(subtotal)}`);
-    lines.push(pad("Preliminaries (8%)", 62) + `${currency}${fmt(prelims)}`);
+    lines.push(pad(`Preliminaries (${Math.round(prelimsPct * 100)}%)`, 62) + `${currency}${fmt(prelims)}`);
     lines.push(pad("Builder margin (15%)", 62) + `${currency}${fmt(margin)}`);
-    lines.push(pad("Contingency (7%)", 62) + `${currency}${fmt(contingency)}`);
+    lines.push(pad(`Contingency (${Math.round(contingencyPct * 100)}%)`, 62) + `${currency}${fmt(contingency)}`);
     lines.push(half);
     lines.push(pad("TOTAL ESTIMATE", 62) + `${currency}${fmt(total)}`);
     if (taxRate > 0) lines.push(pad(`+ ${taxLabel}`, 62) + `${currency}${fmt(total * taxRate)}`);
@@ -957,7 +957,7 @@ const Reporter = {
   },
 
   buildHighRise(est, projectNo) {
-    const { region, spec, takeoff, systemLines, systemsTotal, prelims, designFees, margin, contingency, total, taxRate, taxLabel, timeline } = est;
+    const { region, spec, takeoff, systemLines, systemsTotal, equipmentLines = [], equipmentTotal = 0, prelims, designFees, margin, contingency, total, taxRate, taxLabel, timeline } = est;
     const currency = currencySymbol(region);
     const lines = [];
     const rule = "=".repeat(78), half = "-".repeat(78);
@@ -987,6 +987,16 @@ const Reporter = {
     }
     lines.push(half);
     lines.push(pad("Systems subtotal (adj.)", 54) + `${currency}${fmt(systemsTotal)}`);
+    if (equipmentLines.length) {
+      lines.push("");
+      lines.push("SITE EQUIPMENT & PLANT");
+      lines.push(half);
+      for (const l of equipmentLines) {
+        lines.push(pad(l.name, 40) + pad(`${l.qty} ${l.unit}`, 14) + `${currency}${fmt(l.total)}`);
+      }
+      lines.push(half);
+      lines.push(pad("Equipment subtotal", 54) + `${currency}${fmt(equipmentTotal)}`);
+    }
     lines.push(pad("Preliminaries (12%)", 54) + `${currency}${fmt(prelims)}`);
     lines.push(pad("Design & consultant fees (10%)", 54) + `${currency}${fmt(designFees)}`);
     lines.push(pad("Builder margin (10%)", 54) + `${currency}${fmt(margin)}`);
@@ -3195,8 +3205,17 @@ function HighRiseEstimateTab({ estimate, currency }) {
           <TakeoffTable rows={lines.map((l) => ({ label: l.label, qty: `${fmt(l.qty)} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
         </div>
       ))}
+      {estimate.equipmentLines?.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <SectionHeader index="B" title="Site equipment & plant" />
+          <TakeoffTable rows={estimate.equipmentLines.map((l) => ({ label: l.name, qty: `${fmt(l.qty)} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
+          <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
+            <span>EQUIPMENT SUBTOTAL</span><span>{currency}{fmt(estimate.equipmentTotal)}</span>
+          </div>
+        </div>
+      )}
       <div style={{ marginTop: 12, background: TOKENS.card, border: `2px solid ${TOKENS.ink}`, padding: 16 }}>
-        <SectionHeader index="B" title="Cost build-up" />
+        <SectionHeader index="C" title="Cost build-up" />
         <div className="ec-mono" style={{ fontSize: 13 }}>
           {[["Systems subtotal (adj.)", estimate.systemsTotal], ["Preliminaries (12%)", estimate.prelims], ["Design & consultant fees (10%)", estimate.designFees], ["Builder margin (10%)", estimate.margin], ["Contingency (8%)", estimate.contingency]].map(([label, val]) => (
             <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}` }}>
@@ -3324,9 +3343,9 @@ function EstimateTab({ estimate, currency, region, onRatesChanged }) {
         <div className="ec-mono" style={{ fontSize: 13 }}>
           {[
             ["Direct costs subtotal", estimate.subtotal],
-            ["Preliminaries (8%)", estimate.prelims],
+            [`Preliminaries (${Math.round(estimate.prelimsPct * 100)}%)`, estimate.prelims],
             ["Builder margin (15%)", estimate.margin],
-            ["Contingency (7%)", estimate.contingency],
+            [`Contingency (${Math.round(estimate.contingencyPct * 100)}%)`, estimate.contingency],
           ].map(([label, val]) => (
             <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}` }}>
               <span>{label}</span><span>{currency}{fmt(val)}</span>

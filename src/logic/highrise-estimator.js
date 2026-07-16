@@ -5,6 +5,8 @@
    residential Estimator module but keyed off HighRiseMaterials systems.
    ========================================================================= */
 import { HighRiseMaterials } from "../data/highrise-materials.js";
+import { Equipment } from "../data/equipment.js";
+import { resolveEquipmentRate } from "../data/pricing-providers.js";
 import { round } from "../lib/format.js";
 
 export const HighRiseEstimator = {
@@ -45,6 +47,7 @@ export const HighRiseEstimator = {
     add("hr_piling", t.siteAreaM2);
     add("hr_excavation", t.excavationM3);
     if (t.basementArea > 0) add("hr_basement", t.basementArea);
+    if ((spec.basementLevels || 0) >= 2) add("hr_shoring", t.basementArea);
 
     // superstructure: core always RC; frame by type
     add("hr_core_rc", t.gfaM2);
@@ -85,6 +88,23 @@ export const HighRiseEstimator = {
     return lines;
   },
 
+  /* Site plant/equipment — doesn't exist as a residential-style formula here;
+     high-rise builds are structured around the tower crane's floor cycle,
+     so equipment costing is duration-driven (structureWeeks) rather than
+     quantity-driven off the takeoff like the residential estimator. */
+  equipmentCosts(t, spec, region, structureWeeks) {
+    const rate = (id) => resolveEquipmentRate(Equipment, id, region);
+    const perimeter = 4 * Math.sqrt(Math.max(1, t.floorPlateM2));
+
+    const items = [
+      { equipmentId: "tower_crane", name: "Tower crane hire", qty: structureWeeks, unit: "weeks", rate: rate("tower_crane"), total: structureWeeks * rate("tower_crane") },
+      { equipmentId: "material_hoist", name: "Material/passenger hoist", qty: structureWeeks, unit: "weeks", rate: rate("material_hoist"), total: structureWeeks * rate("material_hoist") },
+      { equipmentId: "site_shed", name: "Site office / amenities shed", qty: structureWeeks, unit: "weeks", rate: rate("site_shed"), total: structureWeeks * rate("site_shed") },
+      { equipmentId: "hoarding_perimeter", name: "Perimeter hoarding", qty: round(perimeter, 1), unit: "lin.m", rate: rate("hoarding_perimeter"), total: round(perimeter * rate("hoarding_perimeter"), 2) },
+    ];
+    return items.filter((i) => i.total > 0);
+  },
+
   timeline(t, spec) {
     // high-rise programme: mobilisation + substructure + (floor cycle × floors) + fit-out + commissioning
     const floorCycleDays = { rc: 7, composite: 6, steel: 5 }[spec.structureType] || 7; // days per typical floor
@@ -117,12 +137,17 @@ export const HighRiseEstimator = {
     const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
     if (takeoff.gfaM2 <= 0) {
       return { mode: "highrise", region, spec, takeoff, systemLines: [], systemsTotal: 0,
-        prelims: 0, designFees: 0, margin: 0, contingency: 0, total: 0, taxRate, taxLabel,
+        equipmentLines: [], equipmentTotal: 0,
+        prelims: 0, designFees: 0, margin: 0, contingency: 0, total: 0, ratePerM2: 0, taxRate, taxLabel,
         timeline: { totalWeeks: 0, stages: [] } };
     }
     const systemLines = this.systemCosts(takeoff, spec, region);
     const systemsTotal = systemLines.reduce((a, l) => a + l.total, 0);
     const timeline = this.timeline(takeoff, spec);
+    const floorCycleDays = { rc: 7, composite: 6, steel: 5 }[spec.structureType] || 7;
+    const structureWeeks = Math.ceil((takeoff.floors * floorCycleDays) / 5);
+    const equipmentLines = this.equipmentCosts(takeoff, spec, region, structureWeeks);
+    const equipmentTotal = equipmentLines.reduce((a, l) => a + l.total, 0);
     // commercial loadings differ from residential
     const complexity = { flat: 1.0, sloping: 1.08, difficult: 1.18 }[spec.siteCondition] || 1.0;
     const adjSystems = systemsTotal * complexity;
@@ -130,11 +155,13 @@ export const HighRiseEstimator = {
     const designFees = adjSystems * 0.10;  // engineering, fire, façade consultants
     const margin = adjSystems * 0.10;      // builder margin (thinner % on large jobs)
     const contingency = adjSystems * 0.08;
-    const total = adjSystems + prelims + designFees + margin + contingency;
+    const total = adjSystems + equipmentTotal + prelims + designFees + margin + contingency;
     return {
       mode: "highrise", region, spec, takeoff,
       systemLines, systemsTotal: adjSystems,
+      equipmentLines, equipmentTotal,
       prelims, designFees, margin, contingency, total,
+      ratePerM2: takeoff.gfaM2 > 0 ? round(total / takeoff.gfaM2, 0) : 0,
       taxRate, taxLabel, timeline,
     };
   },

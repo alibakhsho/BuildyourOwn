@@ -7,6 +7,7 @@ import { Materials } from "../data/materials.js";
 import { Equipment } from "../data/equipment.js";
 import { resolveEquipmentRate } from "../data/pricing-providers.js";
 import { MaterialsOnly } from "./materials-only.js";
+import { Allocation } from "./allocation.js";
 import { round } from "../lib/format.js";
 
 function humaniseTradeName(k) {
@@ -179,10 +180,16 @@ export const Estimator = {
       const m = Materials.get(matId);
       if (!m || qty <= 0) return;
       const rate = Materials.rate(matId, region) * (opts.multiplier || 1);
+      /* Where a purchase-allocation rule exists (Allocation.rules), cost the
+         line at the real buyable order quantity (qty + trade waste), not
+         the raw estimating quantity — closer to what actually gets ordered. */
+      const alloc = Allocation.forMaterial(matId, qty);
+      const costQty = alloc ? qty * (1 + alloc.wastePct) : qty;
       lines.push({
         category: m.category, label: m.label, unit: m.unit,
-        qty: round(qty, 2), rate: round(rate, 2), total: round(rate * qty, 2),
+        qty: round(qty, 2), rate: round(rate, 2), total: round(rate * costQty, 2),
         materialId: matId,
+        ...(alloc ? { buyUnit: alloc.buyUnit, orderQty: alloc.orderQty, wastePct: alloc.wastePct } : {}),
       });
     };
 
@@ -314,16 +321,19 @@ export const Estimator = {
     }));
   },
 
-  equipmentCosts(takeoff, region, durationWeeks) {
+  equipmentCosts(takeoff, region, durationWeeks, spec = {}) {
     /* Quantities × catalogue hire rates (data/equipment.js), with any
        user-set rate overrides (data/pricing-providers.js) taking priority. */
     const rate = (id) => resolveEquipmentRate(Equipment, id, region);
+    /* Site-condition factor — same table timeline() uses for programme length:
+       harder access/ground scales up excavation and formwork/scaffold effort. */
+    const siteFactor = { flat: 1.0, sloping: 1.18, difficult: 1.35 }[spec.siteCondition] || 1.0;
 
-    const scaffoldM2 = takeoff.perimeterM * takeoff.upperFloorAreaM2 > 0 ? takeoff.perimeterM * 3 * (takeoff.gfaM2 / takeoff.footprintM2) : 0;
-    const formworkM2 = takeoff.footprintM2 * 0.6;
+    const scaffoldM2 = (takeoff.perimeterM * takeoff.upperFloorAreaM2 > 0 ? takeoff.perimeterM * 3 * (takeoff.gfaM2 / takeoff.footprintM2) : 0) * siteFactor;
+    const formworkM2 = takeoff.footprintM2 * 0.6 * siteFactor;
     const skipBinsCount = Math.ceil(takeoff.gfaM2 / 50);
     const craneWeeks = takeoff.upperFloorAreaM2 > 0 ? 2 : 0;
-    const excavatorDays = Math.max(3, Math.ceil(takeoff.footprintM2 / 30));
+    const excavatorDays = Math.max(3, Math.ceil((takeoff.footprintM2 / 30) * siteFactor));
     const siteFenceLM = takeoff.perimeterM + 20;
 
     const items = [
@@ -333,9 +343,14 @@ export const Estimator = {
       { equipmentId: "mobile_crane", name: "Mobile crane", qty: craneWeeks, unit: "weeks", rate: rate("mobile_crane"), total: craneWeeks * rate("mobile_crane") },
       { equipmentId: "skip_bin_general", name: "Waste skip bins", qty: skipBinsCount, unit: "ea", rate: rate("skip_bin_general"), total: skipBinsCount * rate("skip_bin_general") },
       { equipmentId: "site_fencing", name: "Site fencing + signage", qty: siteFenceLM, unit: "lin.m", rate: rate("site_fencing"), total: siteFenceLM * rate("site_fencing") },
-    ].filter((i) => i.total > 0);
+    ];
+    /* Vertical transport for taller residential builds (3+ storeys) */
+    if ((spec.floors || 1) >= 3) {
+      const hoistWeeks = Math.max(1, Math.round(durationWeeks * 0.6));
+      items.push({ equipmentId: "material_hoist", name: "Material/passenger hoist", qty: hoistWeeks, unit: "weeks", rate: rate("material_hoist"), total: hoistWeeks * rate("material_hoist") });
+    }
 
-    return items;
+    return items.filter((i) => i.total > 0);
   },
 
   timeline(takeoff, spec) {
@@ -388,9 +403,10 @@ export const Estimator = {
         materialLines: [], materialsTotal: 0,
         labourLines: [], labourTotal: 0,
         equipmentLines: [], equipmentTotal: 0,
-        subtotal: 0, prelims: 0, margin: 0, contingency: 0,
+        subtotal: 0, prelims: 0, prelimsPct: 0, margin: 0, contingency: 0, contingencyPct: 0,
         buildTotal: 0, extrasLines: extrasEst ? extrasEst.lines : [], extrasTotal, extrasByKind: extrasEst ? extrasEst.byKind : null,
         total: extrasTotal,
+        ratePerM2: 0,
         taxRate, taxLabel,
         timeline: { totalWeeks: 0, stages: [] },
       };
@@ -404,13 +420,17 @@ export const Estimator = {
     const labourLines = this.labourCosts(takeoff, region, complexity);
     const labourTotal = labourLines.reduce((s, l) => s + l.total, 0);
     const timeline = this.timeline(takeoff, spec);
-    const equipmentLines = this.equipmentCosts(takeoff, region, timeline.totalWeeks);
+    const equipmentLines = this.equipmentCosts(takeoff, region, timeline.totalWeeks, spec);
     const equipmentTotal = equipmentLines.reduce((s, l) => s + l.total, 0);
     const subtotal = materialsTotal + labourTotal + equipmentTotal;
-    /* Preliminaries (site setup, supervision, insurances), margin (builder), contingency */
-    const prelims = subtotal * 0.08;
+    /* Preliminaries (site setup, supervision, insurances): fixed site-establishment
+       costs amortise over less area on a small build, so smaller GFA carries a
+       higher prelims %. Contingency scales with how much can go wrong on site. */
+    const prelimsPct = takeoff.gfaM2 < 100 ? 0.10 : takeoff.gfaM2 <= 300 ? 0.08 : 0.06;
+    const contingencyPct = { flat: 0.05, sloping: 0.07, difficult: 0.10 }[spec.siteCondition] || 0.05;
+    const prelims = subtotal * prelimsPct;
     const margin = subtotal * 0.15;
-    const contingency = subtotal * 0.07;
+    const contingency = subtotal * contingencyPct;
     const buildTotal = subtotal + prelims + margin + contingency;
     /* Additional jobs/scope (the quote-builder extras) — added at entered price,
        no extra markup, shown as a transparent block. */
@@ -427,9 +447,10 @@ export const Estimator = {
       materialLines, materialsTotal,
       labourLines, labourTotal,
       equipmentLines, equipmentTotal,
-      subtotal, prelims, margin, contingency,
+      subtotal, prelims, prelimsPct, margin, contingency, contingencyPct,
       buildTotal, extrasLines: extrasEst ? extrasEst.lines : [], extrasTotal, extrasByKind: extrasEst ? extrasEst.byKind : null,
       total,
+      ratePerM2: takeoff.gfaM2 > 0 ? round(total / takeoff.gfaM2, 0) : 0,
       taxRate, taxLabel,
       timeline,
     };

@@ -17,6 +17,8 @@ export const HighRiseMaterials = {
       regions: { AU: 2600, US: 1700, UK: 1900 }, note: "Per m² of basement floor" },
     { id: "hr_excavation", label: "Bulk excavation + shoring", unit: "m³", category: "substructure",
       regions: { AU: 95, US: 62, UK: 70 } },
+    { id: "hr_shoring", label: "Deep basement shoring (secant/contiguous piling)", unit: "m²base", category: "substructure",
+      regions: { AU: 620, US: 410, UK: 460 }, note: "Additional retention system for 2+ level basements" },
 
     // ---- SUPERSTRUCTURE ----
     { id: "hr_core_rc", label: "RC core (lift/stair shear walls)", unit: "m²gfa", category: "superstructure",
