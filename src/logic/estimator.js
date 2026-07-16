@@ -4,6 +4,8 @@
    labour, equipment, timeline. No DOM, no React, no Three.js dependencies.
    ========================================================================= */
 import { Materials } from "../data/materials.js";
+import { Equipment } from "../data/equipment.js";
+import { resolveEquipmentRate } from "../data/pricing-providers.js";
 import { MaterialsOnly } from "./materials-only.js";
 import { round } from "../lib/format.js";
 
@@ -313,12 +315,9 @@ export const Estimator = {
   },
 
   equipmentCosts(takeoff, region, durationWeeks) {
-    /* Daily/weekly hire rates × duration weighting */
-    const tab = {
-      AU: { excavator: 380, scaffold_m2: 14, crane: 1800, skipBin: 480, formwork_m2: 38, fence_lm: 18 },
-      US: { excavator: 240, scaffold_m2: 9, crane: 1100, skipBin: 320, formwork_m2: 22, fence_lm: 11 },
-      UK: { excavator: 260, scaffold_m2: 10, crane: 1200, skipBin: 340, formwork_m2: 25, fence_lm: 12 },
-    }[region];
+    /* Quantities × catalogue hire rates (data/equipment.js), with any
+       user-set rate overrides (data/pricing-providers.js) taking priority. */
+    const rate = (id) => resolveEquipmentRate(Equipment, id, region);
 
     const scaffoldM2 = takeoff.perimeterM * takeoff.upperFloorAreaM2 > 0 ? takeoff.perimeterM * 3 * (takeoff.gfaM2 / takeoff.footprintM2) : 0;
     const formworkM2 = takeoff.footprintM2 * 0.6;
@@ -328,12 +327,12 @@ export const Estimator = {
     const siteFenceLM = takeoff.perimeterM + 20;
 
     const items = [
-      { name: "Excavator hire", qty: excavatorDays, unit: "days", rate: tab.excavator, total: excavatorDays * tab.excavator },
-      { name: "Scaffolding (perimeter × storeys)", qty: round(scaffoldM2, 1), unit: "m²·wk", rate: tab.scaffold_m2, total: round(scaffoldM2 * tab.scaffold_m2, 2) },
-      { name: "Formwork (slab edges + footings)", qty: round(formworkM2, 1), unit: "m²", rate: tab.formwork_m2, total: round(formworkM2 * tab.formwork_m2, 2) },
-      { name: "Mobile crane", qty: craneWeeks, unit: "weeks", rate: tab.crane, total: craneWeeks * tab.crane },
-      { name: "Waste skip bins", qty: skipBinsCount, unit: "ea", rate: tab.skipBin, total: skipBinsCount * tab.skipBin },
-      { name: "Site fencing + signage", qty: siteFenceLM, unit: "lin.m", rate: tab.fence_lm, total: siteFenceLM * tab.fence_lm },
+      { equipmentId: "excavator_5t", name: "Excavator hire", qty: excavatorDays, unit: "days", rate: rate("excavator_5t"), total: excavatorDays * rate("excavator_5t") },
+      { equipmentId: "scaffold_perimeter", name: "Scaffolding (perimeter × storeys)", qty: round(scaffoldM2, 1), unit: "m²·wk", rate: rate("scaffold_perimeter"), total: round(scaffoldM2 * rate("scaffold_perimeter"), 2) },
+      { equipmentId: "formwork_hire", name: "Formwork (slab edges + footings)", qty: round(formworkM2, 1), unit: "m²", rate: rate("formwork_hire"), total: round(formworkM2 * rate("formwork_hire"), 2) },
+      { equipmentId: "mobile_crane", name: "Mobile crane", qty: craneWeeks, unit: "weeks", rate: rate("mobile_crane"), total: craneWeeks * rate("mobile_crane") },
+      { equipmentId: "skip_bin_general", name: "Waste skip bins", qty: skipBinsCount, unit: "ea", rate: rate("skip_bin_general"), total: skipBinsCount * rate("skip_bin_general") },
+      { equipmentId: "site_fencing", name: "Site fencing + signage", qty: siteFenceLM, unit: "lin.m", rate: rate("site_fencing"), total: siteFenceLM * rate("site_fencing") },
     ].filter((i) => i.total > 0);
 
     return items;

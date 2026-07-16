@@ -12,6 +12,12 @@ import { MaterialsOnly } from "./logic/materials-only.js";
 import { Estimator, inferSpecFromImport } from "./logic/estimator.js";
 import { HighRiseEstimator } from "./logic/highrise-estimator.js";
 import { Engine3D } from "./engine/engine3D.js";
+import { Equipment } from "./data/equipment.js";
+import {
+  getSuppliers, addSupplierOverride, removeSupplierOverride,
+  hideSampleSupplier, resetSuppliersToSample,
+  resolveEquipmentRate, setEquipmentRateOverride, clearEquipmentRateOverrides,
+} from "./data/pricing-providers.js";
 
 /* =========================================================================
    MODULE: shader.js
@@ -657,72 +663,6 @@ By Others,Bulkheads,,m,0.00,0.00
   },
 };
 
-const Suppliers = {
-  AU: [
-    // ---- LOCAL — Far North Queensland (Cairns region) ----
-    { name: "Cairns Hardware", tier: "Local (FNQ)", url: (q) => `https://www.cairnshardware.com.au/?s=${encodeURIComponent(q)}`,
-      coverage: "Heavy building, timber, plasterboard, steel, roofing — trade drive-thrus across FNQ" },
-    { name: "Dynamic Timbers (Cairns)", tier: "Local (FNQ)", url: () => `https://dynamictimbers.com.au/`,
-      coverage: "Timber yard, roof trusses, wall frames, masonry — Cairns / Innisfail / Tolga" },
-    { name: "Rankine Timber & Truss", tier: "Local (FNQ)", url: () => `https://www.rankinetimber.com.au/`,
-      coverage: "Trusses, frames, hardwood & pine, flooring, decking, fencing" },
-    { name: "Metroll Cairns", tier: "Local (FNQ)", url: () => `https://www.metroll.com.au/map_location/cairns-branch/`,
-      coverage: "Locally-made roofing, cladding, rainwater & structural steel" },
-
-    // ---- NATIONAL — trade suppliers (deliver to FNQ from down south) ----
-    { name: "Reece", tier: "National trade", url: (q) => `https://www.reece.com.au/search?query=${encodeURIComponent(q)}`,
-      coverage: "Plumbing, bathroom, hot water, HVAC-R — 600+ branches" },
-    { name: "Tradelink", tier: "National trade", url: (q) => `https://tradelink.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Plumbing, bathroom, kitchen" },
-    { name: "Stratco", tier: "National trade", url: (q) => `https://www.stratco.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Roofing, sheds, fencing, structural steel, patios" },
-    { name: "Metroll", tier: "National trade", url: () => `https://www.metroll.com.au/`,
-      coverage: "Steel roofing, walling, purlins, rainwater — 30 branches nationally" },
-    { name: "Bowens", tier: "National trade", url: (q) => `https://www.bowens.com.au/?s=${encodeURIComponent(q)}`,
-      coverage: "Timber & building materials, frames & trusses" },
-    { name: "Dahlsens", tier: "National trade", url: () => `https://www.dahlsens.com.au/`,
-      coverage: "Building materials, frames & trusses for builders" },
-
-    // ---- GENERAL — retail (homeowners + top-ups) ----
-    { name: "Bunnings Warehouse", tier: "General retail", url: (q) => `https://www.bunnings.com.au/search/products?q=${encodeURIComponent(q)}`,
-      coverage: "Timber, hardware, paint, tools, garden, fittings" },
-    { name: "Mitre 10", tier: "General retail", url: (q) => `https://www.mitre10.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "General hardware, timber, paint — independent network" },
-    { name: "Total Tools", tier: "General retail", url: (q) => `https://www.totaltools.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Power tools, hand tools, accessories" },
-    { name: "Kennards Hire", tier: "Equipment hire", url: (q) => `https://www.kennards.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Excavators, scaffolding, scissor lifts, compaction" },
-    { name: "Coates Hire", tier: "Equipment hire", url: (q) => `https://www.coates.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Earthmoving, access, propping, site services" },
-  ],
-  US: [
-    { name: "The Home Depot", url: (q) => `https://www.homedepot.com/s/${encodeURIComponent(q)}`,
-      coverage: "Lumber, tools, hardware, appliances" },
-    { name: "Lowe's", url: (q) => `https://www.lowes.com/search?searchTerm=${encodeURIComponent(q)}`,
-      coverage: "Lumber, hardware, appliances, garden" },
-    { name: "Ferguson", url: (q) => `https://www.ferguson.com/search/?searchString=${encodeURIComponent(q)}`,
-      coverage: "Plumbing, HVAC, lighting" },
-    { name: "Menards", url: (q) => `https://www.menards.com/main/search.html?search=${encodeURIComponent(q)}`,
-      coverage: "General building supplies (Midwest US)" },
-    { name: "Sunbelt Rentals", url: (q) => `https://www.sunbeltrentals.com/equipment/search/?keywords=${encodeURIComponent(q)}`,
-      coverage: "Equipment hire" },
-  ],
-  UK: [
-    { name: "Wickes", url: (q) => `https://www.wickes.co.uk/search?text=${encodeURIComponent(q)}`,
-      coverage: "Timber, hardware, kitchens, bathrooms" },
-    { name: "Screwfix", url: (q) => `https://www.screwfix.com/search?search=${encodeURIComponent(q)}`,
-      coverage: "Trade fittings, tools, electrical, plumbing" },
-    { name: "B&Q", url: (q) => `https://www.diy.com/search?term=${encodeURIComponent(q)}`,
-      coverage: "General hardware, garden, paint" },
-    { name: "Travis Perkins", url: (q) => `https://www.travisperkins.co.uk/search?q=${encodeURIComponent(q)}`,
-      coverage: "Timber, building materials, heavy-side" },
-    { name: "Toolstation", url: (q) => `https://www.toolstation.com/search?q=${encodeURIComponent(q)}`,
-      coverage: "Tools, fixings, electrical" },
-    { name: "HSS Hire", url: (q) => `https://www.hss.com/hire/search?q=${encodeURIComponent(q)}`,
-      coverage: "Equipment hire" },
-  ],
-};
-
 /* =========================================================================
    MODULE: codes.js
    Curated reference of key building-code principles, jurisdiction-specific,
@@ -1270,6 +1210,7 @@ export default function App() {
   const [hrSpec, setHrSpec] = useState(DEFAULT_HR_SPEC);
   const [matSpec, setMatSpec] = useState(DEFAULT_MAT_SPEC);
   const [tab, setTab] = useState("estimate");
+  const [ratesVersion, setRatesVersion] = useState(0); // bumped after equipment rate overrides change
   const [projectNo] = useState(genProjectNo);
   const [autoRotate, setAutoRotate] = useState(true);
   const [progress, setProgress] = useState(1); // start fully built
@@ -1331,7 +1272,7 @@ export default function App() {
     () => buildMode === "highrise" ? HighRiseEstimator.buildEstimate(hrSpec, region)
       : buildMode === "materials" ? MaterialsOnly.buildEstimate(matSpec, region)
       : Estimator.buildEstimate(spec, region),
-    [spec, hrSpec, matSpec, buildMode, region]
+    [spec, hrSpec, matSpec, buildMode, region, ratesVersion]
   );
 
   /* Spec update helper */
@@ -2153,7 +2094,7 @@ export default function App() {
           </div>
 
           <div style={{ marginTop: 20 }}>
-            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} />)}
+            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
             {tab === "timeline" && buildMode !== "materials" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
             {tab === "spreadsheet" && buildMode === "residential" && <SpreadsheetTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
             {tab === "spreadsheet" && buildMode === "materials" && <SpreadsheetTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
@@ -3302,7 +3243,7 @@ function HighRiseTimelineTab({ estimate }) {
   );
 }
 
-function EstimateTab({ estimate, currency }) {
+function EstimateTab({ estimate, currency, region, onRatesChanged }) {
   const groupedMaterials = useMemo(() => {
     const groups = {};
     for (const l of estimate.materialLines) {
@@ -3311,6 +3252,17 @@ function EstimateTab({ estimate, currency }) {
     }
     return groups;
   }, [estimate]);
+
+  const [editingRates, setEditingRates] = useState(false);
+  const setRate = (equipmentId, value) => {
+    const n = +value;
+    if (equipmentId && isFinite(n) && n >= 0) setEquipmentRateOverride(equipmentId, region, n);
+    onRatesChanged?.();
+  };
+  const restoreDefaultRates = () => {
+    clearEquipmentRateOverrides();
+    onRatesChanged?.();
+  };
 
   return (
     <div>
@@ -3338,8 +3290,30 @@ function EstimateTab({ estimate, currency }) {
       </div>
 
       <div style={{ marginTop: 28 }}>
-        <SectionHeader index="C" title="Equipment & plant" />
-        <TakeoffTable rows={estimate.equipmentLines.map((l) => ({ label: l.name, qty: `${l.qty} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <SectionHeader index="C" title="Equipment & plant" />
+          <button onClick={() => setEditingRates((v) => !v)} style={{ border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", fontSize: 12, textDecoration: "underline", whiteSpace: "nowrap" }}>
+            {editingRates ? "Done editing" : "Edit rates"}
+          </button>
+        </div>
+        {editingRates ? (
+          <div className="ec-mono" style={{ fontSize: 12 }}>
+            {estimate.equipmentLines.map((l, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 110px", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "center" }}>
+                <span style={{ color: TOKENS.ink }}>{l.name}</span>
+                <span style={{ textAlign: "right" }}>{l.qty} {l.unit}</span>
+                <input type="number" className="ec-input" style={{ textAlign: "right", padding: "4px 6px" }}
+                  defaultValue={l.rate} onBlur={(e) => setRate(l.equipmentId, e.target.value)} />
+                <span style={{ textAlign: "right" }}>{currency}{fmt(l.total)}</span>
+              </div>
+            ))}
+            <button onClick={restoreDefaultRates} style={{ border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", fontSize: 11, textDecoration: "underline", marginTop: 8 }}>
+              Restore default equipment rates
+            </button>
+          </div>
+        ) : (
+          <TakeoffTable rows={estimate.equipmentLines.map((l) => ({ label: l.name, qty: `${l.qty} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
+        )}
         <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
           <span>EQUIPMENT SUBTOTAL</span><span>{currency}{fmt(estimate.equipmentTotal)}</span>
         </div>
@@ -3955,9 +3929,35 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
   );
 }
 
+function resolveSupplierUrl(s, q) {
+  if (typeof s.url === "function") return s.url(q);
+  if (s.urlTemplate) return s.urlTemplate.includes("{q}") ? s.urlTemplate.replace("{q}", encodeURIComponent(q)) : s.urlTemplate;
+  return "#";
+}
+
 function SuppliersTab({ region, estimate }) {
-  const suppliers = Suppliers[region];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const suppliers = useMemo(() => getSuppliers(region), [region, refreshKey]);
   const [query, setQuery] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: "", tier: "Custom", coverage: "", urlTemplate: "" });
+
+  const addSupplier = () => {
+    if (!newSupplier.name.trim()) return;
+    addSupplierOverride(region, { ...newSupplier });
+    setNewSupplier({ name: "", tier: "Custom", coverage: "", urlTemplate: "" });
+    setAdding(false);
+    setRefreshKey((k) => k + 1);
+  };
+  const removeSupplier = (s) => {
+    if (s.custom) removeSupplierOverride(region, s.name);
+    else hideSampleSupplier(region, s.name);
+    setRefreshKey((k) => k + 1);
+  };
+  const resetToSample = () => {
+    resetSuppliersToSample(region);
+    setRefreshKey((k) => k + 1);
+  };
 
   /* Build a unique list of labels from the takeoff, ordered by total cost desc.
      Residential estimates expose materialLines; high-rise exposes systemLines. */
@@ -4012,30 +4012,52 @@ function SuppliersTab({ region, estimate }) {
             <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.14em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 10 }}>{t.toUpperCase()}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
               {byTier[t].map((s) => (
-                <a key={s.name} href={s.url(q)} target="_blank" rel="noopener noreferrer"
-                  className="ec-card" style={{ padding: 16, textDecoration: "none", color: TOKENS.ink, display: "block", transition: "all 0.15s" }}
-                  onMouseOver={(e) => e.currentTarget.style.borderColor = TOKENS.ink}
-                  onMouseOut={(e) => e.currentTarget.style.borderColor = TOKENS.rule}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                    <div className="ec-display" style={{ fontSize: 17, lineHeight: 1.1 }}>{s.name}</div>
-                    <span style={{ fontSize: 18, color: TOKENS.hivisDeep }}>↗</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{s.coverage}</div>
-                  <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, paddingTop: 8, borderTop: `1px dashed ${TOKENS.rule}` }}>
-                    SEARCH · "{q.length > 34 ? q.slice(0, 34) + "…" : q}"
-                  </div>
-                </a>
+                <div key={s.name} className="ec-card" style={{ padding: 16, position: "relative" }}>
+                  <button onClick={(e) => { e.preventDefault(); removeSupplier(s); }} title={s.custom ? "Remove" : "Hide"}
+                    style={{ position: "absolute", top: 8, right: 8, border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", fontSize: 14 }}>×</button>
+                  <a href={resolveSupplierUrl(s, q)} target="_blank" rel="noopener noreferrer"
+                    style={{ textDecoration: "none", color: TOKENS.ink, display: "block" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, paddingRight: 16 }}>
+                      <div className="ec-display" style={{ fontSize: 17, lineHeight: 1.1 }}>{s.name}{s.custom ? " ✎" : ""}</div>
+                      <span style={{ fontSize: 18, color: TOKENS.hivisDeep }}>↗</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{s.coverage}</div>
+                    <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, paddingTop: 8, borderTop: `1px dashed ${TOKENS.rule}` }}>
+                      SEARCH · "{q.length > 34 ? q.slice(0, 34) + "…" : q}"
+                    </div>
+                  </a>
+                </div>
               ))}
             </div>
           </div>
         ));
       })()}
 
-      <div style={{ marginTop: 4, padding: 12, border: `1px dashed ${TOKENS.rule}`, background: TOKENS.paperLight }}>
+      <div style={{ marginTop: 4, padding: 12, border: `1px dashed ${TOKENS.rule}`, background: TOKENS.paperLight, marginBottom: 16 }}>
         <p className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, margin: 0, lineHeight: 1.6 }}>
           Local FNQ suppliers are listed for the Cairns region. Some local yards quote by phone/account rather than online search — their link opens the supplier so you can request a trade quote. National suppliers deliver to FNQ from down south.
         </p>
       </div>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="ec-btn" onClick={() => setAdding((v) => !v)}>+ Add supplier</button>
+        <button onClick={resetToSample} style={{ border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", fontSize: 12, textDecoration: "underline" }}>
+          ↺ Reset to sample suppliers
+        </button>
+      </div>
+      {adding && (
+        <div className="ec-card" style={{ padding: 16, marginTop: 12, maxWidth: 480 }}>
+          <InputRow>
+            <Field label="Name"><input className="ec-input" value={newSupplier.name} onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })} /></Field>
+            <Field label="Tier"><input className="ec-input" value={newSupplier.tier} onChange={(e) => setNewSupplier({ ...newSupplier, tier: e.target.value })} /></Field>
+          </InputRow>
+          <Field label="Coverage"><input className="ec-input" value={newSupplier.coverage} onChange={(e) => setNewSupplier({ ...newSupplier, coverage: e.target.value })} /></Field>
+          <Field label="Search URL (use {q} where the search term goes)">
+            <input className="ec-input" placeholder="https://example.com/search?q={q}" value={newSupplier.urlTemplate} onChange={(e) => setNewSupplier({ ...newSupplier, urlTemplate: e.target.value })} />
+          </Field>
+          <button className="ec-btn" style={{ marginTop: 8 }} onClick={addSupplier}>Add</button>
+        </div>
+      )}
     </div>
   );
 }
