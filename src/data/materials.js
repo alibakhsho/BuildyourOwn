@@ -456,6 +456,130 @@ export const Materials = {
       regions: { AU: 1100, US: 700, UK: 780 } },
     { id: "pool_paving", label: "Pool surround paving", unit: "m²", category: "outdoor",
       regions: { AU: 130, US: 85, UK: 95 } },
+
+    // ---- SITEWORK ----
+    { id: "site_clearing", label: "Site clearing & grubbing", unit: "m²", category: "sitework",
+      regions: { AU: 8, US: 5, UK: 6 } },
+    { id: "earthworks_cut_fill", label: "Bulk earthworks (cut & fill)", unit: "m³", category: "sitework",
+      regions: { AU: 45, US: 30, UK: 34 } },
+    { id: "erosion_control_fencing", label: "Erosion & sediment control fencing", unit: "lin.m", category: "sitework",
+      regions: { AU: 12, US: 8, UK: 9 }, note: "Silt fence, required during earthworks" },
+
+    // ---- FORMWORK (consumable/labour, distinct from equipment hire) ----
+    { id: "formwork_slab_edge", label: "Formwork — slab edge", unit: "lin.m", category: "formwork",
+      regions: { AU: 32, US: 21, UK: 24 } },
+    { id: "formwork_column", label: "Formwork — column/upstand", unit: "m²", category: "formwork",
+      regions: { AU: 48, US: 32, UK: 36 } },
+
+    // ---- REINFORCEMENT (beyond the existing rebar_n12) ----
+    { id: "rebar_n16", label: "Reinforcement bar (N16)", unit: "tonne", category: "reinforcement",
+      regions: { AU: 1900, US: 1250, UK: 1400 } },
+    { id: "rebar_n20", label: "Reinforcement bar (N20)", unit: "tonne", category: "reinforcement",
+      regions: { AU: 1950, US: 1280, UK: 1430 } },
+    { id: "mesh_sl72", label: "Reinforcing mesh (SL72)", unit: "m²", category: "reinforcement",
+      regions: { AU: 14, US: 9, UK: 10 } },
+    { id: "mesh_sl82", label: "Reinforcing mesh (SL82)", unit: "m²", category: "reinforcement",
+      regions: { AU: 18, US: 12, UK: 13 } },
+
+    // ---- STRUCTURAL STEEL (beyond the generic structural_steel line) ----
+    { id: "universal_beam", label: "Universal beam (UB), fabricated & installed", unit: "tonne", category: "structural_steel",
+      regions: { AU: 5200, US: 3400, UK: 3800 } },
+    { id: "universal_column", label: "Universal column (UC), fabricated & installed", unit: "tonne", category: "structural_steel",
+      regions: { AU: 5400, US: 3550, UK: 3950 } },
+    { id: "steel_purlin", label: "Steel roof purlin (C/Z section)", unit: "lin.m", category: "structural_steel",
+      regions: { AU: 22, US: 14, UK: 16 } },
+
+    // ---- MASONRY / BLOCKWORK ----
+    { id: "concrete_block_190", label: "Concrete block (190 series), laid", unit: "m²", category: "masonry",
+      regions: { AU: 105, US: 68, UK: 76 } },
+    { id: "besser_block_filled", label: "Besser block, core-filled + reinforced", unit: "m²", category: "masonry",
+      regions: { AU: 145, US: 95, UK: 106 } },
+    { id: "retaining_block", label: "Segmental retaining wall block", unit: "m²", category: "masonry",
+      regions: { AU: 165, US: 108, UK: 120 } },
+
+    // ---- INSULATION (tiered R-values, beyond roof/wall basics) ----
+    { id: "wall_insulation_r4", label: "Wall insulation batts R4.0 (upgrade)", unit: "m²", category: "insulation",
+      regions: { AU: 22, US: 14, UK: 16 } },
+    { id: "roof_insulation_r6", label: "Roof insulation batts R6.0 (upgrade)", unit: "m²", category: "insulation",
+      regions: { AU: 26, US: 17, UK: 19 } },
+
+    // ---- CLADDING (tiered) ----
+    { id: "brick_veneer_premium", label: "Brick veneer — premium/handmade finish", unit: "m²", category: "cladding",
+      regions: { AU: 145, US: 95, UK: 106 } },
+    { id: "weatherboard_composite", label: "Composite weatherboard cladding", unit: "m²", category: "cladding",
+      regions: { AU: 88, US: 58, UK: 65 } },
+    { id: "cladding_metal_panel", label: "Architectural metal panel cladding", unit: "m²", category: "cladding",
+      regions: { AU: 165, US: 108, UK: 120 } },
+
+    // ---- ROOFING (tiered) ----
+    { id: "metal_roof_premium", label: "Standing-seam metal roof (premium)", unit: "m²", category: "roof",
+      regions: { AU: 78, US: 51, UK: 57 } },
+    { id: "slate_tile", label: "Natural slate roof tile", unit: "m²", category: "roof",
+      regions: { AU: 165, US: 108, UK: 120 } },
+
+    // ---- WINDOWS & DOORS (tiered) ----
+    { id: "window_timber_double", label: "Timber window, double-glazed", unit: "m²", category: "openings",
+      regions: { AU: 980, US: 640, UK: 715 } },
+    { id: "window_upvc_double", label: "uPVC window, double-glazed", unit: "m²", category: "openings",
+      regions: { AU: 650, US: 425, UK: 475 } },
+    { id: "door_external_premium", label: "External door — solid timber, premium", unit: "ea", category: "openings",
+      regions: { AU: 2800, US: 1850, UK: 2050 } },
+    { id: "bifold_door", label: "Bi-fold glass door (per panel)", unit: "ea", category: "openings",
+      regions: { AU: 950, US: 620, UK: 690 } },
+
+    // ---- FLOORING (beyond timber/tile/carpet blanket finishes) ----
+    { id: "floor_vinyl_plank", label: "Vinyl plank flooring, laid", unit: "m²", category: "interior",
+      regions: { AU: 68, US: 45, UK: 50 } },
+    { id: "floor_polished_concrete", label: "Polished concrete floor finish", unit: "m²", category: "interior",
+      regions: { AU: 95, US: 62, UK: 70 } },
+    { id: "floor_hybrid", label: "Hybrid (rigid-core) flooring, laid", unit: "m²", category: "interior",
+      regions: { AU: 78, US: 51, UK: 57 } },
+
+    // ---- NAMED PLUMBING / ELECTRICAL / HVAC FIXTURES ----
+    { id: "downlight_led", label: "LED downlight, supplied & installed", unit: "ea", category: "services",
+      regions: { AU: 45, US: 30, UK: 33 } },
+    { id: "power_point_double", label: "Double power point, supplied & installed", unit: "ea", category: "services",
+      regions: { AU: 65, US: 42, UK: 47 } },
+    { id: "hvac_ducted", label: "Ducted reverse-cycle A/C system", unit: "ea", category: "services",
+      regions: { AU: 9800, US: 6400, UK: 7150 }, note: "Whole-house ducted, per system" },
+    { id: "switchboard_upgrade", label: "Switchboard + safety switch upgrade", unit: "ea", category: "services",
+      regions: { AU: 1200, US: 780, UK: 870 } },
+
+    // ---- LANDSCAPING ----
+    { id: "garden_bed", label: "Garden bed — prepared, mulched, planted", unit: "m²", category: "landscaping",
+      regions: { AU: 65, US: 42, UK: 47 } },
+    { id: "retaining_wall_timber", label: "Timber sleeper retaining wall", unit: "m²", category: "landscaping",
+      regions: { AU: 320, US: 210, UK: 235 } },
+
+    // ---- PAVING / DRIVEWAY ----
+    { id: "concrete_driveway", label: "Plain concrete driveway", unit: "m²", category: "paving_driveway",
+      regions: { AU: 95, US: 62, UK: 70 } },
+    { id: "paver_driveway", label: "Paved driveway (concrete pavers)", unit: "m²", category: "paving_driveway",
+      regions: { AU: 130, US: 85, UK: 95 } },
+    { id: "asphalt_driveway", label: "Asphalt driveway", unit: "m²", category: "paving_driveway",
+      regions: { AU: 75, US: 49, UK: 55 } },
+
+    // ---- WATERPROOFING (beyond the existing bath_waterproofing line) ----
+    { id: "waterproof_membrane_wet_area", label: "Waterproofing membrane — internal wet area", unit: "m²", category: "waterproofing",
+      regions: { AU: 78, US: 51, UK: 57 } },
+    { id: "waterproof_membrane_balcony", label: "Waterproofing membrane — external balcony/deck", unit: "m²", category: "waterproofing",
+      regions: { AU: 95, US: 62, UK: 70 } },
+
+    // ---- SITE SERVICES CONNECTIONS ----
+    { id: "water_connection", label: "Water service connection", unit: "ea", category: "site_services",
+      regions: { AU: 2200, US: 1450, UK: 1620 } },
+    { id: "sewer_connection", label: "Sewer service connection", unit: "ea", category: "site_services",
+      regions: { AU: 3200, US: 2100, UK: 2350 } },
+    { id: "power_connection", label: "Power service connection", unit: "ea", category: "site_services",
+      regions: { AU: 2800, US: 1850, UK: 2050 } },
+
+    // ---- SAFETY / SITE ESTABLISHMENT ----
+    { id: "site_signage", label: "Site safety signage package", unit: "ea", category: "safety_site_establishment",
+      regions: { AU: 380, US: 250, UK: 280 } },
+    { id: "first_aid_station", label: "Site first-aid station", unit: "ea", category: "safety_site_establishment",
+      regions: { AU: 220, US: 145, UK: 162 } },
+    { id: "temporary_toilet", label: "Temporary site toilet hire", unit: "ea", category: "safety_site_establishment",
+      regions: { AU: 480, US: 315, UK: 350 } },
   ],
 
   byCategory(cat) {
