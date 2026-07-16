@@ -618,6 +618,35 @@ export class Engine3D {
     this._needsRender = true;
   }
 
+  /* Parametric-component mode (carport & future structures): render a flat
+     component array produced by a pure build function — each entry
+     { kind:'box'|'cyl', args, pos:[x,y,z], rot?, col, stage } — so the 3D,
+     the estimate, and the build animation all read the same array. */
+  buildComponents(components, spec = {}) {
+    this.clearBuilding();
+    this.isTower = false;
+    this.spec = spec; // non-null so setProgress() stage reveal works
+    this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
+
+    for (const c of components || []) {
+      const geo = c.kind === "cyl"
+        ? new THREE.CylinderGeometry(c.args[0], c.args[1], c.args[2], 20)
+        : new THREE.BoxGeometry(...c.args);
+      const mat = new THREE.MeshStandardMaterial({ color: c.col, metalness: 0.3, roughness: 0.65 });
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(...c.pos);
+      if (c.rot) m.rotation.set(...c.rot);
+      m.castShadow = true;
+      m.userData.stage = c.stage || "frame";
+      this.buildingGroup.add(m);
+    }
+
+    // frame camera for a small structure
+    const span = Math.max(spec.L || 6, spec.W || 6);
+    this.zoomFactor = Math.max(0.35, Math.min(1.0, span / 14));
+    this._needsRender = true;
+  }
+
   /* Build a high-rise tower: stacked floor plates, central core, façade. */
   buildTower(spec) {
     this.spec = spec;
@@ -849,11 +878,14 @@ export class Engine3D {
         this.camera.position.y = (h * 0.6 + 6) * tilt;
         this.camera.lookAt(0, h * 0.45, 0);
       } else {
+        /* Low structures (carport spec has H) get a lower orbit + focus so
+           they fill the frame instead of sitting under a high camera. */
+        const low = this.spec && this.spec.H != null;
         const r = 30 * zoom;
         this.camera.position.x = Math.cos(this.cameraAngle) * r;
         this.camera.position.z = Math.sin(this.cameraAngle) * r;
-        this.camera.position.y = 18 * tilt;
-        this.camera.lookAt(0, 4, 0);
+        this.camera.position.y = (low ? 9 : 18) * tilt;
+        this.camera.lookAt(0, low ? Math.max(1.2, this.spec.H * 0.7) : 4, 0);
       }
     }
     if (this.playing) {

@@ -20,6 +20,8 @@ import {
 } from "./data/pricing-providers.js";
 import { RESIDENTIAL_PRESETS } from "./presets/residential-presets.js";
 import { HIGHRISE_PRESETS } from "./presets/highrise-presets.js";
+import { buildCarport, CarportEstimator, DEFAULT_CARPORT_SPEC, CARPORT_PARAMS } from "./logic/carport.js";
+import { motion, AnimatePresence } from "framer-motion";
 
 /* =========================================================================
    MODULE: shader.js
@@ -1061,6 +1063,38 @@ const Reporter = {
     out.push(rule);
     return out.join("\n");
   },
+
+  buildCarport(est, projectNo) {
+    const { region, spec, summary, total, roofAreaM2, planAreaM2, taxRate, taxLabel } = est;
+    const currency = currencySymbol(region);
+    const out = [];
+    const rule = "=".repeat(78), half = "-".repeat(78);
+    out.push(rule);
+    out.push("  CARPORT — PARAMETRIC BUILD ESTIMATE");
+    out.push(`  Project No.: ${projectNo}   |   Region: ${region}   |   Date: ${new Date().toISOString().slice(0, 10)}`);
+    out.push(rule);
+    out.push("");
+    out.push("PARAMETERS");
+    out.push(half);
+    out.push(pad("Length", 32) + `${spec.L} m`);
+    out.push(pad("Width (span)", 32) + `${spec.W} m`);
+    out.push(pad("Post height", 32) + `${spec.H} m`);
+    out.push(pad("Roof pitch", 32) + `${spec.pitchDeg}° skillion`);
+    out.push(pad("Plan area", 32) + `${planAreaM2} m²`);
+    out.push(pad("Roof area (incl. waste)", 32) + `${roofAreaM2} m²`);
+    out.push("");
+    out.push("BILL OF MATERIALS");
+    out.push(half);
+    for (const s of summary) out.push(pad(s.cat, 26) + pad(s.qty, 30) + `${currency}${fmt(s.total)}`);
+    out.push(half);
+    out.push(pad("TOTAL", 56) + `${currency}${fmt(total)}`);
+    if (taxRate > 0) out.push(pad(`+ ${taxLabel}`, 56) + `${currency}${fmt(total * taxRate)}`);
+    out.push("");
+    out.push("Indicative only. Rates are placeholders; footing/member sizing is a");
+    out.push("simplified model, not engineered. Confirm structure with an RPEQ before build.");
+    out.push(rule);
+    return out.join("\n");
+  },
 };
 
 /* =========================================================================
@@ -1221,6 +1255,7 @@ export default function App() {
   const [spec, setSpec] = useState(DEFAULT_SPEC);
   const [hrSpec, setHrSpec] = useState(DEFAULT_HR_SPEC);
   const [matSpec, setMatSpec] = useState(DEFAULT_MAT_SPEC);
+  const [cpSpec, setCpSpec] = useState(DEFAULT_CARPORT_SPEC);
   const [tab, setTab] = useState("estimate");
   const [ratesVersion, setRatesVersion] = useState(0); // bumped after equipment rate overrides change
   const [projectNo] = useState(genProjectNo);
@@ -1269,22 +1304,27 @@ export default function App() {
     } else if (buildMode === "materials") {
       eng.isTower = false;
       eng.buildMassing(matSpec.lines || []);   // show simple blocks of what's quoted
+    } else if (buildMode === "carport") {
+      eng.isTower = false;
+      eng.buildComponents(buildCarport(cpSpec, region).components, cpSpec);
+      eng.setProgress(progress);
     } else {
       eng.isTower = false;
       eng.buildFromSpec(spec);
       eng.setProgress(progress);
     }
-  }, [spec, hrSpec, matSpec, buildMode]);
+  }, [spec, hrSpec, matSpec, cpSpec, buildMode, region]);
 
-  useEffect(() => { if (buildMode === "residential") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
+  useEffect(() => { if (buildMode === "residential" || buildMode === "carport") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
 
   /* Estimate (memoised) — switches engine by mode */
   const estimate = useMemo(
     () => buildMode === "highrise" ? HighRiseEstimator.buildEstimate(hrSpec, region)
       : buildMode === "materials" ? MaterialsOnly.buildEstimate(matSpec, region)
+      : buildMode === "carport" ? CarportEstimator.buildEstimate(cpSpec, region)
       : Estimator.buildEstimate(spec, region),
-    [spec, hrSpec, matSpec, buildMode, region, ratesVersion]
+    [spec, hrSpec, matSpec, cpSpec, buildMode, region, ratesVersion]
   );
 
   /* Spec update helper */
@@ -1308,11 +1348,13 @@ export default function App() {
   const clearAll = useCallback(() => {
     if (buildMode === "highrise") setHrSpec({ ...EMPTY_HR_SPEC });
     else if (buildMode === "materials") setMatSpec({ lines: [] });
+    else if (buildMode === "carport") setCpSpec({ ...DEFAULT_CARPORT_SPEC });
     else setSpec({ ...EMPTY_SPEC });
   }, [buildMode]);
 
   const resetDefaults = useCallback(() => {
     if (buildMode === "highrise") setHrSpec({ ...DEFAULT_HR_SPEC });
+    else if (buildMode === "carport") setCpSpec({ ...DEFAULT_CARPORT_SPEC });
     else setSpec({ ...DEFAULT_SPEC, rooms: DEFAULT_SPEC.rooms.map((r) => ({ ...r, id: nextId() })), kitchens: DEFAULT_SPEC.kitchens.map((k) => ({ ...k, id: nextId() })), bathrooms: DEFAULT_SPEC.bathrooms.map((b) => ({ ...b, id: nextId() })) });
   }, [buildMode]);
 
@@ -1428,6 +1470,7 @@ export default function App() {
   const buildReportText = () => (
     buildMode === "highrise" ? Reporter.buildHighRise(estimate, projectNo)
     : buildMode === "materials" ? Reporter.buildMaterials(estimate, projectNo)
+    : buildMode === "carport" ? Reporter.buildCarport(estimate, projectNo)
     : Reporter.build(estimate, projectNo)
   );
 
@@ -1762,14 +1805,14 @@ export default function App() {
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
       }}>
-        <div style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div className="hdr-in" style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <BYOLogo size={28} />
-            <div className="ec-display" style={{ fontSize: 16, color: TOKENS.ink, letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
+            <div className="ec-display hdr-word" style={{ fontSize: 16, color: TOKENS.ink, letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-              {[["residential","Residential"],["highrise","High-rise"],["materials","Quote"]].map(([m, label]) => (
+              {[["residential","Residential"],["highrise","High-rise"],["carport","Carport"],["materials","Quote"]].map(([m, label]) => (
                 <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
                   className="ec-mono"
                   style={{
@@ -1781,7 +1824,7 @@ export default function App() {
                   }}>{label}</button>
               ))}
             </div>
-            <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.inkSoft }}>
+            <div className="ec-mono hdr-proj" style={{ fontSize: 10, color: TOKENS.inkSoft }}>
               <span style={{ color: TOKENS.steel, marginRight: 5 }}>PROJ</span>{projectNo}
             </div>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.ink}` }}>
@@ -1801,7 +1844,7 @@ export default function App() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" /></svg>
               Save / share
             </button>
-            <button className="ec-btn ec-btn-ghost" onClick={copyReport} title="Copy estimate text">
+            <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
               {copied ? "Copied ✓" : "Copy"}
             </button>
           </div>
@@ -1856,6 +1899,14 @@ export default function App() {
             main.grid-responsive { padding: 24px 12px 40px !important; }
             .ec-viewport { height: 320px !important; }
           }
+          /* Compact one-row sticky header on small screens — never eat the viewport */
+          @media (max-width: 880px) {
+            .hdr-in { padding: 8px 12px !important; gap: 8px !important; flex-wrap: nowrap !important; }
+            .hdr-word, .hdr-proj, .hdr-copy { display: none !important; }
+            .hdr-actions { gap: 8px !important; flex-wrap: nowrap !important; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+            .hdr-actions::-webkit-scrollbar { display: none; }
+            .hdr-actions > * { flex-shrink: 0; }
+          }
         `}</style>
 
         {/* ===== LEFT — INPUT PANEL ===== */}
@@ -1879,7 +1930,7 @@ export default function App() {
                 ↺ Reset to sample
               </button>
             </div>
-            {buildMode !== "materials" && (
+            {buildMode !== "materials" && buildMode !== "carport" && (
               <select className="ec-input ec-mono" defaultValue=""
                 style={{ width: "100%", marginBottom: 16, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase" }}
                 onChange={(e) => { applyPreset(e.target.value); e.target.value = ""; }}>
@@ -1891,10 +1942,16 @@ export default function App() {
             )}
           </Reveal>
 
+          <AnimatePresence mode="wait">
+          <motion.div key={"panel-" + buildMode}
+            initial={{ opacity: 0, x: -14 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 14 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}>
           {buildMode === "materials" ? (
             <MaterialsPanel lines={matSpec.lines} setLines={(l) => setMatSpec({ lines: l })} region={region} currency={currencySymbol(region)} summary={estimate} />
           ) : buildMode === "highrise" ? (
             <HighRisePanel hrSpec={hrSpec} updateHr={updateHr} estimate={estimate} clearSection={clearSection} />
+          ) : buildMode === "carport" ? (
+            <CarportPanel cpSpec={cpSpec} setCpSpec={setCpSpec} estimate={estimate} currency={currencySymbol(region)} />
           ) : spec.importedLines && spec.importedLines.length > 0 ? (
             <ImportedPanel spec={spec} estimate={estimate} currency={currencySymbol(region)} onClear={clearImport} onUnlock={unlockImport} />
           ) : (
@@ -1996,6 +2053,8 @@ export default function App() {
           </div>
           </>
           )}
+          </motion.div>
+          </AnimatePresence>
         </section>
 
         {/* ===== RIGHT — VIEWPORT & RESULTS ===== */}
@@ -2022,6 +2081,15 @@ export default function App() {
                   </div>
                   <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
                     GFA · {fmt(estimate.takeoff?.gfaM2 || 0)} m²
+                  </div>
+                </>
+              ) : buildMode === "carport" ? (
+                <>
+                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    {cpSpec.L}m × {cpSpec.W}m · posts {cpSpec.H}m · {cpSpec.pitchDeg}°
+                  </div>
+                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    Plan · {estimate.planAreaM2} m²
                   </div>
                 </>
               ) : (
@@ -2065,10 +2133,12 @@ export default function App() {
                       {stageLabel(progress)}
                     </span>
                   </div>
+                  {buildMode !== "carport" && (
                   <button className="ec-btn" onClick={toggleWalk} style={{ background: TOKENS.emberDeep }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/><path d="M12 7v6m0 0l-3 7m3-7l3 7M8 9h8" strokeLinecap="round"/></svg>
                     Walk through
                   </button>
+                  )}
                   <button className="ec-btn ec-btn-ghost" onClick={() => setAutoRotate((v) => !v)} style={{ background: autoRotate ? TOKENS.ink : "transparent", color: autoRotate ? TOKENS.paper : TOKENS.ink }}>
                     {autoRotate ? "Auto-rotate ON" : "Auto-rotate OFF"}
                   </button>
@@ -2099,6 +2169,11 @@ export default function App() {
                 <CostCard key="m" label="Materials" value={`${currency}${fmt((estimate.byKind || {}).material || 0)}`} />,
                 <CostCard key="l" label="Labour" value={`${currency}${fmt((estimate.byKind || {}).labour || 0)}`} />,
                 <CostCard key="e" label="Trades & jobs" value={`${currency}${fmt((estimate.byKind || {}).element || 0)}`} sub={`${estimate.lines.length} lines`} />,
+              ] : buildMode === "carport" ? [
+                <CostCard key="t" label="Total estimate" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
+                <CostCard key="a" label="Plan area" value={`${estimate.planAreaM2} m²`} sub={`${cpSpec.L}m × ${cpSpec.W}m`} />,
+                <CostCard key="rf" label="Roof area" value={`${estimate.roofAreaM2} m²`} sub={`${cpSpec.pitchDeg}° skillion`} />,
+                <CostCard key="r" label={`${currency}/m² plan`} value={`${currency}${fmt(estimate.ratePerM2)}`} />,
               ] : buildMode === "highrise" ? [
                 <CostCard key="t" label="Total estimate" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
                 <CostCard key="s" label="Systems (adj.)" value={`${currency}${fmt(estimate.systemsTotal)}`} />,
@@ -2124,6 +2199,8 @@ export default function App() {
               ? [{ id: "estimate", label: "Elemental cost plan" }, { id: "timeline", label: "Programme" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
               : buildMode === "materials"
               ? [{ id: "estimate", label: "Quote breakdown" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "suppliers", label: "Suppliers" }]
+              : buildMode === "carport"
+              ? [{ id: "estimate", label: "Bill of materials" }, { id: "suppliers", label: "Suppliers" }]
               : [{ id: "estimate", label: "Cost breakdown" }, { id: "timeline", label: "Programme" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
             ).map((t) => (
               <div key={t.id} className={"ec-tab" + (tab === t.id ? " ec-tab-active" : "")} onClick={() => setTab(t.id)}>{t.label}</div>
@@ -2131,13 +2208,19 @@ export default function App() {
           </div>
 
           <div style={{ marginTop: 20 }}>
-            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
+            <AnimatePresence mode="wait">
+              <motion.div key={tab + "-" + buildMode}
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}>
+            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : buildMode === "carport" ? <CarportEstimateTab estimate={estimate} currency={currency} progress={progress} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
             {tab === "timeline" && buildMode !== "materials" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
             {tab === "spreadsheet" && buildMode === "residential" && <SpreadsheetTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
             {tab === "spreadsheet" && buildMode === "materials" && <SpreadsheetTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {tab === "sketchup" && buildMode === "residential" && <SketchUpTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
             {tab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
             {tab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </section>
       </main>
@@ -2422,6 +2505,77 @@ function stageLabel(p) {
 }
 
 /* ---- Cost breakdown tab ---- */
+/* ---- Carport parametric input panel ---- */
+function CarportPanel({ cpSpec, setCpSpec, estimate, currency }) {
+  return (
+    <>
+      <InputCard title="Carport — describe it" badge="Parametric engine">
+        <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 14px", lineHeight: 1.5 }}>
+          One spec → estimate + 3D + build sequence. Every slider drives a single pure
+          function; the model, the bill of materials, and the construction animation all
+          read the same component list.
+        </p>
+        {CARPORT_PARAMS.map((s) => (
+          <div key={s.k} style={{ margin: "14px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+              <span style={{ color: TOKENS.inkSoft, letterSpacing: "0.03em" }}>{s.label}</span>
+              <span className="ec-mono" style={{ color: TOKENS.ink, fontVariantNumeric: "tabular-nums" }}>{cpSpec[s.k]} {s.unit}</span>
+            </div>
+            <input type="range" min={s.min} max={s.max} step={s.step} value={cpSpec[s.k]}
+              style={{ width: "100%", accentColor: TOKENS.hivisDeep }}
+              onChange={(e) => setCpSpec((p) => ({ ...p, [s.k]: parseFloat(e.target.value) }))} />
+          </div>
+        ))}
+      </InputCard>
+      <InputCard title="How it works">
+        <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.6 }}>
+          Posts are placed no more than 3.0&nbsp;m apart, rafters at 1.1&nbsp;m centres, roof sheets
+          at 762&nbsp;mm cover with 10% waste. Footings are 400⌀ × 900 bored piers. Use the stage
+          scrubber or <b>Play construction</b> in the viewport to watch it assemble — the running
+          bill of materials lights up stage by stage.
+        </p>
+        <p className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, margin: "12px 0 0", lineHeight: 1.6, letterSpacing: "0.04em" }}>
+          INDICATIVE ONLY — RATES ARE PLACEHOLDERS AND MEMBER SIZING IS A SIMPLIFIED MODEL,
+          NOT ENGINEERED. CONFIRM STRUCTURE WITH AN RPEQ BEFORE BUILD.
+        </p>
+      </InputCard>
+    </>
+  );
+}
+
+/* ---- Carport bill of materials (live from geometry) ---- */
+function CarportEstimateTab({ estimate, currency, progress }) {
+  const stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
+  const activeStages = Math.ceil((progress ?? 1) * stageOrder.length);
+  return (
+    <div>
+      <SectionHeader index="A" title="Bill of materials — live from geometry" />
+      {estimate.summary.map((s, i) => {
+        const on = stageOrder.indexOf(s.stage) < activeStages;
+        return (
+          <motion.div key={s.cat}
+            initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04, duration: 0.2 }}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "10px 0", borderBottom: `1px dashed ${TOKENS.rule}`, opacity: on ? 1 : 0.38 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: TOKENS.ink }}>{s.cat}</div>
+              <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{s.qty}</div>
+            </div>
+            <span className="ec-mono" style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{currency}{fmt(s.total)}</span>
+          </motion.div>
+        );
+      })}
+      <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: `2px solid ${TOKENS.ink}`, marginTop: 8, fontSize: 15, fontWeight: 700 }}>
+        <span>TOTAL{estimate.taxRate > 0 ? " EX TAX" : ""}</span>
+        <span style={{ color: TOKENS.hivisDeep }}>{currency}{fmt(estimate.total)}</span>
+      </div>
+      <div className="ec-mono" style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 10, color: "#3f9e63", letterSpacing: "0.06em" }}>
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#3f9e63", display: "inline-block" }} />
+        3D · ESTIMATE · ANIMATION ALL READ THIS ONE COMPONENT ARRAY
+      </div>
+    </div>
+  );
+}
+
 /* ---- High-rise input panel ---- */
 /* ---- Unified quote builder: material + labour + trades in one list ---- */
 function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, currency, embed, summary }) {
