@@ -53,6 +53,63 @@ const CARD_SHAPES = [
   { borderRadius: "4px 28px 4px 28px" },
 ];
 
+/* How it works — same flying-card language as the toolkit, on a dark glass
+   band so the ambient build/break scene shows through behind it. */
+const HOW_STEPS = [
+  { n: "01", title: "Configure", body: "Dimensions, floors, framing, cladding, roof, openings, site condition. Toggle region for AU, US or UK rates.",
+    icon: <path d="M8 40V20l16-12 16 12v20M8 40h32M18 40V28h12v12" /> },
+  { n: "02", title: "Watch it rise", body: "The 3D skeleton rebuilds the moment a slider moves. Play the construction sequence stage by stage.",
+    icon: <path d="M10 42V22m14 20V12m14 30V28M6 42h36M10 22l14-10 14 16" /> },
+  { n: "03", title: "See the numbers", body: "Itemised materials, trade-by-trade labour, equipment hire, builder build-up, and a programme in weeks. All live.",
+    icon: <path d="M8 8h24l8 8v24H8V8zm24 0v8h8M14 22h20M14 29h20M14 36h12" /> },
+  { n: "04", title: "Take it further", body: "Import CAD/BIM or SketchUp takeoffs, search live supplier prices, download the takeoff sheet.",
+    icon: <path d="M24 30V6m0 24l-8-8m8 8l8-8M8 34v8h32v-8" /> },
+];
+
+function HowItWorksSection() {
+  return (
+    <section id="how" style={{ background: "rgba(18, 22, 28, 0.82)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", borderTop: `3px solid ${TOKENS.hivis}`, borderBottom: `1px solid rgba(255,255,255,0.08)` }}>
+      <div style={{ maxWidth: 1480, margin: "0 auto", padding: "72px 24px 64px" }}>
+        <Reveal variant="fade-up">
+          <div className="ec-eyebrow" style={{ marginBottom: 8, color: TOKENS.hivis }}>How it works</div>
+          <h2 className="ec-display" style={{ fontSize: "clamp(30px, 4.5vw, 48px)", lineHeight: 1, margin: 0, color: "#f2f4f7", maxWidth: 760 }}>
+            Four steps from <span style={{ color: TOKENS.hivis }}>idea</span> to a defendable number.
+          </h2>
+          <p style={{ marginTop: 14, fontSize: 15, lineHeight: 1.6, color: "rgba(242,244,247,0.66)", maxWidth: 620, marginBottom: 36 }}>
+            No login, no upload, no waiting. Type in your dimensions and watch everything else compute live.
+          </p>
+        </Reveal>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+          {HOW_STEPS.map((s, i) => (
+            <motion.div key={s.n}
+              initial={{ opacity: 0, x: i % 2 ? 90 : -90, y: 40, rotate: i % 2 ? 6 : -6 }}
+              whileInView={{ opacity: 1, x: 0, y: 0, rotate: 0 }}
+              viewport={{ once: true, amount: 0.3 }}
+              transition={{ type: "spring", stiffness: 70, damping: 14, delay: (i % 4) * 0.08 }}
+              whileHover={{ y: -8, rotate: i % 2 ? -1.5 : 1.5, boxShadow: "0 18px 40px rgba(0,0,0,0.45)" }}
+              style={{
+                background: "rgba(255,255,255,0.055)", border: "1px solid rgba(255,255,255,0.13)",
+                padding: "24px 20px", position: "relative", overflow: "hidden",
+                ...CARD_SHAPES[i % CARD_SHAPES.length],
+              }}>
+              <span className="ec-mono" style={{ position: "absolute", top: 12, right: 14, fontSize: 11, letterSpacing: "0.18em", color: TOKENS.hivis, fontWeight: 700 }}>{s.n}</span>
+              <motion.svg width="48" height="48" viewBox="0 0 48 48" fill="none"
+                stroke={TOKENS.hivis} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+                animate={{ y: [0, -5, 0] }}
+                transition={{ duration: 3 + (i % 3), repeat: Infinity, ease: "easeInOut", delay: i * 0.3 }}
+                style={{ display: "block", marginBottom: 14 }}>
+                {s.icon}
+              </motion.svg>
+              <h3 className="ec-display" style={{ fontSize: 21, margin: "0 0 6px", color: "#f2f4f7", letterSpacing: "0.01em" }}>{s.title}</h3>
+              <p style={{ fontSize: 13, lineHeight: 1.55, color: "rgba(242,244,247,0.62)", margin: 0 }}>{s.body}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ToolkitSection() {
   return (
     <section style={{ maxWidth: 1480, margin: "0 auto", padding: "72px 24px 40px" }}>
@@ -1833,6 +1890,9 @@ export default function App() {
         </div>
       </section>
 
+      {/* ============== HOW IT WORKS — flying step cards on dark glass ============== */}
+      <HowItWorksSection />
+
       {/* ============== SITE TOOLKIT — flying tool/material cards ============== */}
       <ToolkitSection />
 
@@ -1889,41 +1949,6 @@ export default function App() {
           </div>
         </div>
       </header>
-
-      {/* ============== HOW IT WORKS ============== */}
-      <section id="how" style={{ padding: "96px 24px 64px", background: TOKENS.paper }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <Reveal variant="fade-up">
-            <div className="ec-eyebrow" style={{ marginBottom: 10 }}>How it works</div>
-            <h2 className="ec-display" style={{ fontSize: "clamp(32px, 5vw, 56px)", lineHeight: 1, margin: 0, letterSpacing: "-0.01em", maxWidth: 800 }}>
-              Four steps from <span style={{ color: TOKENS.emberDeep }}>idea</span> to a defendable number.
-            </h2>
-          </Reveal>
-          <Reveal variant="fade-up" delay={0.1}>
-            <p style={{ marginTop: 16, fontSize: 16, lineHeight: 1.6, color: TOKENS.inkSoft, maxWidth: 640 }}>
-              No login, no upload, no waiting. Type in your dimensions and watch everything else compute live.
-            </p>
-          </Reveal>
-
-          <div style={{ marginTop: 56, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
-            {[
-              { n: "01", title: "Configure", body: "Dimensions, floors, framing, cladding, roof, openings, site condition. Metric for now — toggle region for AU, US, or UK rates.", icon: "config" },
-              { n: "02", title: "Watch it rise", body: "A 3D model rebuilds the moment you change a value. Hit play to scrub the construction sequence stage by stage.", icon: "build" },
-              { n: "03", title: "See the numbers", body: "Itemised materials, trade-by-trade labour, equipment hire, builder build-up, and a programme in weeks. All live.", icon: "data" },
-              { n: "04", title: "Take it further", body: "Search live prices at Bunnings, Reece, Home Depot, Wickes and more. Download a takeoff sheet for your records.", icon: "share" },
-            ].map((s, i) => (
-              <Reveal key={s.n} variant="fade-up" delay={0.15 + i * 0.08}>
-                <div className="ec-card" style={{ padding: 24, height: "100%", display: "flex", flexDirection: "column", gap: 14, position: "relative", overflow: "hidden" }}>
-                  <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.18em", color: TOKENS.emberDeep, fontWeight: 700 }}>{s.n}</div>
-                  <HowItWorksIcon kind={s.icon} />
-                  <h3 className="ec-display" style={{ fontSize: 22, margin: 0, letterSpacing: "0.01em" }}>{s.title}</h3>
-                  <p style={{ fontSize: 14, lineHeight: 1.55, color: TOKENS.inkSoft, margin: 0 }}>{s.body}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
 
       {/* ============== MAIN GRID (estimator tool) ============== */}
       <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "48px 24px 64px", display: "grid", gridTemplateColumns: "minmax(320px, 380px) 1fr", gap: 28 }} className="grid-responsive">
@@ -2216,27 +2241,28 @@ export default function App() {
             {(buildMode === "highrise"
               ? [{ id: "estimate", label: "Elemental cost plan" }, { id: "timeline", label: "Programme" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
               : buildMode === "materials"
-              ? [{ id: "estimate", label: "Quote breakdown" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "suppliers", label: "Suppliers" }]
-              : [{ id: "estimate", label: "Cost breakdown" }, { id: "timeline", label: "Programme" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
+              ? [{ id: "estimate", label: "Quote breakdown" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "cadbim", label: "Import CAD / BIM" }, { id: "suppliers", label: "Suppliers" }]
+              : [{ id: "estimate", label: "Cost breakdown" }, { id: "timeline", label: "Programme" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "cadbim", label: "Import CAD / BIM" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
             ).map((t) => (
               <div key={t.id} className={"ec-tab" + (tab === t.id ? " ec-tab-active" : "")} onClick={() => setTab(t.id)}>{t.label}</div>
             ))}
           </div>
 
           <div style={{ marginTop: 20 }}>
-            <AnimatePresence mode="wait">
               <motion.div key={tab + "-" + buildMode}
-                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}>
             {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
             {tab === "timeline" && buildMode !== "materials" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
             {tab === "spreadsheet" && buildMode === "residential" && <SpreadsheetTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
             {tab === "spreadsheet" && buildMode === "materials" && <SpreadsheetTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {tab === "sketchup" && buildMode === "residential" && <SketchUpTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
+            {tab === "sketchup" && buildMode === "materials" && <SketchUpTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
+            {tab === "cadbim" && buildMode === "residential" && <CadBimTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
+            {tab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {tab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
             {tab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
               </motion.div>
-            </AnimatePresence>
           </div>
         </section>
       </main>
@@ -2426,11 +2452,23 @@ function BathroomCard({ spec, setSpec }) {
 }
 
 function BYOLogo({ size = 34, dark = false }) {
-  // "BYO" monogram in a hi-vis tile — the stacked bars evoke building floors
+  /* Circular monogram: the outer ring IS the "O", with B and Y nested inside.
+     Hi-vis ring on an ink disc, tick marks like a site level dial. */
+  const ink = dark ? "#f2f4f7" : TOKENS.ink;
   return (
-    <div style={{ width: size, height: size, background: TOKENS.hivis, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2, flexShrink: 0 }}>
-      <span className="ec-display" style={{ fontSize: size * 0.42, lineHeight: 1, color: TOKENS.ink, letterSpacing: "-0.02em", fontWeight: 800 }}>BYO</span>
-    </div>
+    <svg width={size} height={size} viewBox="0 0 48 48" style={{ flexShrink: 0, display: "block" }} aria-label="BYO logo">
+      <circle cx="24" cy="24" r="22" fill={TOKENS.ink} />
+      <circle cx="24" cy="24" r="18.5" fill="none" stroke={TOKENS.hivis} strokeWidth="4" />
+      {/* dial ticks */}
+      {[45, 135, 225, 315].map((a) => (
+        <line key={a} x1={24 + 15 * Math.cos((a * Math.PI) / 180)} y1={24 + 15 * Math.sin((a * Math.PI) / 180)}
+          x2={24 + 12.5 * Math.cos((a * Math.PI) / 180)} y2={24 + 12.5 * Math.sin((a * Math.PI) / 180)}
+          stroke={TOKENS.hivis} strokeWidth="1.6" opacity="0.7" />
+      ))}
+      {/* B + Y nested inside the O-ring */}
+      <text x="17.5" y="29.5" textAnchor="middle" fontFamily="'Barlow Condensed', sans-serif" fontWeight="800" fontSize="16.5" fill="#f2f4f7" letterSpacing="-0.5">B</text>
+      <text x="29.5" y="29.5" textAnchor="middle" fontFamily="'Barlow Condensed', sans-serif" fontWeight="800" fontSize="16.5" fill={TOKENS.hivis} letterSpacing="-0.5">Y</text>
+    </svg>
   );
 }
 
@@ -3915,7 +3953,29 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
   );
 }
 
-function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
+/* ---- CAD / BIM import: quantity schedules exported from Revit, ArchiCAD,
+   Tekla or an IFC QTO tool (CSV/XLSX) run through the same column-mapping
+   engine as spreadsheet import. Native .rvt/.ifc/.dwg parsing is a future
+   provider — schedules are the lingua franca every BIM tool can export. */
+function CadBimTab(props) {
+  return (
+    <div>
+      <div style={{ border: `1px solid ${TOKENS.rule}`, borderLeft: `4px solid ${TOKENS.hivisDeep}`, background: TOKENS.paperLight, padding: "14px 16px", marginBottom: 18 }}>
+        <div className="ec-eyebrow" style={{ marginBottom: 6 }}>CAD / BIM import</div>
+        <p style={{ fontSize: 13, color: TOKENS.inkSoft, lineHeight: 1.6, margin: 0 }}>
+          Export a <b>material or quantity schedule</b> from your BIM tool and drop it here —
+          Revit (schedule → export CSV), ArchiCAD (interactive schedule), Tekla, or any
+          IFC quantity-takeoff export saved as CSV/XLSX. Columns for material, quantity and
+          rate are auto-detected below, exactly like a spreadsheet takeoff. Native .rvt /
+          .ifc / .dwg geometry parsing is on the roadmap.
+        </p>
+      </div>
+      <SpreadsheetTab {...props} />
+    </div>
+  );
+}
+
+function SketchUpTab({ region, currency, onApply, onApplyTemplate, onApplyMaterials, materialsMode }) {
   const [result, setResult] = useState(null);   // { model, est }
   const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
@@ -4061,6 +4121,11 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
                   {onApply && (
                     <button className="ec-btn ec-btn-ghost" onClick={() => onApply(result.est.lines, fileName)}>
                       Fixed takeoff
+                    </button>
+                  )}
+                  {onApplyMaterials && (
+                    <button className="ec-btn" style={{ background: TOKENS.emberDeep }} onClick={() => onApplyMaterials(result.est.lines)}>
+                      Load into quote builder
                     </button>
                   )}
                 </div>
