@@ -212,9 +212,11 @@ export class Engine3D {
     slab.userData.stage = "foundation";
     this.buildingGroup.add(slab);
 
-    /* --- Frame posts (corners + intermediates) --- */
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x8b6f4a, roughness: 0.8 });
-    const postGeo = new THREE.BoxGeometry(0.18, totalH, 0.18);
+    /* --- Frame posts (corners + intermediates) — carport-style steel members --- */
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x9aa4b0, metalness: 0.35, roughness: 0.6 });
+    const pierMat = new THREE.MeshStandardMaterial({ color: 0xb8b2a7, roughness: 0.9 });
+    const postGeo = new THREE.BoxGeometry(0.12, totalH, 0.12);
+    const pierGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.9, 20);
     const cornerOffsets = [
       [-w / 2 + 0.1, l / 2 - 0.1], [w / 2 - 0.1, l / 2 - 0.1],
       [-w / 2 + 0.1, -l / 2 + 0.1], [w / 2 - 0.1, -l / 2 + 0.1],
@@ -232,6 +234,11 @@ export class Engine3D {
       allPosts.push([w / 2 - 0.1, z]);
     }
     for (const [px, pz] of allPosts) {
+      /* bored pier footing under every post (visible during foundation stage) */
+      const pier = new THREE.Mesh(pierGeo, pierMat);
+      pier.position.set(px, -0.40, pz);
+      pier.userData.stage = "foundation";
+      this.buildingGroup.add(pier);
       const post = new THREE.Mesh(postGeo, frameMat);
       post.position.set(px, slabH + totalH / 2, pz);
       post.castShadow = true;
@@ -254,31 +261,33 @@ export class Engine3D {
       [p1, p2, p3, p4].forEach((m) => { m.castShadow = true; m.userData.stage = "frame"; this.buildingGroup.add(m); });
     }
 
-    /* --- Walls (per floor, per side) — 4 panels per floor --- */
-    const claddingColor = spec.claddingType === "weatherboard" ? 0xe8e2d0
-                       : spec.claddingType === "render" ? 0xece9e2
-                       : 0xb46a4a;
-    const wallMat = new THREE.MeshStandardMaterial({ color: claddingColor, roughness: 0.85 });
+    /* --- Walls (per floor, per side) — carport-style stud framing at 600
+       centres instead of solid cladding panels, so the whole model reads as
+       an exposed structural skeleton. Cladding type tints the studs. --- */
+    const studTint = spec.claddingType === "weatherboard" ? 0x8f9aa6
+                  : spec.claddingType === "render" ? 0x9aa4b0
+                  : 0x828c98;
+    const studMat = new THREE.MeshStandardMaterial({ color: studTint, metalness: 0.35, roughness: 0.6 });
     const wallThk = 0.2;
+    const studGeoX = new THREE.BoxGeometry(0.045, floorH - 0.15, 0.09);
+    const studGeoZ = new THREE.BoxGeometry(0.09, floorH - 0.15, 0.045);
+    const STUD_SPACING = 0.6;
     for (let f = 0; f < floors; f++) {
       const cy = slabH + f * floorH + floorH / 2;
-      // front
-      const wallFront = new THREE.Mesh(new THREE.BoxGeometry(w, floorH, wallThk), wallMat);
-      wallFront.position.set(0, cy, l / 2);
-      wallFront.userData.stage = "walls";
-      // back
-      const wallBack = new THREE.Mesh(new THREE.BoxGeometry(w, floorH, wallThk), wallMat);
-      wallBack.position.set(0, cy, -l / 2);
-      wallBack.userData.stage = "walls";
-      // left
-      const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(wallThk, floorH, l), wallMat);
-      wallLeft.position.set(-w / 2, cy, 0);
-      wallLeft.userData.stage = "walls";
-      // right
-      const wallRight = new THREE.Mesh(new THREE.BoxGeometry(wallThk, floorH, l), wallMat);
-      wallRight.position.set(w / 2, cy, 0);
-      wallRight.userData.stage = "walls";
-      [wallFront, wallBack, wallLeft, wallRight].forEach((m) => { m.castShadow = true; m.receiveShadow = true; this.buildingGroup.add(m); });
+      for (let x = -w / 2 + STUD_SPACING; x < w / 2 - 0.1; x += STUD_SPACING) {
+        const sF = new THREE.Mesh(studGeoX, studMat);
+        sF.position.set(x, cy, l / 2 - 0.045);
+        const sB = new THREE.Mesh(studGeoX, studMat);
+        sB.position.set(x, cy, -l / 2 + 0.045);
+        [sF, sB].forEach((m) => { m.castShadow = true; m.userData.stage = "walls"; this.buildingGroup.add(m); });
+      }
+      for (let z = -l / 2 + STUD_SPACING; z < l / 2 - 0.1; z += STUD_SPACING) {
+        const sL = new THREE.Mesh(studGeoZ, studMat);
+        sL.position.set(-w / 2 + 0.045, cy, z);
+        const sR = new THREE.Mesh(studGeoZ, studMat);
+        sR.position.set(w / 2 - 0.045, cy, z);
+        [sL, sR].forEach((m) => { m.castShadow = true; m.userData.stage = "walls"; this.buildingGroup.add(m); });
+      }
     }
 
     /* --- Windows (front + back, evenly spaced per floor) --- */
@@ -327,26 +336,49 @@ export class Engine3D {
                    : spec.roofType === "shingle" ? 0x3a3a40
                    : 0x4a4f56; // colorbond default
     const roofMat = new THREE.MeshStandardMaterial({ color: roofColor, roughness: 0.7, metalness: 0.2 });
-    const ridgeH = (Math.min(w, l) / 2) * Math.tan((spec.roofPitch * Math.PI) / 180);
-    /* Build a triangular-prism roof along the longer axis. */
-    const roofShape = new THREE.Shape();
-    roofShape.moveTo(-w / 2 - 0.4, 0);
-    roofShape.lineTo(w / 2 + 0.4, 0);
-    roofShape.lineTo(0, ridgeH);
-    roofShape.lineTo(-w / 2 - 0.4, 0);
-    const extrudeSettings = { depth: l + 0.8, bevelEnabled: false };
-    const roofGeo = new THREE.ExtrudeGeometry(roofShape, extrudeSettings);
-    roofGeo.translate(0, 0, -(l + 0.8) / 2);
-    const roof = new THREE.Mesh(roofGeo, roofMat);
-    roof.position.y = slabH + totalH;
-    roof.castShadow = true;
-    roof.userData.stage = "roof";
-    this.buildingGroup.add(roof);
+    const rafterMat = new THREE.MeshStandardMaterial({ color: 0x77828f, metalness: 0.35, roughness: 0.6 });
+    /* Carport-style roof: individual rafters at 1.1m centres up each slope
+       to a ridge, sheeted with per-slope panels — an exposed gable frame
+       rather than a solid extruded prism. */
+    const pitch = (spec.roofPitch * Math.PI) / 180;
+    const halfSpan = w / 2 + 0.4;
+    const ridgeH = halfSpan * Math.tan(pitch);
+    const slopeLen = halfSpan / Math.cos(pitch);
+    const roofBaseY = slabH + totalH;
+    const RAFTER_SPACING = 1.1;
+    const rafterCount = Math.max(2, Math.ceil(l / RAFTER_SPACING) + 1);
+    const rSpacing = (l + 0.4) / (rafterCount - 1);
+    const rafterGeo = new THREE.BoxGeometry(slopeLen, 0.14, 0.05);
+    for (let j = 0; j < rafterCount; j++) {
+      const z = -(l + 0.4) / 2 + j * rSpacing;
+      const rL = new THREE.Mesh(rafterGeo, rafterMat);
+      rL.position.set(-halfSpan / 2, roofBaseY + ridgeH / 2 + 0.08, z);
+      rL.rotation.z = pitch;
+      const rR = new THREE.Mesh(rafterGeo, rafterMat);
+      rR.position.set(halfSpan / 2, roofBaseY + ridgeH / 2 + 0.08, z);
+      rR.rotation.z = -pitch;
+      [rL, rR].forEach((m) => { m.castShadow = true; m.userData.stage = "roof"; this.buildingGroup.add(m); });
+    }
+    /* ridge beam */
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.19, l + 0.4), rafterMat);
+    ridge.position.set(0, roofBaseY + ridgeH + 0.08, 0);
+    ridge.castShadow = true;
+    ridge.userData.stage = "roof";
+    this.buildingGroup.add(ridge);
+    /* sheeting: one thin panel per slope, sitting just above the rafters */
+    for (const side of [-1, 1]) {
+      const sheet = new THREE.Mesh(new THREE.BoxGeometry(slopeLen, 0.04, l + 0.6), roofMat);
+      sheet.position.set(side * halfSpan / 2, roofBaseY + ridgeH / 2 + 0.24, 0);
+      sheet.rotation.z = -side * pitch;
+      sheet.castShadow = true;
+      sheet.userData.stage = "roof";
+      this.buildingGroup.add(sheet);
+    }
 
     /* --- Garage attached --- */
     if (spec.hasGarage) {
       const gw = 6, gl = 6.5, gh = 2.6;
-      const garageMat = new THREE.MeshStandardMaterial({ color: claddingColor, roughness: 0.85 });
+      const garageMat = new THREE.MeshStandardMaterial({ color: studTint, metalness: 0.35, roughness: 0.6 });
       const garage = new THREE.Group();
       const gWallF = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, wallThk), garageMat);
       gWallF.position.set(0, gh / 2, gl / 2);
@@ -685,6 +717,7 @@ export class Engine3D {
     const facadeIsGlass = spec.facadeType !== "precast";
     const facadeMat = new THREE.MeshStandardMaterial({
       color: facadeIsGlass ? 0x6fa8d1 : 0xcfcabf,
+      transparent: true, opacity: facadeIsGlass ? 0.38 : 0.72,
       roughness: facadeIsGlass ? 0.12 : 0.85,
       metalness: facadeIsGlass ? 0.5 : 0.05,
       transparent: facadeIsGlass, opacity: facadeIsGlass ? 0.55 : 1,
@@ -720,6 +753,15 @@ export class Engine3D {
       mk(side, 0.06, 0, -side / 2);
       mk(0.06, side, side / 2, 0);
       mk(0.06, side, -side / 2, 0);
+      /* carport-style exposed perimeter columns — corners + wall midpoints */
+      const colGeo = new THREE.BoxGeometry(0.16, panelH, 0.16);
+      const colMat = new THREE.MeshStandardMaterial({ color: 0x9aa4b0, metalness: 0.35, roughness: 0.6 });
+      const inset = side / 2 - 0.35;
+      for (const [cx, cz] of [[-inset, -inset], [inset, -inset], [-inset, inset], [inset, inset], [0, -inset], [0, inset], [-inset, 0], [inset, 0]]) {
+        const col = new THREE.Mesh(colGeo, colMat);
+        col.position.set(cx, cy, cz); col.castShadow = true; col.userData.stage = "frame";
+        this.buildingGroup.add(col);
+      }
       // floor-line mullion band
       const band = new THREE.Mesh(new THREE.BoxGeometry(side + 0.1, fh * 0.06, side + 0.1), mullionMat);
       band.position.set(0, fy + 0.02, 0); band.userData.stage = "walls";
