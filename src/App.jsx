@@ -21,6 +21,80 @@ import {
 import { RESIDENTIAL_PRESETS } from "./presets/residential-presets.js";
 import { HIGHRISE_PRESETS } from "./presets/highrise-presets.js";
 import { motion, AnimatePresence } from "framer-motion";
+import BackgroundScene from "./engine/BackgroundScene.jsx";
+
+/* =========================================================================
+   Site toolkit — construction tools & materials as flying cards. Each card
+   flies in from an alternating direction with rotation, idles on a slow
+   float, and lifts/tilts on hover. Card silhouettes alternate between
+   rounded, chamfered (octagon clip) and notched shapes.
+   ========================================================================= */
+const TOOLKIT = [
+  { name: "Tower crane", blurb: "Vertical logistics, planned per programme week", tag: "PLANT",
+    icon: <path d="M6 44V16h4v28M4 44h8M8 16l2-8h24l-8 8M34 8v10m0 0l-2 6h4l-2-6zm-14-6v6" /> },
+  { name: "Excavator", blurb: "Cut, fill & trench — site-condition aware", tag: "PLANT",
+    icon: <path d="M8 38h20l4-8-6-10H14L8 30v8zm24-8l8-14 4 2-6 16M6 42h26M10 42a3 3 0 100 .1M28 42a3 3 0 100 .1" /> },
+  { name: "Ready-mix concrete", blurb: "25–40 MPa, waste-adjusted order quantities", tag: "MATERIAL",
+    icon: <path d="M10 20l6-12h16l6 12M8 20h32l-4 22H12L8 20zm12 6l2 8m6-8l-2 8" /> },
+  { name: "Structural steel", blurb: "UBs, UCs & purlins from the catalogue", tag: "MATERIAL",
+    icon: <path d="M10 8h28M10 44h28M14 8v36m20-36v36M14 16h20M14 36h20" /> },
+  { name: "Timber framing", blurb: "MGP10 studs at 600 centres, plates & lintels", tag: "MATERIAL",
+    icon: <path d="M8 44V12m8 32V12m8 32V12m8 32V12m8 32V12M4 12h40M4 44h40M8 22l32 14" /> },
+  { name: "Scaffolding", blurb: "Perimeter access priced per m²-week", tag: "ACCESS",
+    icon: <path d="M10 4v40M38 4v40M10 12h28M10 26h28M10 40h28M10 12l28 14M38 12L10 26" /> },
+  { name: "Power tools", blurb: "Trade kits costed inside labour rates", tag: "TOOLS",
+    icon: <path d="M8 20h18v12H14l-6-6v-6zm18 4h8l6-4v12l-6-4h-8M12 32v8h6" /> },
+  { name: "Site safety", blurb: "PPE, hoarding & establishment lines", tag: "SAFETY",
+    icon: <path d="M24 6c8 0 14 5 14 12v4H10v-4c0-7 6-12 14-12zm-14 20h28v6H10zm10-20v8m8-8v8" /> },
+];
+const CARD_SHAPES = [
+  { borderRadius: 6 },
+  { clipPath: "polygon(10% 0, 90% 0, 100% 12%, 100% 88%, 90% 100%, 10% 100%, 0 88%, 0 12%)" },
+  { borderRadius: "4px 28px 4px 28px" },
+];
+
+function ToolkitSection() {
+  return (
+    <section style={{ maxWidth: 1480, margin: "0 auto", padding: "72px 24px 40px" }}>
+      <Reveal variant="fade-up">
+        <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Site toolkit</div>
+        <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 8 }}>
+          Tools &amp; materials, <span style={{ color: TOKENS.hivisDeep }}>priced like they're on site</span>
+        </h2>
+        <p style={{ color: TOKENS.inkSoft, fontSize: 14, maxWidth: 640, marginBottom: 28 }}>
+          Every card maps to live catalogue lines — plant, materials, access and safety —
+          the same data the estimator prices from.
+        </p>
+      </Reveal>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+        {TOOLKIT.map((t, i) => (
+          <motion.div key={t.name}
+            initial={{ opacity: 0, x: i % 2 ? 90 : -90, y: 40, rotate: i % 2 ? 6 : -6 }}
+            whileInView={{ opacity: 1, x: 0, y: 0, rotate: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ type: "spring", stiffness: 70, damping: 14, delay: (i % 4) * 0.08 }}
+            whileHover={{ y: -8, rotate: i % 2 ? -1.5 : 1.5, boxShadow: "0 18px 40px rgba(15,17,20,0.18)" }}
+            style={{
+              background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`,
+              padding: "22px 20px", position: "relative", overflow: "hidden",
+              ...CARD_SHAPES[i % CARD_SHAPES.length],
+            }}>
+            <span className="ec-mono" style={{ position: "absolute", top: 12, right: 14, fontSize: 9, letterSpacing: "0.16em", color: TOKENS.steel }}>{t.tag}</span>
+            <motion.svg width="48" height="48" viewBox="0 0 48 48" fill="none"
+              stroke={TOKENS.hivisDeep} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+              animate={{ y: [0, -5, 0] }}
+              transition={{ duration: 3 + (i % 3), repeat: Infinity, ease: "easeInOut", delay: i * 0.3 }}
+              style={{ display: "block", marginBottom: 14 }}>
+              {t.icon}
+            </motion.svg>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t.name}</div>
+            <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.5 }}>{t.blurb}</div>
+          </motion.div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /* =========================================================================
    MODULE: shader.js
@@ -1477,7 +1551,11 @@ export default function App() {
   const currency = currencySymbol(region);
 
   return (
-    <div style={{ background: TOKENS.paper, minHeight: "100vh", color: TOKENS.ink, fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ minHeight: "100vh", color: TOKENS.ink, fontFamily: "'Inter', sans-serif" }}>
+      {/* Ambient 3D: structure endlessly assembling & breaking apart behind the app */}
+      <BackgroundScene opacity={0.45} />
+      {/* Content layer — translucent paper so the scene ghosts through between cards */}
+      <div style={{ position: "relative", zIndex: 1, background: "rgba(246,247,248,0.90)" }}>
       {/* Inline style block for fonts + custom colors (Tailwind core only supports utility classes) */}
       <style>{`
         @import url('${FONT_URL}');
@@ -1754,6 +1832,9 @@ export default function App() {
           </svg>
         </div>
       </section>
+
+      {/* ============== SITE TOOLKIT — flying tool/material cards ============== */}
+      <ToolkitSection />
 
       {/* ============== STICKY HEADER (appears after hero) ============== */}
       <header style={{
@@ -2175,6 +2256,7 @@ export default function App() {
           </div>
         </div>
       </footer>
+      </div>
     </div>
   );
 }
