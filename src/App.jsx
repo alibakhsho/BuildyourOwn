@@ -22,6 +22,14 @@ import { RESIDENTIAL_PRESETS } from "./presets/residential-presets.js";
 import { HIGHRISE_PRESETS } from "./presets/highrise-presets.js";
 import { motion, AnimatePresence } from "framer-motion";
 import BackgroundScene from "./engine/BackgroundScene.jsx";
+import { chat as aiChat, getAiKey, setAiKey, hasAiKey } from "./ai/client.js";
+import { listProjects, createProject, saveProject, deleteProject, duplicateProject, getProject } from "./state/projects.js";
+import { PERSONAS, buildSystemPrompt, summariseSpec, summariseEstimate, parseActions } from "./ai/personas.js";
+
+/* Human-readable message for AI failures, shared by every AI feature */
+const aiErrMsg = (e) => e?.message === "NO_KEY"
+  ? "No API key set — open AI settings (key icon in the header) and paste your Anthropic API key."
+  : (e?.message || "Couldn't reach the AI service — check your connection.");
 
 /* =========================================================================
    Site toolkit — construction tools & materials as flying cards. Each card
@@ -1347,6 +1355,337 @@ function buildTemplateSpecFromImport(lines, source) {
   };
 }
 
+/* ---- Landing: pick who you are → your workflow ---- */
+const USER_PATHS = [
+  { id: "homeowner", title: "Homeowner / Owner-builder", blurb: "Design a home, watch it rise in 3D, and know the cost before you break ground.", flow: "Estimate → 3D → Materials → Proposal", emoji: "🏡" },
+  { id: "tradie", title: "Builder / Tradie", blurb: "Quote any job line-by-line — walls, decks, fit-outs — and hand over a clean proposal.", flow: "Quote → Materials → Timeline → Proposal", emoji: "🔨" },
+  { id: "developer", title: "Developer", blurb: "Feasibility-grade tower estimates: systems, programme, design fees, $/m² GFA.", flow: "Estimate → Timeline → AI → Proposal", emoji: "🏙️" },
+];
+
+function UserPathsSection({ onPick }) {
+  return (
+    <section style={{ maxWidth: 1480, margin: "0 auto", padding: "24px 24px 88px" }}>
+      <Reveal variant="fade-up">
+        <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Your workflow</div>
+        <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 28 }}>
+          One workspace per project. <span style={{ color: TOKENS.hivisDeep }}>No bouncing between pages.</span>
+        </h2>
+      </Reveal>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+        {USER_PATHS.map((p, i) => (
+          <motion.div key={p.id}
+            initial={{ opacity: 0, y: 60, rotate: i % 2 ? 4 : -4 }} whileInView={{ opacity: 1, y: 0, rotate: 0 }}
+            viewport={{ once: true, amount: 0.3 }} transition={{ type: "spring", stiffness: 70, damping: 14, delay: i * 0.08 }}
+            whileHover={{ y: -8, boxShadow: "0 18px 40px rgba(15,17,20,0.18)" }}
+            onClick={() => onPick(p.id)}
+            style={{ background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, borderTop: `4px solid ${TOKENS.hivis}`, padding: "26px 22px", cursor: "pointer", ...CARD_SHAPES[i % CARD_SHAPES.length] }}>
+            <div style={{ fontSize: 34, marginBottom: 12 }}>{p.emoji}</div>
+            <div className="ec-display" style={{ fontSize: 20, marginBottom: 8 }}>{p.title}</div>
+            <p style={{ fontSize: 13, color: TOKENS.inkSoft, lineHeight: 1.55, marginBottom: 14 }}>{p.blurb}</p>
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisDeep }}>{p.flow}</div>
+            <div className="ec-mono" style={{ marginTop: 14, fontSize: 11, fontWeight: 700, color: TOKENS.ink }}>START A PROJECT →</div>
+          </motion.div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ---- Projects screen: every project is one workspace ---- */
+function ProjectsScreen({ onOpen, onNew }) {
+  const [projects, setProjects] = useState(listProjects);
+  const [name, setName] = useState("");
+  const [type, setType] = useState("homeowner");
+  const refresh = () => setProjects(listProjects());
+  const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Quote" };
+  return (
+    <main style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px 64px", minHeight: "60vh" }}>
+      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Projects</div>
+      <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 24 }}>Every project, one workspace.</h2>
+
+      <div className="ec-card" style={{ padding: 18, marginBottom: 28, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="ec-input" placeholder="New project name…" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
+        <select className="ec-select" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }}>
+          {USER_PATHS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+        </select>
+        <button className="ec-btn ec-btn-hivis" onClick={() => onNew(type, name.trim() || "Untitled project")}>+ New project</button>
+      </div>
+
+      {projects.length === 0 ? (
+        <p style={{ color: TOKENS.inkSoft, fontSize: 14 }}>No projects yet — create your first one above.</p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+          {projects.map((p, i) => (
+            <motion.div key={p.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+              className="ec-card" style={{ padding: 18, cursor: "pointer", borderTop: `3px solid ${TOKENS.hivis}` }}
+              onClick={() => onOpen(getProject(p.id) || p)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
+                <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel }}>{modeLabel[p.buildMode] || p.buildMode}</span>
+              </div>
+              <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 6 }}>
+                {p.region} · updated {new Date(p.updatedAt).toLocaleDateString()}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px" }}
+                  onClick={(e) => { e.stopPropagation(); duplicateProject(p.id); refresh(); }}>Duplicate</button>
+                <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberDeep }}
+                  onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) { deleteProject(p.id); refresh(); } }}>Delete</button>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </main>
+  );
+}
+
+/* ---- Workflow stepper: the workspace's linear flow ---- */
+const WORKFLOW = [
+  { id: "estimate", label: "Estimate" },
+  { id: "three_d", label: "3D" },
+  { id: "materials", label: "Materials" },
+  { id: "timeline", label: "Timeline" },
+  { id: "ai", label: "AI" },
+  { id: "quote", label: "Quote" },
+  { id: "proposal", label: "Proposal" },
+];
+
+function WorkflowStepper({ stage, onStage, buildMode }) {
+  const stages = WORKFLOW.filter((s) => !(buildMode === "materials" && ["estimate", "timeline"].includes(s.id)));
+  const idx = stages.findIndex((s) => s.id === stage);
+  return (
+    <div style={{ maxWidth: 1480, margin: "0 auto", padding: "20px 24px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto", paddingBottom: 4 }}>
+        {stages.map((s, i) => (
+          <React.Fragment key={s.id}>
+            {i > 0 && <div style={{ width: 26, height: 2, flexShrink: 0, background: i <= idx ? TOKENS.hivisDeep : TOKENS.rule }} />}
+            <motion.button whileHover={{ y: -2 }} onClick={() => onStage(s.id)}
+              className="ec-mono"
+              style={{
+                flexShrink: 0, display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+                padding: "8px 14px", fontSize: 11, letterSpacing: "0.08em", fontWeight: 700,
+                border: `1px solid ${s.id === stage ? TOKENS.ink : TOKENS.rule}`,
+                background: s.id === stage ? TOKENS.ink : i < idx ? "rgba(217,165,20,0.12)" : TOKENS.paperLight,
+                color: s.id === stage ? TOKENS.hivis : TOKENS.ink,
+              }}>
+              <span style={{ width: 17, height: 17, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, background: s.id === stage ? TOKENS.hivis : TOKENS.rule, color: TOKENS.ink }}>{i + 1}</span>
+              {s.label}
+            </motion.button>
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ---- AI crew: six specialists that act on the live project ---- */
+function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec, estimate, currency, onSpecPatch, onAddQuoteLines }) {
+  const [personaId, setPersonaId] = useState(PERSONAS[0].id);
+  const persona = PERSONAS.find((p) => p.id === personaId);
+  const [msgs, setMsgs] = useState(() => (getProject(projectId)?.chats?.[personaId]) || []);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const switchPersona = (id) => {
+    setPersonaId(id);
+    setMsgs((getProject(projectId)?.chats?.[id]) || []);
+    setErr("");
+  };
+  const persist = (id, list) => {
+    const p = getProject(projectId);
+    if (p) saveProject(projectId, { chats: { ...(p.chats || {}), [id]: list.slice(-30) } });
+  };
+
+  const send = async (text) => {
+    const q = (text || input).trim();
+    if (!q || busy) return;
+    setInput(""); setErr(""); setBusy(true);
+    const next = [...msgs, { role: "user", content: q }];
+    setMsgs(next);
+    try {
+      const ctx = {
+        name: projectName, buildMode, region,
+        specSummary: summariseSpec(buildMode, spec, hrSpec),
+        estimateSummary: summariseEstimate(estimate, currency),
+      };
+      const reply = await aiChat({
+        system: buildSystemPrompt(persona, ctx),
+        messages: next.map(({ role, content }) => ({ role, content })),
+        maxTokens: 1200,
+      });
+      const { text: cleaned, actions } = parseActions(reply);
+      const done = [...next, { role: "assistant", content: cleaned, actions }];
+      setMsgs(done); persist(personaId, done);
+    } catch (e) { setErr(aiErrMsg(e)); setMsgs(msgs); }
+    setBusy(false);
+  };
+
+  const applyAction = (a) => {
+    if (a.type === "update_spec" && a.patch) onSpecPatch(a.patch);
+    if (a.type === "add_quote_lines" && Array.isArray(a.lines)) onAddQuoteLines(a.lines);
+  };
+
+  return (
+    <main style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", minHeight: "60vh" }}>
+      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>AI crew</div>
+      <h2 className="ec-display" style={{ fontSize: 30, lineHeight: 1, marginBottom: 6 }}>
+        Six specialists. <span style={{ color: TOKENS.hivisDeep }}>One project.</span>
+      </h2>
+      <p style={{ fontSize: 13, color: TOKENS.inkSoft, maxWidth: 620, marginBottom: 22 }}>
+        Not a chatbot — each specialist reads this project's live spec and estimate, and can propose
+        changes you apply with one click.
+      </p>
+
+      {/* persona cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 22 }}>
+        {PERSONAS.map((p, i) => (
+          <motion.div key={p.id} whileHover={{ y: -4 }} onClick={() => switchPersona(p.id)}
+            style={{
+              padding: "14px 12px", cursor: "pointer", textAlign: "center",
+              background: p.id === personaId ? TOKENS.ink : TOKENS.paperLight,
+              border: `1px solid ${p.id === personaId ? TOKENS.ink : TOKENS.rule}`,
+              borderTop: `3px solid ${p.id === personaId ? TOKENS.hivis : TOKENS.rule}`,
+            }}>
+            <div style={{ fontSize: 26 }}>{p.emoji}</div>
+            <div className="ec-display" style={{ fontSize: 14, marginTop: 6, color: p.id === personaId ? TOKENS.hivis : TOKENS.ink }}>{p.name}</div>
+            <div className="ec-mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", marginTop: 3, color: p.id === personaId ? "rgba(242,244,247,0.7)" : TOKENS.steel }}>{p.role.toUpperCase()}</div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* chat panel */}
+      <div className="ec-card" style={{ padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "12px 18px", borderBottom: `1px solid ${TOKENS.rule}`, background: TOKENS.paperLight }}>
+          <span className="ec-display" style={{ fontSize: 16 }}>{persona.emoji} {persona.name} — {persona.role}</span>
+          <div style={{ fontSize: 11.5, color: TOKENS.inkSoft, marginTop: 2 }}>{persona.tone}</div>
+        </div>
+        <div style={{ padding: 18, maxHeight: 420, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+          {msgs.length === 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {persona.starters.map((s) => (
+                <button key={s} className="ec-btn ec-btn-ghost" style={{ fontSize: 11 }} onClick={() => send(s)}>{s}</button>
+              ))}
+            </div>
+          )}
+          {msgs.map((m, i) => (
+            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "82%" }}>
+              <div style={{
+                padding: "10px 14px", fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap",
+                background: m.role === "user" ? TOKENS.ink : TOKENS.paperLight,
+                color: m.role === "user" ? TOKENS.paper : TOKENS.ink,
+                border: `1px solid ${m.role === "user" ? TOKENS.ink : TOKENS.rule}`,
+              }}>{m.content}</div>
+              {(m.actions || []).map((a, j) => (
+                <button key={j} className="ec-btn ec-btn-hivis" style={{ marginTop: 6, fontSize: 11 }} onClick={() => applyAction(a)}>
+                  ⚡ Apply: {a.label || a.type}
+                </button>
+              ))}
+            </div>
+          ))}
+          {busy && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{persona.name} is thinking…</div>}
+          {err && <div style={{ fontSize: 12, color: TOKENS.emberDeep }}>{err}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 10, padding: 14, borderTop: `1px solid ${TOKENS.rule}` }}>
+          <input className="ec-input" style={{ flex: 1 }} placeholder={`Ask ${persona.name} about this project…`}
+            value={input} onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+          <button className="ec-btn ec-btn-hivis" disabled={busy} onClick={() => send()}>Send</button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ---- Proposal: the client-facing document, print-ready ---- */
+function ProposalSection({ projectName, estimate, currency, region, buildMode, projectNo, reportText }) {
+  const est = estimate || {};
+  const money = (v) => `${currency}${fmt(v || 0)}`;
+  const rows = buildMode === "materials"
+    ? (est.lines || []).map((l) => [l.label, `${l.qty} ${l.unit || ""}`, money(l.total)])
+    : buildMode === "highrise"
+    ? (est.systemLines || []).map((l) => [l.label, `${fmt(l.qty)} ${l.unit || ""}`, money(l.total)])
+    : [
+        ["Materials (waste-adjusted)", "", money(est.materialsTotal)],
+        ["Labour — all trades", "", money(est.labourTotal)],
+        ["Equipment & site establishment", "", money(est.equipmentTotal)],
+        ["Preliminaries", "", money(est.prelims)],
+        ["Builder's margin", "", money(est.margin)],
+        ["Contingency", "", money(est.contingency)],
+      ];
+  const doPrint = () => window.print();
+  return (
+    <main style={{ maxWidth: 900, margin: "0 auto", padding: "28px 24px 64px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} className="no-print">
+        <div className="ec-eyebrow">Proposal — client-facing</div>
+        <button className="ec-btn ec-btn-hivis" onClick={doPrint}>Print / save as PDF</button>
+      </div>
+      <style>{`@media print { .no-print, header, footer { display: none !important; } body { background: #fff !important; } }`}</style>
+      <div className="ec-card" style={{ padding: "48px 52px", background: "#fff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: `3px solid ${TOKENS.hivis}`, paddingBottom: 22, marginBottom: 26 }}>
+          <div>
+            <BYOLogo size={44} />
+            <h1 className="ec-display" style={{ fontSize: 30, margin: "16px 0 4px" }}>{projectName || "Project proposal"}</h1>
+            <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>
+              {projectNo} · {region} · {new Date().toLocaleDateString()}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel }}>PROPOSED TOTAL</div>
+            <div className="ec-display" style={{ fontSize: 34, color: TOKENS.hivisDeep }}>{money(est.total)}</div>
+            {est.taxRate > 0 && <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>+ {money(est.total * est.taxRate)} {est.taxLabel}</div>}
+          </div>
+        </div>
+
+        <h3 className="ec-display" style={{ fontSize: 16, marginBottom: 10 }}>Scope of works</h3>
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: TOKENS.inkSoft, marginBottom: 22 }}>
+          {buildMode === "highrise"
+            ? `Feasibility estimate for a ${est.spec?.floors}-storey ${est.spec?.occupancy || ""} tower, ${fmt(est.takeoff?.gfaM2 || 0)} m² GFA, prepared from parametric system rates.`
+            : buildMode === "materials"
+            ? `Itemised quotation covering ${(est.lines || []).length} lines of materials, labour and trade works as listed below.`
+            : `Construction of a ${est.spec?.widthM}×${est.spec?.lengthM} m, ${est.spec?.floors}-storey residence (${fmt(est.takeoff?.gfaM2 || 0)} m² GFA) including structure, envelope, services and finishes as itemised below.`}
+        </p>
+
+        <h3 className="ec-display" style={{ fontSize: 16, marginBottom: 10 }}>Cost summary</h3>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 22 }}>
+          <tbody>
+            {rows.map(([a, b, c], i) => (
+              <tr key={i} style={{ borderBottom: `1px solid ${TOKENS.rule}` }}>
+                <td style={{ padding: "8px 0" }}>{a}</td>
+                <td className="ec-mono" style={{ padding: "8px 0", color: TOKENS.steel, fontSize: 11 }}>{b}</td>
+                <td className="ec-mono" style={{ padding: "8px 0", textAlign: "right" }}>{c}</td>
+              </tr>
+            ))}
+            <tr>
+              <td className="ec-display" style={{ padding: "12px 0", fontSize: 15 }}>TOTAL {est.taxRate > 0 ? "(excl. tax)" : ""}</td>
+              <td />
+              <td className="ec-mono" style={{ padding: "12px 0", textAlign: "right", fontWeight: 700, fontSize: 16, color: TOKENS.hivisDeep }}>{money(est.total)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {est.timeline?.totalWeeks && (
+          <>
+            <h3 className="ec-display" style={{ fontSize: 16, marginBottom: 10 }}>Programme</h3>
+            <p style={{ fontSize: 13, color: TOKENS.inkSoft, marginBottom: 22 }}>
+              Estimated construction period: <b>{est.timeline.totalWeeks} weeks</b> (~{(est.timeline.totalWeeks / 4.33).toFixed(1)} months), subject to approvals, weather and site conditions.
+            </p>
+          </>
+        )}
+
+        <h3 className="ec-display" style={{ fontSize: 16, marginBottom: 10 }}>Terms & basis</h3>
+        <p style={{ fontSize: 11.5, lineHeight: 1.6, color: TOKENS.steel }}>
+          This proposal is a feasibility-grade estimate generated from parametric market rates, valid 30 days.
+          It is not a fixed-price contract. Final pricing requires supplier quotations, engineering
+          documentation and site inspection. All work to comply with local building codes; structural
+          elements require certification by a licensed engineer.
+        </p>
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   const [region, setRegion] = useState("AU");
   const [buildMode, setBuildMode] = useState("residential"); // residential | highrise
@@ -1354,6 +1693,44 @@ export default function App() {
   const [hrSpec, setHrSpec] = useState(DEFAULT_HR_SPEC);
   const [matSpec, setMatSpec] = useState(DEFAULT_MAT_SPEC);
   const [tab, setTab] = useState("estimate");
+  const [aiKeyOpen, setAiKeyOpen] = useState(false);
+  const [aiKeyDraft, setAiKeyDraft] = useState(getAiKey());
+
+  /* ---- Workspace navigation: landing → projects → project workspace ----
+     Every project lives in ONE workspace, walked as a linear workflow:
+     Estimate → 3D → Materials → Timeline → AI → Quote → Proposal. */
+  const [screen, setScreen] = useState("landing");     // landing | projects | workspace
+  const [projectId, setProjectId] = useState(null);
+  const [projectName, setProjectName] = useState("");
+  const [stage, setStage] = useState("estimate");      // workflow stage id
+
+  const openProject = useCallback((p) => {
+    setProjectId(p.id); setProjectName(p.name);
+    setBuildMode(p.buildMode || "residential");
+    setRegion(p.region || "AU");
+    if (p.spec) setSpec(p.spec);
+    if (p.hrSpec) setHrSpec(p.hrSpec);
+    if (p.matSpec) setMatSpec(p.matSpec);
+    setStage((p.buildMode || "residential") === "materials" ? "quote" : "estimate");
+    setTab("estimate");
+    setScreen("workspace");
+    window.scrollTo({ top: 0 });
+  }, []);
+
+  const newProject = useCallback((userType, name) => {
+    const buildModeFor = { homeowner: "residential", developer: "highrise", tradie: "materials" };
+    const p = createProject({ name, userType, buildMode: buildModeFor[userType] || "residential", region });
+    openProject(p);
+  }, [region, openProject]);
+
+  /* Autosave the open project whenever its data changes (debounced) */
+  useEffect(() => {
+    if (!projectId) return;
+    const t = setTimeout(() => {
+      saveProject(projectId, { spec, hrSpec, matSpec, region, buildMode, name: projectName });
+    }, 700);
+    return () => clearTimeout(t);
+  }, [projectId, spec, hrSpec, matSpec, region, buildMode, projectName]);
   const [ratesVersion, setRatesVersion] = useState(0); // bumped after equipment rate overrides change
   const [projectNo] = useState(genProjectNo);
   const [autoRotate, setAutoRotate] = useState(true);
@@ -1750,6 +2127,7 @@ export default function App() {
         }
       `}</style>
 
+      {screen === "landing" && <>
       {/* ============== HERO ============== */}
       <section style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden", background: "#000" }}>
         <canvas ref={shaderCanvasRef} className="ec-hero-canvas" style={{ touchAction: "none" }} />
@@ -1837,7 +2215,7 @@ export default function App() {
           </p>
 
           <div className="ec-fade-up ec-delay-4" style={{ marginTop: 36, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-            <button onClick={() => document.getElementById("tool")?.scrollIntoView({ behavior: "smooth" })}
+            <button onClick={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
               style={{
                 padding: "14px 28px",
                 background: "linear-gradient(90deg, #F5C518 0%, #F58E1A 100%)",
@@ -1896,6 +2274,11 @@ export default function App() {
       {/* ============== SITE TOOLKIT — flying tool/material cards ============== */}
       <ToolkitSection />
 
+      {/* ============== USER PATHS — pick who you are, get your workflow ============== */}
+      <UserPathsSection onPick={(t) => { setScreen("projects"); window.scrollTo({ top: 0 }); }} />
+      </>}
+
+      {screen !== "landing" && <>
       {/* ============== STICKY HEADER (appears after hero) ============== */}
       <header style={{
         position: "sticky", top: 0, zIndex: 30,
@@ -1906,8 +2289,18 @@ export default function App() {
       }}>
         <div className="hdr-in" style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <BYOLogo size={28} />
-            <div className="ec-display hdr-word" style={{ fontSize: 16, color: TOKENS.ink, letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
+            <span onClick={() => setScreen("landing")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+              <BYOLogo size={28} />
+              <div className="ec-display hdr-word" style={{ fontSize: 16, color: TOKENS.ink, letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
+            </span>
+            <button className="ec-btn ec-btn-ghost" onClick={() => setScreen("projects")}
+              style={{ marginLeft: 6, background: screen === "projects" ? TOKENS.ink : "transparent", color: screen === "projects" ? TOKENS.paper : TOKENS.ink }}>
+              Projects
+            </button>
+            {screen === "workspace" && (
+              <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
+                title="Project name" style={{ width: 170, fontWeight: 600, fontSize: 13 }} />
+            )}
           </div>
           <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
@@ -1946,12 +2339,48 @@ export default function App() {
             <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
               {copied ? "Copied ✓" : "Copy"}
             </button>
+            <button className="ec-btn ec-btn-ghost" onClick={() => setAiKeyOpen((v) => !v)}
+              title="AI settings — Anthropic API key"
+              style={{ borderColor: hasAiKey() ? "#3f9e63" : TOKENS.emberDeep, color: hasAiKey() ? "#3f9e63" : TOKENS.emberDeep }}>
+              {hasAiKey() ? "AI ✓" : "AI key"}
+            </button>
           </div>
         </div>
+        {aiKeyOpen && (
+          <div style={{ maxWidth: 1480, margin: "0 auto", padding: "10px 24px 14px", borderTop: `1px dashed ${TOKENS.rule}` }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel }}>ANTHROPIC API KEY</span>
+              <input className="ec-input" type="password" placeholder="sk-ant-..." value={aiKeyDraft}
+                onChange={(e) => setAiKeyDraft(e.target.value)} style={{ flex: 1, minWidth: 220, maxWidth: 460 }} />
+              <button className="ec-btn ec-btn-hivis" onClick={() => { setAiKey(aiKeyDraft); setAiKeyOpen(false); }}>Save</button>
+              <button className="ec-btn ec-btn-ghost" onClick={() => { setAiKey(""); setAiKeyDraft(""); }}>Clear</button>
+            </div>
+            <p style={{ fontSize: 11, color: TOKENS.steel, margin: "8px 0 0" }}>
+              Stored only in this browser (localStorage) and sent directly to Anthropic — never to any other server.
+              Powers the AI crew, quote parsing and tower parsing.
+            </p>
+          </div>
+        )}
       </header>
 
+      {/* ============== PROJECTS SCREEN ============== */}
+      {screen === "projects" && (
+        <ProjectsScreen onOpen={openProject} onNew={newProject} />
+      )}
+
+      {/* ============== WORKFLOW STEPPER (workspace) ============== */}
+      {screen === "workspace" && (
+        <WorkflowStepper stage={stage} onStage={(s) => {
+          setStage(s);
+          if (s === "estimate") setTab("estimate");
+          if (s === "materials") setTab("spreadsheet");
+          if (s === "timeline" && buildMode !== "materials") setTab("timeline");
+        }} buildMode={buildMode} />
+      )}
+
       {/* ============== MAIN GRID (estimator tool) ============== */}
-      <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "48px 24px 64px", display: "grid", gridTemplateColumns: "minmax(320px, 380px) 1fr", gap: 28 }} className="grid-responsive">
+      {screen === "workspace" && !["ai", "proposal"].includes(stage) && (
+      <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", display: "grid", gridTemplateColumns: stage === "three_d" ? "1fr" : "minmax(320px, 380px) 1fr", gap: 28 }} className={"grid-responsive" + (stage === "three_d" ? " stage-3d" : "")}>
         <style>{`
           main.grid-responsive { box-sizing: border-box; }
           main.grid-responsive * { min-width: 0; }
@@ -2266,6 +2695,26 @@ export default function App() {
           </div>
         </section>
       </main>
+      )}
+
+      {/* ============== AI CREW STAGE ============== */}
+      {screen === "workspace" && stage === "ai" && (
+        <AICrewSection projectId={projectId} projectName={projectName} buildMode={buildMode} region={region}
+          spec={spec} hrSpec={hrSpec} estimate={estimate} currency={currency}
+          onSpecPatch={(patch) => update(patch)}
+          onAddQuoteLines={(lines) => {
+            const mk = (l) => ({ id: nextId(), kind: l.kind || "element", label: l.label || "AI line", qty: +l.qty || 1, unit: l.unit || "ea", rate: +l.rate || 0, useCustomRate: true });
+            if (buildMode === "materials") setMatSpec((s) => ({ lines: [...(s.lines || []), ...lines.map(mk)] }));
+            else setSpec((s) => ({ ...s, extras: [...(s.extras || []), ...lines.map(mk)] }));
+          }} />
+      )}
+
+      {/* ============== PROPOSAL STAGE ============== */}
+      {screen === "workspace" && stage === "proposal" && (
+        <ProposalSection projectName={projectName} estimate={estimate} currency={currency} region={region}
+          buildMode={buildMode} projectNo={projectNo} reportText={buildReportText} />
+      )}
+      </>}
 
       {/* Footer disclaimer */}
       <footer style={{ borderTop: `1px solid ${TOKENS.rule}`, marginTop: 48, padding: "20px 24px", background: TOKENS.paperLight }}>
@@ -2666,26 +3115,10 @@ Rules:
 {"items":[{"preset":"<id>","lengthM":<n>,"heightM":<n>,"dim":<n>,"finish":"<s>","sides":<n>,"variant":"<id>","labour":<bool>,"addons":[{"id":"<addonId>","qty":<n>}],"label":"<short human label>"}],"note":"<assumptions or unmapped parts, or empty>"}`;
 
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1500,
-          system: sys,
-          messages: [{ role: "user", content: `Request: "${aiText.trim()}"` }],
-        }),
-      });
-      if (!resp.ok) {
-        setAiError(`The AI service returned an error (${resp.status}). Give it a second and try again.`);
-        setAiBusy(false); return;
-      }
-      const data = await resp.json();
-      if (data.error) {
-        setAiError(`AI error: ${data.error.message || "unknown"}. Try again in a moment.`);
-        setAiBusy(false); return;
-      }
-      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const textOut = (await aiChat({
+        system: sys, maxTokens: 1500,
+        messages: [{ role: "user", content: `Request: "${aiText.trim()}"` }],
+      })).trim();
       // Robust JSON extraction: find the outermost {...} block even if prose surrounds it
       let parsed = null;
       const start = textOut.indexOf("{");
@@ -2716,7 +3149,7 @@ Rules:
       setAiText("");
       if (parsed.note) setAiNote(parsed.note);
     } catch (e) {
-      setAiError("Couldn't reach the AI service — check your connection and try again. The manual builder below always works.");
+      setAiError(aiErrMsg(e) + " The manual builder below always works.");
     }
     setAiBusy(false);
   };
@@ -2865,20 +3298,16 @@ Rules:
 Respond as ONLY JSON, no markdown:
 {"steps":[{"n":1,"title":"<step>","detail":"<what happens, 1-2 sentences>","uses":"<materials/trades from the list>"}],"summary":"<one line on total sequence>"}`;
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1500, system: sys, messages: [{ role: "user", content: `The quote contains:\n${itemList}` }] }),
-      });
-      if (!resp.ok) { setStepsErr(`AI service error (${resp.status}). Try again shortly.`); setStepsBusy(false); return; }
-      const data = await resp.json();
-      if (data.error) { setStepsErr("AI error — try again in a moment."); setStepsBusy(false); return; }
-      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const textOut = (await aiChat({
+        system: sys, maxTokens: 1500,
+        messages: [{ role: "user", content: `The quote contains:\n${itemList}` }],
+      })).trim();
       const st = textOut.indexOf("{"), en = textOut.lastIndexOf("}");
       let parsed = null;
       if (st >= 0 && en > st) { try { parsed = JSON.parse(textOut.slice(st, en + 1)); } catch (e2) {} }
       if (!parsed || !Array.isArray(parsed.steps)) { setStepsErr("Couldn't read the steps — hit the button again."); setStepsBusy(false); return; }
       setSteps(parsed);
-    } catch (e) { setStepsErr("Couldn't reach the AI service — check your connection."); }
+    } catch (e) { setStepsErr(aiErrMsg(e)); }
     setStepsBusy(false);
   };
   return (
@@ -3237,14 +3666,10 @@ Rules:
 - Respond with ONLY a JSON object, no markdown, no prose:
 {"spec":{<only the fields you're confident about>},"note":"<anything you couldn't map, or empty>"}`;
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 500, system: sys, messages: [{ role: "user", content: `Description: "${aiText.trim()}"` }] }),
-      });
-      if (!resp.ok) { setAiError(`The AI service returned an error (${resp.status}). Try again in a moment.`); setAiBusy(false); return; }
-      const data = await resp.json();
-      if (data.error) { setAiError(`AI error: ${data.error.message || "unknown"}. Try again shortly.`); setAiBusy(false); return; }
-      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const textOut = (await aiChat({
+        system: sys, maxTokens: 500,
+        messages: [{ role: "user", content: `Description: "${aiText.trim()}"` }],
+      })).trim();
       let parsed = null;
       const jStart = textOut.indexOf("{"); const jEnd = textOut.lastIndexOf("}");
       if (jStart >= 0 && jEnd > jStart) { try { parsed = JSON.parse(textOut.slice(jStart, jEnd + 1)); } catch (e2) { /* noop */ } }
@@ -3269,7 +3694,7 @@ Rules:
       setAiText("");
       if (parsed.note) setAiNote(parsed.note);
     } catch (e) {
-      setAiError("Couldn't reach the AI service — check your connection and try again. You can always fill the fields below by hand.");
+      setAiError(aiErrMsg(e) + " You can always fill the fields below by hand.");
     }
     setAiBusy(false);
   };
