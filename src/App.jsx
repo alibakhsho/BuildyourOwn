@@ -22,14 +22,12 @@ import { RESIDENTIAL_PRESETS } from "./presets/residential-presets.js";
 import { HIGHRISE_PRESETS } from "./presets/highrise-presets.js";
 import { motion, AnimatePresence } from "framer-motion";
 import BackgroundScene from "./engine/BackgroundScene.jsx";
-import { chat as aiChat, getAiKey, setAiKey, hasAiKey } from "./ai/client.js";
+import { chat as aiChat } from "./ai/client.js";
 import { listProjects, createProject, saveProject, deleteProject, duplicateProject, getProject } from "./state/projects.js";
 import { PERSONAS, buildSystemPrompt, summariseSpec, summariseEstimate, parseActions } from "./ai/personas.js";
 
 /* Human-readable message for AI failures, shared by every AI feature */
-const aiErrMsg = (e) => e?.message === "NO_KEY"
-  ? "No API key set — open AI settings (key icon in the header) and paste your Anthropic API key."
-  : (e?.message || "Couldn't reach the AI service — check your connection.");
+const aiErrMsg = (e) => e?.message || "Couldn't reach the AI service — check your connection.";
 
 /* =========================================================================
    Site toolkit — construction tools & materials as flying cards. Each card
@@ -1693,8 +1691,6 @@ export default function App() {
   const [hrSpec, setHrSpec] = useState(DEFAULT_HR_SPEC);
   const [matSpec, setMatSpec] = useState(DEFAULT_MAT_SPEC);
   const [tab, setTab] = useState("estimate");
-  const [aiKeyOpen, setAiKeyOpen] = useState(false);
-  const [aiKeyDraft, setAiKeyDraft] = useState(getAiKey());
 
   /* ---- Workspace navigation: landing → projects → project workspace ----
      Every project lives in ONE workspace, walked as a linear workflow:
@@ -2339,28 +2335,8 @@ export default function App() {
             <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
               {copied ? "Copied ✓" : "Copy"}
             </button>
-            <button className="ec-btn ec-btn-ghost" onClick={() => setAiKeyOpen((v) => !v)}
-              title="AI settings — Anthropic API key"
-              style={{ borderColor: hasAiKey() ? "#3f9e63" : TOKENS.emberDeep, color: hasAiKey() ? "#3f9e63" : TOKENS.emberDeep }}>
-              {hasAiKey() ? "AI ✓" : "AI key"}
-            </button>
           </div>
         </div>
-        {aiKeyOpen && (
-          <div style={{ maxWidth: 1480, margin: "0 auto", padding: "10px 24px 14px", borderTop: `1px dashed ${TOKENS.rule}` }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel }}>ANTHROPIC API KEY</span>
-              <input className="ec-input" type="password" placeholder="sk-ant-..." value={aiKeyDraft}
-                onChange={(e) => setAiKeyDraft(e.target.value)} style={{ flex: 1, minWidth: 220, maxWidth: 460 }} />
-              <button className="ec-btn ec-btn-hivis" onClick={() => { setAiKey(aiKeyDraft); setAiKeyOpen(false); }}>Save</button>
-              <button className="ec-btn ec-btn-ghost" onClick={() => { setAiKey(""); setAiKeyDraft(""); }}>Clear</button>
-            </div>
-            <p style={{ fontSize: 11, color: TOKENS.steel, margin: "8px 0 0" }}>
-              Stored only in this browser (localStorage) and sent directly to Anthropic — never to any other server.
-              Powers the AI crew, quote parsing and tower parsing.
-            </p>
-          </div>
-        )}
       </header>
 
       {/* ============== PROJECTS SCREEN ============== */}
@@ -2373,8 +2349,16 @@ export default function App() {
         <WorkflowStepper stage={stage} onStage={(s) => {
           setStage(s);
           if (s === "estimate") setTab("estimate");
-          if (s === "materials") setTab("spreadsheet");
+          if (s === "materials") setTab(buildMode === "materials" ? "estimate" : "spreadsheet");
           if (s === "timeline" && buildMode !== "materials") setTab("timeline");
+          if (s === "quote") setTab("estimate");
+          // Scroll to the matching section after the stage/tab re-render commits.
+          const anchor = { three_d: "ws-viewport", estimate: "ws-results", materials: "ws-results", timeline: "ws-results", quote: "ws-results" }[s];
+          requestAnimationFrame(() => {
+            const el = anchor && document.getElementById(anchor);
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+            else window.scrollTo({ top: 0, behavior: "smooth" }); // ai / proposal swap the view
+          });
         }} buildMode={buildMode} />
       )}
 
@@ -2553,7 +2537,7 @@ export default function App() {
           </Reveal>
 
           {/* 3D viewport */}
-          <div className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden" }}>
+          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden", scrollMarginTop: 80 }}>
             <div ref={viewportRef} style={{ position: "absolute", inset: 0 }} />
             {/* Dimension annotations overlay */}
             <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
@@ -2639,7 +2623,7 @@ export default function App() {
           </div>
 
           {/* Headline cost cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16 }}>
+          <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16, scrollMarginTop: 80 }}>
             <StaggerReveal variant="fade-up" stagger={0.06}>
               {buildMode === "materials" ? [
                 <CostCard key="t" label="Quote total" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
