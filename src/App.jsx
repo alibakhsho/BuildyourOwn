@@ -1,6 +1,165 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, Children, cloneElement } from "react";
-import * as THREE from "three";
 import * as XLSX from "xlsx";
+import { round, fmt, pad, currencySymbol } from "./lib/format.js";
+import { nextId } from "./lib/ids.js";
+import { Validate } from "./logic/validate.js";
+import { LabourRates } from "./data/labour.js";
+import { HighRiseMaterials } from "./data/highrise-materials.js";
+import { Materials } from "./data/materials.js";
+import { Allocation } from "./logic/allocation.js";
+import { WallBuilder } from "./logic/wall-builder.js";
+import { MaterialsOnly } from "./logic/materials-only.js";
+import { Estimator, inferSpecFromImport } from "./logic/estimator.js";
+import { HighRiseEstimator } from "./logic/highrise-estimator.js";
+import { Engine3D } from "./engine/engine3D.js";
+import { Equipment } from "./data/equipment.js";
+import {
+  getSuppliers, addSupplierOverride, removeSupplierOverride,
+  hideSampleSupplier, resetSuppliersToSample,
+  resolveEquipmentRate, setEquipmentRateOverride, clearEquipmentRateOverrides,
+} from "./data/pricing-providers.js";
+import { RESIDENTIAL_PRESETS } from "./presets/residential-presets.js";
+import { HIGHRISE_PRESETS } from "./presets/highrise-presets.js";
+import { motion, AnimatePresence } from "framer-motion";
+import BackgroundScene from "./engine/BackgroundScene.jsx";
+import { chat as aiChat } from "./ai/client.js";
+import { listProjects, createProject, saveProject, deleteProject, duplicateProject, getProject } from "./state/projects.js";
+import { PERSONAS, buildSystemPrompt, summariseSpec, summariseEstimate, parseActions } from "./ai/personas.js";
+import DesignSystem from "./design/system.js";
+import { Icon } from "./design/icons.jsx";
+
+/* Human-readable message for AI failures, shared by every AI feature */
+const aiErrMsg = (e) => e?.message || "Couldn't reach the AI service — check your connection.";
+
+/* =========================================================================
+   Site toolkit — construction tools & materials as flying cards. Each card
+   flies in from an alternating direction with rotation, idles on a slow
+   float, and lifts/tilts on hover. Card silhouettes alternate between
+   rounded, chamfered (octagon clip) and notched shapes.
+   ========================================================================= */
+const TOOLKIT = [
+  { name: "Tower crane", blurb: "Vertical logistics, planned per programme week", tag: "PLANT",
+    icon: <path d="M6 44V16h4v28M4 44h8M8 16l2-8h24l-8 8M34 8v10m0 0l-2 6h4l-2-6zm-14-6v6" /> },
+  { name: "Excavator", blurb: "Cut, fill & trench — site-condition aware", tag: "PLANT",
+    icon: <path d="M8 38h20l4-8-6-10H14L8 30v8zm24-8l8-14 4 2-6 16M6 42h26M10 42a3 3 0 100 .1M28 42a3 3 0 100 .1" /> },
+  { name: "Ready-mix concrete", blurb: "25–40 MPa, waste-adjusted order quantities", tag: "MATERIAL",
+    icon: <path d="M10 20l6-12h16l6 12M8 20h32l-4 22H12L8 20zm12 6l2 8m6-8l-2 8" /> },
+  { name: "Structural steel", blurb: "UBs, UCs & purlins from the catalogue", tag: "MATERIAL",
+    icon: <path d="M10 8h28M10 44h28M14 8v36m20-36v36M14 16h20M14 36h20" /> },
+  { name: "Timber framing", blurb: "MGP10 studs at 600 centres, plates & lintels", tag: "MATERIAL",
+    icon: <path d="M8 44V12m8 32V12m8 32V12m8 32V12m8 32V12M4 12h40M4 44h40M8 22l32 14" /> },
+  { name: "Scaffolding", blurb: "Perimeter access priced per m²-week", tag: "ACCESS",
+    icon: <path d="M10 4v40M38 4v40M10 12h28M10 26h28M10 40h28M10 12l28 14M38 12L10 26" /> },
+  { name: "Power tools", blurb: "Trade kits costed inside labour rates", tag: "TOOLS",
+    icon: <path d="M8 20h18v12H14l-6-6v-6zm18 4h8l6-4v12l-6-4h-8M12 32v8h6" /> },
+  { name: "Site safety", blurb: "PPE, hoarding & establishment lines", tag: "SAFETY",
+    icon: <path d="M24 6c8 0 14 5 14 12v4H10v-4c0-7 6-12 14-12zm-14 20h28v6H10zm10-20v8m8-8v8" /> },
+];
+const CARD_SHAPES = [
+  { borderRadius: 6 },
+  { clipPath: "polygon(10% 0, 90% 0, 100% 12%, 100% 88%, 90% 100%, 10% 100%, 0 88%, 0 12%)" },
+  { borderRadius: "4px 28px 4px 28px" },
+];
+
+/* How it works — same flying-card language as the toolkit, on a dark glass
+   band so the ambient build/break scene shows through behind it. */
+const HOW_STEPS = [
+  { n: "01", title: "Configure", body: "Dimensions, floors, framing, cladding, roof, openings, site condition. Toggle region for AU, US or UK rates.",
+    icon: <path d="M8 40V20l16-12 16 12v20M8 40h32M18 40V28h12v12" /> },
+  { n: "02", title: "Watch it rise", body: "The 3D skeleton rebuilds the moment a slider moves. Play the construction sequence stage by stage.",
+    icon: <path d="M10 42V22m14 20V12m14 30V28M6 42h36M10 22l14-10 14 16" /> },
+  { n: "03", title: "See the numbers", body: "Itemised materials, trade-by-trade labour, equipment hire, builder build-up, and a programme in weeks. All live.",
+    icon: <path d="M8 8h24l8 8v24H8V8zm24 0v8h8M14 22h20M14 29h20M14 36h12" /> },
+  { n: "04", title: "Take it further", body: "Import CAD/BIM or SketchUp takeoffs, search live supplier prices, download the takeoff sheet.",
+    icon: <path d="M24 30V6m0 24l-8-8m8 8l8-8M8 34v8h32v-8" /> },
+];
+
+function HowItWorksSection() {
+  return (
+    <section id="how" style={{ background: "rgba(18, 22, 28, 0.82)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", borderTop: `3px solid ${TOKENS.hivis}`, borderBottom: `1px solid rgba(255,255,255,0.08)` }}>
+      <div style={{ maxWidth: 1480, margin: "0 auto", padding: "72px 24px 64px" }}>
+        <Reveal variant="fade-up">
+          <div className="ec-eyebrow" style={{ marginBottom: 8, color: TOKENS.hivis }}>How it works</div>
+          <h2 className="ec-display" style={{ fontSize: "clamp(30px, 4.5vw, 48px)", lineHeight: 1, margin: 0, color: "#f2f4f7", maxWidth: 760 }}>
+            Four steps from <span style={{ color: TOKENS.hivis }}>idea</span> to a defendable number.
+          </h2>
+          <p style={{ marginTop: 14, fontSize: 15, lineHeight: 1.6, color: "rgba(242,244,247,0.66)", maxWidth: 620, marginBottom: 36 }}>
+            No login, no upload, no waiting. Type in your dimensions and watch everything else compute live.
+          </p>
+        </Reveal>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+          {HOW_STEPS.map((s, i) => (
+            <motion.div key={s.n}
+              initial={{ opacity: 0, x: i % 2 ? 90 : -90, y: 40, rotate: i % 2 ? 6 : -6 }}
+              whileInView={{ opacity: 1, x: 0, y: 0, rotate: 0 }}
+              viewport={{ once: true, amount: 0.3 }}
+              transition={{ type: "spring", stiffness: 70, damping: 14, delay: (i % 4) * 0.08 }}
+              whileHover={{ y: -8, rotate: i % 2 ? -1.5 : 1.5, boxShadow: "0 18px 40px rgba(0,0,0,0.45)" }}
+              style={{
+                background: "rgba(255,255,255,0.055)", border: "1px solid rgba(255,255,255,0.13)",
+                padding: "24px 20px", position: "relative", overflow: "hidden",
+                ...CARD_SHAPES[i % CARD_SHAPES.length],
+              }}>
+              <span className="ec-mono" style={{ position: "absolute", top: 12, right: 14, fontSize: 11, letterSpacing: "0.18em", color: TOKENS.hivis, fontWeight: 700 }}>{s.n}</span>
+              <motion.svg width="48" height="48" viewBox="0 0 48 48" fill="none"
+                stroke={TOKENS.hivis} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+                animate={{ y: [0, -5, 0] }}
+                transition={{ duration: 3 + (i % 3), repeat: Infinity, ease: "easeInOut", delay: i * 0.3 }}
+                style={{ display: "block", marginBottom: 14 }}>
+                {s.icon}
+              </motion.svg>
+              <h3 className="ec-display" style={{ fontSize: 21, margin: "0 0 6px", color: "#f2f4f7", letterSpacing: "0.01em" }}>{s.title}</h3>
+              <p style={{ fontSize: 13, lineHeight: 1.55, color: "rgba(242,244,247,0.62)", margin: 0 }}>{s.body}</p>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ToolkitSection() {
+  return (
+    <section style={{ maxWidth: 1480, margin: "0 auto", padding: "72px 24px 40px" }}>
+      <Reveal variant="fade-up">
+        <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Site toolkit</div>
+        <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 8 }}>
+          Tools &amp; materials, <span style={{ color: TOKENS.hivisDeep }}>priced like they're on site</span>
+        </h2>
+        <p style={{ color: TOKENS.inkSoft, fontSize: 14, maxWidth: 640, marginBottom: 28 }}>
+          Every card maps to live catalogue lines — plant, materials, access and safety —
+          the same data the estimator prices from.
+        </p>
+      </Reveal>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
+        {TOOLKIT.map((t, i) => (
+          <motion.div key={t.name}
+            initial={{ opacity: 0, x: i % 2 ? 90 : -90, y: 40, rotate: i % 2 ? 6 : -6 }}
+            whileInView={{ opacity: 1, x: 0, y: 0, rotate: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ type: "spring", stiffness: 70, damping: 14, delay: (i % 4) * 0.08 }}
+            whileHover={{ y: -8, rotate: i % 2 ? -1.5 : 1.5, boxShadow: "0 18px 40px rgba(15,17,20,0.18)" }}
+            style={{
+              background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`,
+              padding: "22px 20px", position: "relative", overflow: "hidden",
+              ...CARD_SHAPES[i % CARD_SHAPES.length],
+            }}>
+            <span className="ec-mono" style={{ position: "absolute", top: 12, right: 14, fontSize: 9, letterSpacing: "0.16em", color: TOKENS.steel }}>{t.tag}</span>
+            <motion.svg width="48" height="48" viewBox="0 0 48 48" fill="none"
+              stroke={TOKENS.hivisDeep} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+              animate={{ y: [0, -5, 0] }}
+              transition={{ duration: 3 + (i % 3), repeat: Infinity, ease: "easeInOut", delay: i * 0.3 }}
+              style={{ display: "block", marginBottom: 14 }}>
+              {t.icon}
+            </motion.svg>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t.name}</div>
+            <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.5 }}>{t.blurb}</div>
+          </motion.div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /* =========================================================================
    MODULE: shader.js
@@ -203,537 +362,11 @@ function StaggerReveal({ children, stagger = 0.08, baseDelay = 0, ...props }) {
    STYLE TOKENS — drafting-room aesthetic
    Palette: concrete dust + deep ink + hi-vis safety yellow
    ========================================================================= */
-const TOKENS = {
-  paper: "#EDEEF0",        // slightly brighter than v1, more welcoming
-  paperLight: "#F6F7F8",
-  card: "#FFFFFF",
-  ink: "#14171A",
-  inkSoft: "#3B414A",
-  steel: "#6B7279",
-  rule: "#D5D8DC",
-  hivis: "#F5C518",
-  hivisDeep: "#D9AC00",
-  ember: "#F58E1A",        // hero warmth — bridges shader colors to UI
-  emberDeep: "#D96E0A",
-  alert: "#C8480E",
-  ok: "#3A7D44",
-  grid: "rgba(20,23,26,0.045)",
-};
-
-const FONT_URL = "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap";
-
-/* =========================================================================
-   MODULE: materials.js
-   Region-specific catalog of construction materials with indicative rates.
-   Rates are AUD/USD/GBP per unit, in local market 2025.
-   These are guides — not quotes. Real prices vary by supplier and date.
-   ========================================================================= */
-const Materials = {
-  /* Each material: id, label, unit, category, regions: { AU: { rate, supplier, sku? } } */
-  catalog: [
-    // ---- FOUNDATION ----
-    { id: "concrete_25mpa", label: "Ready-mix concrete (25 MPa)", unit: "m³", category: "foundation",
-      regions: { AU: 320, US: 220, UK: 175 }, note: "Slab and footing concrete" },
-    { id: "rebar_n12", label: "Reinforcement bar (N12)", unit: "tonne", category: "foundation",
-      regions: { AU: 1850, US: 1100, UK: 1050 } },
-    { id: "termite_membrane", label: "Termite barrier membrane", unit: "m²", category: "foundation",
-      regions: { AU: 28, US: 14, UK: 0 }, note: "Required AS 3660.1 in termite-prone zones" },
-    { id: "polythene_dpm", label: "Polythene damp-proof membrane", unit: "m²", category: "foundation",
-      regions: { AU: 4, US: 2.5, UK: 3 } },
-
-    // ---- FRAME ----
-    { id: "timber_mgp10", label: "Pine framing (MGP10 90×35)", unit: "lin.m", category: "frame",
-      regions: { AU: 5.20, US: 2.80, UK: 3.10 }, note: "Standard wall stud / plate" },
-    { id: "lvl_beam", label: "LVL structural beam (240×45)", unit: "lin.m", category: "frame",
-      regions: { AU: 38, US: 22, UK: 28 } },
-    { id: "steel_lintel", label: "Galvanised steel lintel", unit: "lin.m", category: "frame",
-      regions: { AU: 65, US: 38, UK: 42 } },
-    { id: "structural_steel", label: "Structural steel UB/UC", unit: "tonne", category: "frame",
-      regions: { AU: 4200, US: 2800, UK: 2900 } },
-
-    // ---- ROOF ----
-    { id: "colorbond_sheet", label: "Colorbond steel sheet roofing", unit: "m²", category: "roof",
-      regions: { AU: 42, US: 32, UK: 36 }, note: "Cyclone-rated profiles available" },
-    { id: "concrete_tile", label: "Concrete roof tiles", unit: "m²", category: "roof",
-      regions: { AU: 38, US: 24, UK: 28 } },
-    { id: "asphalt_shingle", label: "Asphalt shingles", unit: "m²", category: "roof",
-      regions: { AU: 35, US: 18, UK: 22 } },
-    { id: "roof_insulation", label: "Anticon roof blanket R3.0", unit: "m²", category: "roof",
-      regions: { AU: 12, US: 8, UK: 10 } },
-    { id: "guttering", label: "Quad gutter + downpipes", unit: "lin.m", category: "roof",
-      regions: { AU: 28, US: 16, UK: 18 } },
-
-    // ---- CLADDING / EXTERIOR ----
-    { id: "brick_veneer", label: "Clay brick veneer (incl. mortar)", unit: "m²", category: "cladding",
-      regions: { AU: 95, US: 70, UK: 65 } },
-    { id: "weatherboard", label: "Weatherboard (fibre cement)", unit: "m²", category: "cladding",
-      regions: { AU: 78, US: 48, UK: 55 } },
-    { id: "render", label: "Acrylic render on blockwork", unit: "m²", category: "cladding",
-      regions: { AU: 65, US: 38, UK: 45 } },
-    { id: "wall_insulation", label: "Wall batt insulation R2.5", unit: "m²", category: "cladding",
-      regions: { AU: 14, US: 9, UK: 11 } },
-
-    // ---- OPENINGS ----
-    { id: "window_alum_double", label: "Aluminium window, double-glazed", unit: "m²", category: "openings",
-      regions: { AU: 720, US: 440, UK: 480 } },
-    { id: "door_external", label: "External entry door (solid + frame)", unit: "ea", category: "openings",
-      regions: { AU: 1850, US: 950, UK: 1100 } },
-    { id: "door_internal", label: "Internal hollow-core door + frame", unit: "ea", category: "openings",
-      regions: { AU: 380, US: 180, UK: 220 } },
-    { id: "garage_door", label: "Sectional garage door, motorised", unit: "ea", category: "openings",
-      regions: { AU: 2400, US: 1400, UK: 1600 } },
-
-    // ---- INTERIOR ----
-    { id: "plasterboard", label: "Plasterboard 10mm + set joints", unit: "m²", category: "interior",
-      regions: { AU: 38, US: 22, UK: 26 } },
-    { id: "ceiling_cornice", label: "Cornice 75mm + install", unit: "lin.m", category: "interior",
-      regions: { AU: 18, US: 9, UK: 12 } },
-    { id: "floor_tile", label: "Floor tile 600×600 + adhesive + lay", unit: "m²", category: "interior",
-      regions: { AU: 145, US: 85, UK: 95 } },
-    { id: "floor_timber", label: "Engineered timber floor + lay", unit: "m²", category: "interior",
-      regions: { AU: 165, US: 95, UK: 110 } },
-    { id: "floor_carpet", label: "Carpet + underlay + lay", unit: "m²", category: "interior",
-      regions: { AU: 75, US: 42, UK: 48 } },
-    { id: "paint", label: "Paint, 2 coats + primer", unit: "m²", category: "interior",
-      regions: { AU: 24, US: 14, UK: 16 } },
-
-    // ---- JOINERY: ROBES & STORAGE ----
-    { id: "robe_built_in", label: "Built-in robe — shelf, rail, sliding doors", unit: "lin.m", category: "joinery",
-      regions: { AU: 520, US: 300, UK: 340 }, note: "Sliding/mirrored door BIR" },
-    { id: "robe_walk_in", label: "Walk-in robe fit-out — shelving & hanging", unit: "lin.m", category: "joinery",
-      regions: { AU: 420, US: 240, UK: 270 } },
-    { id: "robe_hinged", label: "Built-in robe — hinged doors", unit: "lin.m", category: "joinery",
-      regions: { AU: 580, US: 340, UK: 380 } },
-    { id: "linen_cupboard", label: "Linen / storage cupboard", unit: "ea", category: "joinery",
-      regions: { AU: 950, US: 560, UK: 620 } },
-
-    // ---- KITCHEN: COMPONENTS ----
-    { id: "kit_cab_flatpack", label: "Kitchen cabinetry — flat-pack + install", unit: "lin.m", category: "kitchen",
-      regions: { AU: 680, US: 400, UK: 440 } },
-    { id: "kit_cab_custom", label: "Kitchen cabinetry — custom joinery", unit: "lin.m", category: "kitchen",
-      regions: { AU: 1450, US: 870, UK: 960 } },
-    { id: "kit_bench_laminate", label: "Benchtop — laminate", unit: "lin.m", category: "kitchen",
-      regions: { AU: 190, US: 115, UK: 130 } },
-    { id: "kit_bench_stone", label: "Benchtop — engineered stone", unit: "lin.m", category: "kitchen",
-      regions: { AU: 680, US: 410, UK: 460 } },
-    { id: "kit_bench_natural", label: "Benchtop — natural stone (granite/marble)", unit: "lin.m", category: "kitchen",
-      regions: { AU: 980, US: 600, UK: 670 } },
-    { id: "kit_bench_timber", label: "Benchtop — solid timber", unit: "lin.m", category: "kitchen",
-      regions: { AU: 440, US: 270, UK: 300 } },
-    { id: "kit_splashback_tile", label: "Splashback — tiled", unit: "m²", category: "kitchen",
-      regions: { AU: 190, US: 115, UK: 130 } },
-    { id: "kit_splashback_glass", label: "Splashback — glass", unit: "m²", category: "kitchen",
-      regions: { AU: 440, US: 270, UK: 300 } },
-    { id: "kit_splashback_stone", label: "Splashback — stone slab", unit: "m²", category: "kitchen",
-      regions: { AU: 620, US: 380, UK: 420 } },
-    { id: "kit_sink_tap", label: "Sink + mixer tapware", unit: "ea", category: "kitchen",
-      regions: { AU: 880, US: 540, UK: 600 } },
-    { id: "kit_island", label: "Island bench module", unit: "ea", category: "kitchen",
-      regions: { AU: 3200, US: 1900, UK: 2100 } },
-    { id: "kit_appliances_basic", label: "Appliance package — basic", unit: "ea", category: "kitchen",
-      regions: { AU: 4500, US: 2800, UK: 3100 } },
-    { id: "kit_appliances_mid", label: "Appliance package — mid-range", unit: "ea", category: "kitchen",
-      regions: { AU: 9500, US: 6000, UK: 6600 } },
-    { id: "kit_appliances_premium", label: "Appliance package — premium", unit: "ea", category: "kitchen",
-      regions: { AU: 22000, US: 14000, UK: 15500 } },
-
-    // ---- BATHROOM: COMPONENTS ----
-    { id: "bath_vanity", label: "Vanity unit + basin", unit: "ea", category: "bathroom",
-      regions: { AU: 1250, US: 750, UK: 830 } },
-    { id: "bath_toilet", label: "Toilet suite", unit: "ea", category: "bathroom",
-      regions: { AU: 650, US: 400, UK: 440 } },
-    { id: "bath_shower_screen", label: "Shower screen + base", unit: "ea", category: "bathroom",
-      regions: { AU: 980, US: 600, UK: 660 } },
-    { id: "bath_tub", label: "Bathtub — freestanding/insert", unit: "ea", category: "bathroom",
-      regions: { AU: 1450, US: 880, UK: 970 } },
-    { id: "bath_tapware", label: "Tapware & mixer set", unit: "ea", category: "bathroom",
-      regions: { AU: 880, US: 540, UK: 600 } },
-    { id: "bath_accessories", label: "Towel rails, mirror, accessories", unit: "ea", category: "bathroom",
-      regions: { AU: 480, US: 290, UK: 320 } },
-    { id: "bath_wall_tile", label: "Wall tiling + adhesive + lay", unit: "m²", category: "bathroom",
-      regions: { AU: 135, US: 82, UK: 92 } },
-    { id: "bath_floor_tile", label: "Floor tiling — wet area", unit: "m²", category: "bathroom",
-      regions: { AU: 155, US: 92, UK: 102 } },
-    { id: "bath_waterproofing", label: "Waterproofing (AS 3740)", unit: "m²", category: "bathroom",
-      regions: { AU: 78, US: 46, UK: 52 }, note: "Mandatory wet-area membrane" },
-    { id: "bath_exhaust", label: "Exhaust fan + ventilation", unit: "ea", category: "bathroom",
-      regions: { AU: 320, US: 190, UK: 210 } },
-
-    // ---- STAIRS ----
-    { id: "stair_timber", label: "Staircase — timber flight + stringers", unit: "flight", category: "stairs",
-      regions: { AU: 4800, US: 3000, UK: 3300 } },
-    { id: "stair_steel_glass", label: "Staircase — steel + glass balustrade", unit: "flight", category: "stairs",
-      regions: { AU: 13000, US: 8000, UK: 8900 } },
-    { id: "stair_concrete", label: "Staircase — precast concrete flight", unit: "flight", category: "stairs",
-      regions: { AU: 6500, US: 4000, UK: 4500 } },
-    { id: "balustrade", label: "Balustrade / handrail", unit: "lin.m", category: "stairs",
-      regions: { AU: 380, US: 230, UK: 260 }, note: "NCC: max 125mm gaps, min 865mm height" },
-
-    // ---- SERVICES ----
-    { id: "electrical_basic", label: "Electrical rough-in + fit-off", unit: "m²gfa", category: "services",
-      regions: { AU: 165, US: 95, UK: 105 } },
-    { id: "plumbing_basic", label: "Plumbing rough-in + fit-off", unit: "m²gfa", category: "services",
-      regions: { AU: 140, US: 85, UK: 95 } },
-    { id: "hvac_split", label: "Split-system A/C (per zone)", unit: "ea", category: "services",
-      regions: { AU: 2800, US: 2200, UK: 2400 } },
-    { id: "hot_water", label: "Hot water system (heat-pump)", unit: "ea", category: "services",
-      regions: { AU: 3800, US: 2400, UK: 2600 } },
-    { id: "solar_pv", label: "Solar PV 6.6kW + inverter", unit: "ea", category: "services",
-      regions: { AU: 7500, US: 12000, UK: 8500 } },
-
-    // ---- TIMBER (structural & sizes) ----
-    { id: "timber_90x45", label: "Pine MGP10 90×45", unit: "lin.m", category: "frame",
-      regions: { AU: 6.40, US: 3.40, UK: 3.80 } },
-    { id: "timber_140x45", label: "Pine MGP10 140×45", unit: "lin.m", category: "frame",
-      regions: { AU: 9.80, US: 5.40, UK: 6.00 } },
-    { id: "timber_190x45", label: "Pine MGP10 190×45", unit: "lin.m", category: "frame",
-      regions: { AU: 13.50, US: 7.40, UK: 8.20 } },
-    { id: "timber_treated_post", label: "Treated pine post 90×90 (H4)", unit: "lin.m", category: "frame",
-      regions: { AU: 16, US: 9, UK: 10 }, note: "In-ground rated" },
-    { id: "hardwood_post", label: "Hardwood post 100×100", unit: "lin.m", category: "frame",
-      regions: { AU: 38, US: 22, UK: 25 } },
-    { id: "lvl_15", label: "LVL beam 150×45", unit: "lin.m", category: "frame",
-      regions: { AU: 26, US: 15, UK: 18 } },
-    { id: "lvl_30", label: "LVL beam 300×63", unit: "lin.m", category: "frame",
-      regions: { AU: 58, US: 34, UK: 40 } },
-
-    // ---- DECKING ----
-    { id: "deck_merbau", label: "Merbau decking board 90×19", unit: "m²", category: "decking",
-      regions: { AU: 145, US: 95, UK: 105 }, note: "Hardwood, premium" },
-    { id: "deck_treated_pine", label: "Treated pine decking 90×22", unit: "m²", category: "decking",
-      regions: { AU: 75, US: 48, UK: 54 } },
-    { id: "deck_composite", label: "Composite decking (e.g. Trex/Modwood)", unit: "m²", category: "decking",
-      regions: { AU: 165, US: 105, UK: 120 }, note: "Low-maintenance" },
-    { id: "deck_substructure", label: "Bearers, joists & framing (deck)", unit: "m²", category: "decking",
-      regions: { AU: 85, US: 55, UK: 60 } },
-    { id: "deck_joist_hangers", label: "Joist hangers & framing brackets", unit: "ea", category: "decking",
-      regions: { AU: 6.50, US: 3.50, UK: 4.00 } },
-
-    // ---- STRUCTURAL FIXINGS / GROUND ----
-    { id: "post_stirrup", label: "Galvanised post stirrup / bracket", unit: "ea", category: "fixings",
-      regions: { AU: 28, US: 16, UK: 18 }, note: "Bolt-down or in-ground post base" },
-    { id: "post_anchor_bolt", label: "Chemical / through bolts (set)", unit: "ea", category: "fixings",
-      regions: { AU: 12, US: 7, UK: 8 } },
-    { id: "footing_concrete", label: "Footing concrete (post holes)", unit: "m³", category: "fixings",
-      regions: { AU: 340, US: 220, UK: 240 } },
-    { id: "bracket_framing", label: "Framing anchors / tie-down brackets", unit: "ea", category: "fixings",
-      regions: { AU: 4.50, US: 2.50, UK: 3.00 }, note: "Cyclone tie-down" },
-
-    // ---- ROOF (expanded) ----
-    { id: "metal_roof_sheet", label: "Metal roof sheet (Trimdek/corrugated)", unit: "m²", category: "roof",
-      regions: { AU: 36, US: 26, UK: 30 } },
-    { id: "metal_roof_insulated", label: "Insulated roof panel (sandwich)", unit: "m²", category: "roof",
-      regions: { AU: 88, US: 58, UK: 65 } },
-    { id: "roof_flashing", label: "Ridge capping & flashings", unit: "lin.m", category: "roof",
-      regions: { AU: 32, US: 19, UK: 22 } },
-    { id: "polycarb_roof", label: "Polycarbonate roofing (patio)", unit: "m²", category: "roof",
-      regions: { AU: 55, US: 34, UK: 38 } },
-
-    // ---- OPENINGS (expanded) ----
-    { id: "window_alum_single", label: "Aluminium window, single-glazed", unit: "m²", category: "openings",
-      regions: { AU: 480, US: 300, UK: 330 } },
-    { id: "window_timber", label: "Timber window, double-glazed", unit: "m²", category: "openings",
-      regions: { AU: 950, US: 580, UK: 640 } },
-    { id: "window_sliding_door", label: "Aluminium sliding door (glass)", unit: "m²", category: "openings",
-      regions: { AU: 780, US: 480, UK: 530 } },
-    { id: "door_prehung", label: "Pre-hung internal door (factory)", unit: "ea", category: "openings",
-      regions: { AU: 320, US: 160, UK: 190 } },
-    { id: "door_bifold_glass", label: "Bi-fold glass door (per panel)", unit: "ea", category: "openings",
-      regions: { AU: 1100, US: 680, UK: 760 } },
-
-    // ---- STAIRS (expanded) ----
-    { id: "stair_steel_prefab", label: "Staircase — prefab metal flight", unit: "flight", category: "stairs",
-      regions: { AU: 5200, US: 3200, UK: 3600 }, note: "Factory-made, craned in" },
-
-    // ---- CONCRETE / SLAB FINISHES ----
-    { id: "concrete_plain", label: "Concrete — plain / broom finish", unit: "m²", category: "concrete",
-      regions: { AU: 85, US: 55, UK: 60 } },
-    { id: "concrete_exposed", label: "Concrete — exposed aggregate", unit: "m²", category: "concrete",
-      regions: { AU: 130, US: 85, UK: 95 } },
-    { id: "concrete_polished", label: "Concrete — polished finish", unit: "m²", category: "concrete",
-      regions: { AU: 150, US: 95, UK: 105 } },
-    { id: "concrete_stencil", label: "Concrete — stencil / coloured", unit: "m²", category: "concrete",
-      regions: { AU: 110, US: 70, UK: 78 } },
-
-    // ---- EARTHWORKS / GROUND ----
-    { id: "fill_road_base", label: "Road base / crusher dust", unit: "m³", category: "earthworks",
-      regions: { AU: 65, US: 42, UK: 46 } },
-    { id: "fill_sand", label: "Fill sand", unit: "m³", category: "earthworks",
-      regions: { AU: 55, US: 35, UK: 40 } },
-    { id: "fill_topsoil", label: "Garden topsoil", unit: "m³", category: "earthworks",
-      regions: { AU: 70, US: 45, UK: 50 } },
-    { id: "fill_gravel", label: "Drainage gravel / blue metal", unit: "m³", category: "earthworks",
-      regions: { AU: 80, US: 52, UK: 58 } },
-    { id: "fill_fcr", label: "Fine crushed rock (compactable)", unit: "m³", category: "earthworks",
-      regions: { AU: 68, US: 44, UK: 48 } },
-
-    // ---- WET AREAS ----
-    { id: "waterproofing", label: "Wet-area waterproofing membrane", unit: "m²", category: "wet area",
-      regions: { AU: 75, US: 48, UK: 54 }, note: "AS 3740 compliant" },
-    { id: "shower_screen_glass", label: "Frameless glass shower screen", unit: "ea", category: "wet area",
-      regions: { AU: 950, US: 600, UK: 680 } },
-    { id: "shower_screen_semi", label: "Semi-frameless shower screen", unit: "ea", category: "wet area",
-      regions: { AU: 620, US: 390, UK: 440 } },
-    { id: "bath_glass_panel", label: "Glass bath / splash panel", unit: "ea", category: "wet area",
-      regions: { AU: 420, US: 270, UK: 300 } },
-    { id: "floor_waste", label: "Floor waste / drain (tiled)", unit: "ea", category: "wet area",
-      regions: { AU: 180, US: 110, UK: 125 } },
-
-    // ---- FOUNDATION / SLAB ----
-    { id: "slab_mesh", label: "Reinforcing mesh (SL82)", unit: "m²", category: "foundation",
-      regions: { AU: 9.50, US: 6, UK: 7 } },
-    { id: "rebar", label: "Reinforcing bar (N12)", unit: "lin.m", category: "foundation",
-      regions: { AU: 4.20, US: 2.60, UK: 3 } },
-    { id: "vapour_barrier", label: "Vapour barrier / damp-proof membrane", unit: "m²", category: "foundation",
-      regions: { AU: 4.50, US: 2.80, UK: 3.20 } },
-    { id: "pier_screw", label: "Screw pier / pile", unit: "ea", category: "foundation",
-      regions: { AU: 280, US: 180, UK: 200 } },
-    { id: "termite_barrier", label: "Termite barrier (physical/chemical)", unit: "m²", category: "foundation",
-      regions: { AU: 18, US: 11, UK: 0 }, note: "AS 3660" },
-    { id: "stumps_steel", label: "Adjustable steel stumps", unit: "ea", category: "foundation",
-      regions: { AU: 65, US: 42, UK: 46 } },
-
-    // ---- FRAME (more) ----
-    { id: "steel_stud", label: "Steel wall stud / track (light gauge)", unit: "lin.m", category: "frame",
-      regions: { AU: 7.80, US: 4.50, UK: 5 } },
-    { id: "ply_bracing", label: "Structural ply bracing 12mm", unit: "m²", category: "frame",
-      regions: { AU: 42, US: 26, UK: 30 } },
-    { id: "roof_truss", label: "Prefab roof truss (per truss)", unit: "ea", category: "frame",
-      regions: { AU: 165, US: 100, UK: 115 } },
-    { id: "wall_frame_prefab", label: "Prefab wall frame (per lin.m)", unit: "lin.m", category: "frame",
-      regions: { AU: 95, US: 58, UK: 65 } },
-    { id: "particleboard_floor", label: "Structural flooring (yellowtongue 19mm)", unit: "m²", category: "frame",
-      regions: { AU: 32, US: 19, UK: 22 } },
-
-    // ---- ROOF (more) ----
-    { id: "zincalume_sheet", label: "Zincalume roof sheet", unit: "m²", category: "roof",
-      regions: { AU: 32, US: 23, UK: 26 } },
-    { id: "terracotta_tile", label: "Terracotta roof tiles", unit: "m²", category: "roof",
-      regions: { AU: 58, US: 38, UK: 42 } },
-    { id: "sarking", label: "Roof sarking / reflective foil", unit: "m²", category: "roof",
-      regions: { AU: 6.50, US: 4, UK: 4.50 } },
-    { id: "whirlybird", label: "Roof ventilator / whirlybird", unit: "ea", category: "roof",
-      regions: { AU: 120, US: 75, UK: 85 } },
-    { id: "skylight", label: "Skylight / roof window", unit: "ea", category: "roof",
-      regions: { AU: 680, US: 420, UK: 470 } },
-    { id: "downpipe", label: "Downpipe (PVC/metal)", unit: "lin.m", category: "roof",
-      regions: { AU: 18, US: 11, UK: 13 } },
-
-    // ---- CLADDING (more) ----
-    { id: "cladding_timber", label: "Timber cladding (shiplap/board)", unit: "m²", category: "cladding",
-      regions: { AU: 95, US: 58, UK: 65 } },
-    { id: "cladding_compressed_sheet", label: "Compressed fibre cement sheet", unit: "m²", category: "cladding",
-      regions: { AU: 68, US: 42, UK: 47 } },
-    { id: "cladding_metal", label: "Metal cladding (mini-orb/standing seam)", unit: "m²", category: "cladding",
-      regions: { AU: 88, US: 54, UK: 60 } },
-    { id: "cladding_brick_face", label: "Face brick (full brick)", unit: "m²", category: "cladding",
-      regions: { AU: 120, US: 78, UK: 70 } },
-    { id: "stone_veneer", label: "Stone cladding / veneer", unit: "m²", category: "cladding",
-      regions: { AU: 165, US: 105, UK: 115 } },
-    { id: "blueboard_render", label: "Blueboard + acrylic render system", unit: "m²", category: "cladding",
-      regions: { AU: 110, US: 68, UK: 76 } },
-
-    // ---- INSULATION ----
-    { id: "ceiling_insulation", label: "Ceiling batts R4.0", unit: "m²", category: "insulation",
-      regions: { AU: 16, US: 10, UK: 12 } },
-    { id: "acoustic_insulation", label: "Acoustic insulation batts", unit: "m²", category: "insulation",
-      regions: { AU: 18, US: 11, UK: 13 } },
-    { id: "underfloor_insulation", label: "Underfloor insulation", unit: "m²", category: "insulation",
-      regions: { AU: 15, US: 9, UK: 11 } },
-
-    // ---- INTERIOR (more) ----
-    { id: "plasterboard_wet", label: "Wet-area plasterboard (Aquacheck)", unit: "m²", category: "interior",
-      regions: { AU: 46, US: 28, UK: 32 } },
-    { id: "plasterboard_fire", label: "Fire-rated plasterboard", unit: "m²", category: "interior",
-      regions: { AU: 52, US: 32, UK: 36 } },
-    { id: "skirting", label: "Skirting board + install", unit: "lin.m", category: "interior",
-      regions: { AU: 22, US: 13, UK: 15 } },
-    { id: "architrave", label: "Architrave + install", unit: "lin.m", category: "interior",
-      regions: { AU: 18, US: 11, UK: 13 } },
-    { id: "floor_vinyl", label: "Vinyl plank flooring + lay", unit: "m²", category: "interior",
-      regions: { AU: 65, US: 40, UK: 45 } },
-    { id: "floor_laminate", label: "Laminate flooring + lay", unit: "m²", category: "interior",
-      regions: { AU: 55, US: 34, UK: 38 } },
-    { id: "floor_polished_timber", label: "Solid timber floor + sand & finish", unit: "m²", category: "interior",
-      regions: { AU: 185, US: 115, UK: 128 } },
-    { id: "wall_tile", label: "Wall tile + adhesive + lay", unit: "m²", category: "interior",
-      regions: { AU: 130, US: 80, UK: 90 } },
-
-    // ---- KITCHEN (more) ----
-    { id: "kit_bench_timber_solid", label: "Benchtop — solid timber", unit: "lin.m", category: "kitchen",
-      regions: { AU: 480, US: 300, UK: 330 } },
-    { id: "kit_appliance_pack", label: "Appliance pack (oven/cooktop/rangehood)", unit: "ea", category: "kitchen",
-      regions: { AU: 3200, US: 2000, UK: 2200 } },
-    { id: "kit_dishwasher", label: "Dishwasher", unit: "ea", category: "kitchen",
-      regions: { AU: 850, US: 540, UK: 600 } },
-    { id: "kit_pantry", label: "Walk-in pantry fit-out", unit: "ea", category: "kitchen",
-      regions: { AU: 2400, US: 1500, UK: 1650 } },
-
-    // ---- BATHROOM (more) ----
-    { id: "bath_shower_base", label: "Shower base / tray", unit: "ea", category: "bathroom",
-      regions: { AU: 320, US: 200, UK: 225 } },
-    { id: "bath_freestanding", label: "Freestanding bath", unit: "ea", category: "bathroom",
-      regions: { AU: 1450, US: 900, UK: 1000 } },
-    { id: "bath_towel_rail", label: "Heated towel rail", unit: "ea", category: "bathroom",
-      regions: { AU: 380, US: 240, UK: 265 } },
-    { id: "bath_exhaust_fan", label: "Exhaust fan + light", unit: "ea", category: "bathroom",
-      regions: { AU: 220, US: 140, UK: 155 } },
-    { id: "bath_mirror_cabinet", label: "Mirror shaving cabinet", unit: "ea", category: "bathroom",
-      regions: { AU: 290, US: 180, UK: 200 } },
-
-    // ---- SERVICES (more) ----
-    { id: "switchboard", label: "Switchboard upgrade", unit: "ea", category: "services",
-      regions: { AU: 1800, US: 1100, UK: 1250 } },
-    { id: "ceiling_fan", label: "Ceiling fan + install", unit: "ea", category: "services",
-      regions: { AU: 280, US: 175, UK: 195 } },
-    { id: "downlight", label: "LED downlight + install", unit: "ea", category: "services",
-      regions: { AU: 75, US: 46, UK: 52 } },
-    { id: "power_point", label: "Power point (GPO) + install", unit: "ea", category: "services",
-      regions: { AU: 145, US: 90, UK: 100 } },
-    { id: "data_point", label: "Data / TV point + install", unit: "ea", category: "services",
-      regions: { AU: 160, US: 100, UK: 110 } },
-    { id: "ducted_ac", label: "Ducted A/C system (whole home)", unit: "ea", category: "services",
-      regions: { AU: 14000, US: 9000, UK: 10000 } },
-    { id: "rainwater_tank", label: "Rainwater tank + pump", unit: "ea", category: "services",
-      regions: { AU: 2200, US: 1400, UK: 1550 } },
-    { id: "septic_system", label: "Septic / wastewater system", unit: "ea", category: "services",
-      regions: { AU: 12000, US: 7500, UK: 8500 } },
-
-    // ---- OUTDOOR / SITE ----
-    { id: "fence_colorbond", label: "Colorbond fence (supply+install)", unit: "lin.m", category: "outdoor",
-      regions: { AU: 110, US: 70, UK: 78 } },
-    { id: "fence_timber_paling", label: "Timber paling fence", unit: "lin.m", category: "outdoor",
-      regions: { AU: 95, US: 60, UK: 67 } },
-    { id: "retaining_wall", label: "Retaining wall (besser/sleeper)", unit: "m²", category: "outdoor",
-      regions: { AU: 320, US: 200, UK: 225 } },
-    { id: "driveway_concrete", label: "Concrete driveway", unit: "m²", category: "outdoor",
-      regions: { AU: 110, US: 70, UK: 78 } },
-    { id: "paving", label: "Paving (supply + lay)", unit: "m²", category: "outdoor",
-      regions: { AU: 95, US: 60, UK: 67 } },
-    { id: "turf", label: "Turf / instant lawn", unit: "m²", category: "outdoor",
-      regions: { AU: 18, US: 11, UK: 13 } },
-    { id: "pergola_kit", label: "Pergola kit (per m² covered)", unit: "m²", category: "outdoor",
-      regions: { AU: 220, US: 140, UK: 155 } },
-    { id: "carport", label: "Carport (single, supply+build)", unit: "ea", category: "outdoor",
-      regions: { AU: 6500, US: 4200, UK: 4700 } },
-
-    // ---- DEMOLITION / PREP ----
-    { id: "demo_strip_out", label: "Strip-out / demolition (internal)", unit: "m²", category: "demolition",
-      regions: { AU: 65, US: 42, UK: 46 } },
-    { id: "skip_bin", label: "Skip bin / waste removal", unit: "ea", category: "demolition",
-      regions: { AU: 480, US: 300, UK: 330 } },
-    { id: "asbestos_removal", label: "Asbestos removal (licensed)", unit: "m²", category: "demolition",
-      regions: { AU: 95, US: 60, UK: 67 }, note: "Licensed removal only" },
-    { id: "site_scaffold", label: "Scaffolding hire (per m² face)", unit: "m²", category: "demolition",
-      regions: { AU: 45, US: 28, UK: 32 } },
-
-    // ---- TIMBER (species & products) ----
-    { id: "timber_treated_70x35", label: "Treated pine 70×35 (H3)", unit: "lin.m", category: "frame",
-      regions: { AU: 5.20, US: 2.90, UK: 3.20 } },
-    { id: "timber_hardwood_f17", label: "Hardwood F17 90×45", unit: "lin.m", category: "frame",
-      regions: { AU: 18, US: 11, UK: 12 } },
-    { id: "timber_oregon", label: "Oregon / Douglas fir 90×45", unit: "lin.m", category: "frame",
-      regions: { AU: 14, US: 8, UK: 9 } },
-    { id: "timber_merbau_post", label: "Merbau post 90×90", unit: "lin.m", category: "frame",
-      regions: { AU: 52, US: 32, UK: 36 } },
-    { id: "timber_ply_form", label: "Formply 17mm", unit: "m²", category: "frame",
-      regions: { AU: 48, US: 30, UK: 34 } },
-    { id: "timber_cca_sleeper", label: "Treated sleeper 200×75", unit: "lin.m", category: "frame",
-      regions: { AU: 28, US: 17, UK: 19 } },
-    { id: "timber_dressed_pine", label: "Dressed pine (DAR) 90×19", unit: "lin.m", category: "interior",
-      regions: { AU: 7.50, US: 4.50, UK: 5 } },
-    { id: "timber_marine_ply", label: "Marine ply 12mm", unit: "m²", category: "frame",
-      regions: { AU: 95, US: 60, UK: 67 } },
-
-    // ---- SINKS, TUBS & TAPWARE ----
-    { id: "sink_single_bowl", label: "Kitchen sink — single bowl (stainless)", unit: "ea", category: "kitchen",
-      regions: { AU: 220, US: 140, UK: 155 } },
-    { id: "sink_double_bowl", label: "Kitchen sink — double bowl", unit: "ea", category: "kitchen",
-      regions: { AU: 380, US: 240, UK: 265 } },
-    { id: "sink_undermount", label: "Kitchen sink — undermount", unit: "ea", category: "kitchen",
-      regions: { AU: 450, US: 290, UK: 320 } },
-    { id: "sink_farmhouse", label: "Farmhouse / butler sink", unit: "ea", category: "kitchen",
-      regions: { AU: 650, US: 420, UK: 460 } },
-    { id: "tap_kitchen_mixer", label: "Kitchen mixer tap", unit: "ea", category: "kitchen",
-      regions: { AU: 240, US: 150, UK: 165 } },
-    { id: "tap_pull_out", label: "Pull-out spray mixer", unit: "ea", category: "kitchen",
-      regions: { AU: 360, US: 230, UK: 255 } },
-    { id: "tub_laundry", label: "Laundry tub + cabinet", unit: "ea", category: "bathroom",
-      regions: { AU: 320, US: 200, UK: 225 } },
-    { id: "tap_basin_mixer", label: "Basin mixer tap", unit: "ea", category: "bathroom",
-      regions: { AU: 180, US: 115, UK: 128 } },
-    { id: "tap_shower_mixer", label: "Shower mixer + rail set", unit: "ea", category: "bathroom",
-      regions: { AU: 280, US: 180, UK: 200 } },
-    { id: "basin_vanity", label: "Vanity basin (ceramic)", unit: "ea", category: "bathroom",
-      regions: { AU: 160, US: 100, UK: 110 } },
-    { id: "tap_outdoor", label: "Outdoor garden tap + hose bib", unit: "ea", category: "services",
-      regions: { AU: 95, US: 60, UK: 67 } },
-
-    // ---- POOL / OUTDOOR EQUIPMENT ----
-    { id: "pool_pump", label: "Pool pump + filter", unit: "ea", category: "outdoor",
-      regions: { AU: 1400, US: 900, UK: 1000 } },
-    { id: "pool_heater", label: "Pool heat pump", unit: "ea", category: "outdoor",
-      regions: { AU: 3200, US: 2100, UK: 2350 } },
-    { id: "pool_chlorinator", label: "Salt water chlorinator", unit: "ea", category: "outdoor",
-      regions: { AU: 1100, US: 700, UK: 780 } },
-    { id: "pool_paving", label: "Pool surround paving", unit: "m²", category: "outdoor",
-      regions: { AU: 130, US: 85, UK: 95 } },
-  ],
-
-  byCategory(cat) {
-    return this.catalog.filter((m) => m.category === cat);
-  },
-  get(id) {
-    return this.catalog.find((m) => m.id === id);
-  },
-  rate(id, region) {
-    const m = this.get(id);
-    return m ? m.regions[region] ?? 0 : 0;
-  },
-
-  /* List all categories currently in the catalogue (for grouped pickers). */
-  categories() {
-    return [...new Set(this.catalog.map((m) => m.category))];
-  },
-
-  /* ---- API-READY: supplier feed adaptor ----
-     When a live supplier feed connects, each incoming product is normalised
-     into the catalogue shape and merged in. A feed item is expected to look
-     roughly like { sku, name, unit, price, category, region }. Unknown fields
-     are ignored; missing ones get safe defaults so a partial feed still loads.
-     Call: Materials.loadFeed(items, "AU") — returns { added, updated }. */
-  loadFeed(items, region = "AU") {
-    if (!Array.isArray(items)) return { added: 0, updated: 0 };
-    let added = 0, updated = 0;
-    for (const raw of items) {
-      if (!raw) continue;
-      const id = String(raw.sku || raw.id || raw.code || "").trim() || ("feed_" + (raw.name || "item").toLowerCase().replace(/[^a-z0-9]+/g, "_")).slice(0, 40);
-      const price = Validate ? Validate.sanitiseNumber(raw.price ?? raw.rate ?? raw.cost, { min: 0, max: 1e7, fallback: 0 }).value : (+raw.price || 0);
-      const existing = this.get(id);
-      if (existing) {
-        // update price for this region, keep other regions
-        existing.regions = { ...existing.regions, [region]: price };
-        existing.supplier = raw.supplier || existing.supplier;
-        existing.live = true;
-        updated++;
-      } else {
-        this.catalog.push({
-          id,
-          label: String(raw.name || raw.label || raw.description || id).trim(),
-          unit: String(raw.unit || raw.uom || "ea").trim(),
-          category: String(raw.category || "supplier feed").trim().toLowerCase(),
-          regions: { AU: 0, US: 0, UK: 0, [region]: price },
-          supplier: raw.supplier || null,
-          sku: raw.sku || null,
-          live: true,
-          note: raw.note || null,
-        });
-        added++;
-      }
-    }
-    return { added, updated };
-  },
-};
+/* Colors + font stack now live in one place: design/system.js (Colors §1,
+   Typography §2). TOKENS is kept as the name every existing call site
+   (`TOKENS.ink`, `TOKENS.hivis`, ...) already uses across this file. */
+const TOKENS = DesignSystem.colors;
+const FONT_URL = DesignSystem.typography.fontUrl;
 
 /* =========================================================================
    MODULE: suppliers.js
@@ -996,110 +629,11 @@ UI.messagebox("Exported to: #{path}")
 };
 
 /* =========================================================================
-   MODULE: allocation.js
-   Purchase rules — the domain IP that turns an estimated quantity into a
-   buyable order. Each rule: estimateUnit -> purchaseUnit, conversion factor,
-   and a waste allowance trades actually add for cuts/breakage.
-   ========================================================================= */
-const Allocation = {
-  /* keyed by catalogue material id */
-  rules: {
-    brick_veneer:    { buyUnit: "bricks", perEstimateUnit: 50, waste: 0.07, note: "~50 std bricks per m²" },
-    concrete_25mpa:  { buyUnit: "m³ (ordered)", perEstimateUnit: 1, waste: 0.05, note: "Order in 0.2 m³ increments" },
-    timber_mgp10:    { buyUnit: "lengths (5.4m)", perEstimateUnit: 1 / 5.4, waste: 0.10, note: "Sold in set lengths" },
-    plasterboard:    { buyUnit: "sheets (1.2×2.4)", perEstimateUnit: 1 / 2.88, waste: 0.10, note: "2.88 m² per sheet" },
-    floor_tile:      { buyUnit: "m² (boxes)", perEstimateUnit: 1, waste: 0.10, note: "Add 10% for cuts" },
-    bath_wall_tile:  { buyUnit: "m² (boxes)", perEstimateUnit: 1, waste: 0.12, note: "Add 12% for cuts" },
-    colorbond_sheet: { buyUnit: "m² (custom cut)", perEstimateUnit: 1, waste: 0.08, note: "Cut to length" },
-    paint:           { buyUnit: "litres", perEstimateUnit: 1 / 6, waste: 0.05, note: "~6 m²/L per coat" },
-    wall_insulation: { buyUnit: "m² (batts)", perEstimateUnit: 1, waste: 0.05, note: "Batt packs" },
-    guttering:       { buyUnit: "lengths", perEstimateUnit: 1, waste: 0.05, note: "Sold per lin.m" },
-  },
-  /* Apply purchase rule to a matched line; returns enriched order info or null. */
-  forMaterial(matId, estimateQty) {
-    const r = this.rules[matId];
-    if (!r) return null;
-    const withWaste = estimateQty * (1 + r.waste);
-    const orderQty = Math.ceil(withWaste * r.perEstimateUnit);
-    return { buyUnit: r.buyUnit, orderQty, wastePct: r.waste, note: r.note };
-  },
-};
-
-/* =========================================================================
    MODULE: spreadsheet.js
    Reads an uploaded .xlsx / .csv takeoff via SheetJS, auto-detects the
    material + quantity columns, maps materials to the catalogue, and applies
    allocation rules. Mirrors the read -> review -> allocate pipeline.
    ========================================================================= */
-/* =========================================================================
-   MODULE: validate.js  — input sanitisation & validation layer
-   One place that every external input passes through. Three jobs:
-     1. sanitise()      — coerce a value to a safe number in a sane range
-     2. checkColumns()  — verify a spreadsheet mapping, return structured issues
-     3. detectUnits()   — spot feet/inches vs metres and convert/flag
-   Returns STRUCTURED results ({ level, code, message, fix }) so the UI can
-   show notices and offer fixes, rather than throwing or silently coercing.
-   ========================================================================= */
-const Validate = {
-  /* Coerce anything to a finite number, clamped to [min,max]. Returns
-     { value, changed, reason } so callers can warn if a value was altered. */
-  sanitiseNumber(raw, { min = 0, max = Infinity, fallback = 0 } = {}) {
-    let n = typeof raw === "number" ? raw : parseFloat(String(raw == null ? "" : raw).replace(/[^0-9.\-]/g, ""));
-    if (!isFinite(n)) return { value: fallback, changed: true, reason: "not a number" };
-    if (n < min) return { value: min, changed: true, reason: `below minimum (${min})` };
-    if (n > max) return { value: max, changed: true, reason: `above maximum (${max})` };
-    return { value: n, changed: false, reason: null };
-  },
-
-  /* Validate a detected spreadsheet column mapping. Returns an array of
-     structured issues; empty array = all good. */
-  checkColumns(mapping, headerRow) {
-    const issues = [];
-    if (!mapping || mapping.material < 0) {
-      issues.push({ level: "error", code: "NO_MATERIAL_COL", message: "No description/material column was detected.", fix: "Pick which column holds the item description in the mapping step." });
-    }
-    const hasPrice = mapping && (mapping.rate >= 0 || mapping.total >= 0);
-    const hasQty = mapping && mapping.quantity >= 0;
-    if (!hasPrice && !hasQty) {
-      issues.push({ level: "warn", code: "NO_PRICE_OR_QTY", message: "No Rate, Total, or Quantity column found — lines will need prices added by hand.", fix: "Map a Rate or Total column, or fill prices in the editable preview." });
-    } else if (!hasPrice) {
-      issues.push({ level: "info", code: "NO_PRICE_COL", message: "No Rate or Total column — catalogue rates will be used where a material is recognised.", fix: "Map a Rate or Total column to use your own prices." });
-    }
-    return issues;
-  },
-
-  /* Heuristic unit detection on a column of numbers. If values look like feet
-     (lots of values with inch-fractions, or a header mentioning ft/inch),
-     flag it. Returns { unit, convertToM, note } or null. */
-  detectLengthUnit(headerText, sampleValues) {
-    const h = String(headerText || "").toLowerCase();
-    if (/\b(ft|feet|foot|inch|in\b|")/.test(h)) {
-      return { unit: "ft", convertToM: 0.3048, note: "Header suggests feet/inches — converting to metres." };
-    }
-    if (/\b(mm|millim)/.test(h)) return { unit: "mm", convertToM: 0.001, note: "Header suggests millimetres — converting to metres." };
-    if (/\b(cm|centim)/.test(h)) return { unit: "cm", convertToM: 0.01, note: "Header suggests centimetres — converting to metres." };
-    return null; // assume metres (the app default)
-  },
-
-  /* Validate a parametric spec before estimating. Returns structured issues
-     and a sanitised copy of the spec (numbers clamped to sane ranges). */
-  checkSpec(spec) {
-    const issues = [];
-    const ranges = {
-      widthM: [0, 200], lengthM: [0, 200], floors: [1, 8], wallHeightM: [2, 6],
-      roofPitch: [0, 60], slabThicknessM: [0.05, 0.5],
-    };
-    const clean = { ...spec };
-    for (const [key, [min, max]] of Object.entries(ranges)) {
-      if (spec[key] == null) continue;
-      const r = this.sanitiseNumber(spec[key], { min, max, fallback: min });
-      clean[key] = r.value;
-      if (r.changed) issues.push({ level: "warn", code: "CLAMP_" + key.toUpperCase(), message: `${key} was ${r.reason}; adjusted to ${r.value}.`, fix: null });
-    }
-    return { issues, clean };
-  },
-};
-
 const SpreadsheetImport = {
   /* header keywords used to auto-detect which column is which */
   headerHints: {
@@ -1258,72 +792,6 @@ By Others,Bulkheads,,m,0.00,0.00
   },
 };
 
-const Suppliers = {
-  AU: [
-    // ---- LOCAL — Far North Queensland (Cairns region) ----
-    { name: "Cairns Hardware", tier: "Local (FNQ)", url: (q) => `https://www.cairnshardware.com.au/?s=${encodeURIComponent(q)}`,
-      coverage: "Heavy building, timber, plasterboard, steel, roofing — trade drive-thrus across FNQ" },
-    { name: "Dynamic Timbers (Cairns)", tier: "Local (FNQ)", url: () => `https://dynamictimbers.com.au/`,
-      coverage: "Timber yard, roof trusses, wall frames, masonry — Cairns / Innisfail / Tolga" },
-    { name: "Rankine Timber & Truss", tier: "Local (FNQ)", url: () => `https://www.rankinetimber.com.au/`,
-      coverage: "Trusses, frames, hardwood & pine, flooring, decking, fencing" },
-    { name: "Metroll Cairns", tier: "Local (FNQ)", url: () => `https://www.metroll.com.au/map_location/cairns-branch/`,
-      coverage: "Locally-made roofing, cladding, rainwater & structural steel" },
-
-    // ---- NATIONAL — trade suppliers (deliver to FNQ from down south) ----
-    { name: "Reece", tier: "National trade", url: (q) => `https://www.reece.com.au/search?query=${encodeURIComponent(q)}`,
-      coverage: "Plumbing, bathroom, hot water, HVAC-R — 600+ branches" },
-    { name: "Tradelink", tier: "National trade", url: (q) => `https://tradelink.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Plumbing, bathroom, kitchen" },
-    { name: "Stratco", tier: "National trade", url: (q) => `https://www.stratco.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Roofing, sheds, fencing, structural steel, patios" },
-    { name: "Metroll", tier: "National trade", url: () => `https://www.metroll.com.au/`,
-      coverage: "Steel roofing, walling, purlins, rainwater — 30 branches nationally" },
-    { name: "Bowens", tier: "National trade", url: (q) => `https://www.bowens.com.au/?s=${encodeURIComponent(q)}`,
-      coverage: "Timber & building materials, frames & trusses" },
-    { name: "Dahlsens", tier: "National trade", url: () => `https://www.dahlsens.com.au/`,
-      coverage: "Building materials, frames & trusses for builders" },
-
-    // ---- GENERAL — retail (homeowners + top-ups) ----
-    { name: "Bunnings Warehouse", tier: "General retail", url: (q) => `https://www.bunnings.com.au/search/products?q=${encodeURIComponent(q)}`,
-      coverage: "Timber, hardware, paint, tools, garden, fittings" },
-    { name: "Mitre 10", tier: "General retail", url: (q) => `https://www.mitre10.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "General hardware, timber, paint — independent network" },
-    { name: "Total Tools", tier: "General retail", url: (q) => `https://www.totaltools.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Power tools, hand tools, accessories" },
-    { name: "Kennards Hire", tier: "Equipment hire", url: (q) => `https://www.kennards.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Excavators, scaffolding, scissor lifts, compaction" },
-    { name: "Coates Hire", tier: "Equipment hire", url: (q) => `https://www.coates.com.au/search?q=${encodeURIComponent(q)}`,
-      coverage: "Earthmoving, access, propping, site services" },
-  ],
-  US: [
-    { name: "The Home Depot", url: (q) => `https://www.homedepot.com/s/${encodeURIComponent(q)}`,
-      coverage: "Lumber, tools, hardware, appliances" },
-    { name: "Lowe's", url: (q) => `https://www.lowes.com/search?searchTerm=${encodeURIComponent(q)}`,
-      coverage: "Lumber, hardware, appliances, garden" },
-    { name: "Ferguson", url: (q) => `https://www.ferguson.com/search/?searchString=${encodeURIComponent(q)}`,
-      coverage: "Plumbing, HVAC, lighting" },
-    { name: "Menards", url: (q) => `https://www.menards.com/main/search.html?search=${encodeURIComponent(q)}`,
-      coverage: "General building supplies (Midwest US)" },
-    { name: "Sunbelt Rentals", url: (q) => `https://www.sunbeltrentals.com/equipment/search/?keywords=${encodeURIComponent(q)}`,
-      coverage: "Equipment hire" },
-  ],
-  UK: [
-    { name: "Wickes", url: (q) => `https://www.wickes.co.uk/search?text=${encodeURIComponent(q)}`,
-      coverage: "Timber, hardware, kitchens, bathrooms" },
-    { name: "Screwfix", url: (q) => `https://www.screwfix.com/search?search=${encodeURIComponent(q)}`,
-      coverage: "Trade fittings, tools, electrical, plumbing" },
-    { name: "B&Q", url: (q) => `https://www.diy.com/search?term=${encodeURIComponent(q)}`,
-      coverage: "General hardware, garden, paint" },
-    { name: "Travis Perkins", url: (q) => `https://www.travisperkins.co.uk/search?q=${encodeURIComponent(q)}`,
-      coverage: "Timber, building materials, heavy-side" },
-    { name: "Toolstation", url: (q) => `https://www.toolstation.com/search?q=${encodeURIComponent(q)}`,
-      coverage: "Tools, fixings, electrical" },
-    { name: "HSS Hire", url: (q) => `https://www.hss.com/hire/search?q=${encodeURIComponent(q)}`,
-      coverage: "Equipment hire" },
-  ],
-};
-
 /* =========================================================================
    MODULE: codes.js
    Curated reference of key building-code principles, jurisdiction-specific,
@@ -1344,7 +812,7 @@ const BuildingCodes = {
         ref: "NCC Vol. 2 — H4D7" },
       { topic: "Smoke alarms", detail: "Interconnected photoelectric alarms in every bedroom, every storey, hallway serving bedrooms.",
         ref: "AS 3786 / NCC Vol. 2" },
-      { topic: "Energy efficiency", detail: "Minimum 7-star NatHERS rating for new homes from 2023 (most states).",
+      { topic: "Energy efficiency", detail: "Minimum 7-star NatHERS thermal rating (up from 6-star) for new Class 1 dwellings, plus a Whole-of-Home Calculator score of 60+ covering fixed appliances (HVAC, hot water, lighting). QLD adopted NCC 2022's residential energy provisions from 1 May 2024.",
         ref: "NCC Vol. 2 — H6" },
       { topic: "Stair geometry", detail: "Riser 115–190 mm, going 240–355 mm, 2R+G between 550 and 700.",
         ref: "NCC Vol. 2 — H5D2" },
@@ -1353,7 +821,7 @@ const BuildingCodes = {
       { topic: "Waterproofing wet areas", detail: "Floors and shower walls to full height, junctions sealed.",
         ref: "AS 3740-2021" },
       { topic: "Plumbing", detail: "Licensed plumber required. Backflow prevention at boundary.",
-        ref: "AS/NZS 3500 + QPW Code" },
+        ref: "AS/NZS 3500 + QPWC (Queensland Plumbing and Wastewater Code, under the Plumbing and Drainage Regulation 2019)" },
       { topic: "Electrical", detail: "Licensed electrician required. RCDs on all final sub-circuits.",
         ref: "AS/NZS 3000:2018" },
       { topic: "Approvals (QLD)", detail: "Development Approval from council, then Building Approval from a private certifier before any work starts.",
@@ -1405,422 +873,6 @@ const BuildingCodes = {
 };
 
 /* =========================================================================
-   MODULE: estimator.js
-   Pure functions. Input: building spec. Output: itemised quantities, costs,
-   labour, equipment, timeline. No DOM, no React, no Three.js dependencies.
-   ========================================================================= */
-/* Infer parametric settings + a representative GFA from imported takeoff lines,
-   so an import can drive both the estimate and a representative 3D massing. */
-function inferSpecFromImport(lines) {
-  const ids = new Set(lines.map((l) => l.materialId).filter(Boolean));
-  const qtyOf = (id) => lines.filter((l) => l.materialId === id).reduce((a, l) => a + l.qty, 0);
-
-  // GFA: prefer summed floor finishes, else plasterboard/2.3, else materials/1300
-  let gfa = qtyOf("floor_timber") + qtyOf("floor_tile") + qtyOf("floor_carpet") + qtyOf("bath_floor_tile");
-  if (gfa < 5) { const pb = qtyOf("plasterboard"); gfa = pb > 0 ? pb / 2.3 : 0; }
-  if (gfa < 5) { const tot = lines.reduce((a, l) => a + l.total, 0); gfa = tot > 0 ? tot / 1300 : 150; }
-  gfa = Math.max(40, Math.round(gfa));
-
-  const cladding = ids.has("brick_veneer") ? "brick" : ids.has("weatherboard") ? "weatherboard" : ids.has("render") ? "render" : "brick";
-  const roof = ids.has("concrete_tile") ? "tile" : ids.has("asphalt_shingle") ? "shingle" : "colorbond";
-  const floorFinish = qtyOf("floor_tile") > qtyOf("floor_timber") && qtyOf("floor_tile") > qtyOf("floor_carpet") ? "tile"
-                    : qtyOf("floor_carpet") > qtyOf("floor_timber") ? "carpet" : "timber";
-  const staircaseType = ids.has("stair_steel_glass") ? "steel_glass" : ids.has("stair_concrete") ? "concrete" : ids.has("stair_timber") ? "timber" : "none";
-  const hasGarage = ids.has("garage_door");
-
-  // detected element counts for the summary panel
-  const detected = [];
-  const addDet = (id, label) => { const q = qtyOf(id); if (q > 0) detected.push({ label, qty: q, unit: Materials.get(id)?.unit }); };
-  addDet("window_alum_double", "Windows");
-  addDet("door_external", "External doors");
-  addDet("door_internal", "Internal doors");
-  addDet("bath_vanity", "Vanities");
-  addDet("bath_toilet", "Toilets");
-  addDet("kit_sink_tap", "Kitchen sinks");
-
-  const side = Math.round(Math.sqrt(gfa) * 10) / 10;
-  const counts = {
-    windows: Math.round(qtyOf("window_alum_double")),
-    doorsExt: Math.round(qtyOf("door_external")),
-    doorsInt: Math.round(qtyOf("door_internal")),
-    vanities: Math.round(qtyOf("bath_vanity")),
-    toilets: Math.round(qtyOf("bath_toilet")),
-    kitchenSinks: Math.round(qtyOf("kit_sink_tap")),
-  };
-  return { gfa, side, cladding, roof, floorFinish, staircaseType, hasGarage, detected, counts };
-}
-
-const Estimator = {
-  /* Quantity takeoff from spec */
-  takeoff(spec) {
-    const { widthM, lengthM, floors, wallHeightM, roofPitch, openings,
-            slabThicknessM, roofType, claddingType, framingType, floorFinish, hasGarage, staircaseType } = spec;
-    const rooms = spec.rooms || [];
-    const kitchens = spec.kitchens || [];
-    const bathrooms = spec.bathrooms || [];
-
-    const footprint = widthM * lengthM;
-    const perimeter = 2 * (widthM + lengthM);
-    const gfa = footprint * floors;
-    const wallArea = perimeter * wallHeightM * floors;
-    const openingArea = openings.windowsM2 + openings.doors * 2.0;
-    const netWallArea = Math.max(0, wallArea - openingArea);
-    const pitchRad = (roofPitch * Math.PI) / 180;
-    const roofArea = footprint / Math.max(0.5, Math.cos(pitchRad));
-    const upperFloorArea = footprint * Math.max(0, floors - 1);
-    const slabVol = footprint * slabThicknessM;
-    const footingVol = perimeter * 0.4 * 0.3;
-    const rebarT = ((slabVol + footingVol) * 80) / 1000;
-    const timberLM = framingType === "timber" ? gfa * 3.5 + upperFloorArea * 2.5 : 0;
-    const steelT = framingType === "steel" ? gfa * 0.018 : 0;
-    const lintelLM = (openings.windowsCount + openings.doors) * 1.5;
-    const gutterLM = perimeter;
-
-    /* ---- Room schedule aggregation ---- */
-    const roomFloorByFinish = { timber: 0, tile: 0, carpet: 0 };
-    let robeBuiltInLM = 0, robeHingedLM = 0, robeWalkInLM = 0;
-    let roomInternalWallArea = 0;
-    let roomCount = 0;
-    for (const r of rooms) {
-      const area = (r.widthM || 0) * (r.lengthM || 0);
-      if (area <= 0) continue;
-      roomCount++;
-      const finish = r.floorFinish || "timber";
-      roomFloorByFinish[finish] = (roomFloorByFinish[finish] || 0) + area;
-      // internal partition: half the room perimeter (shared walls counted once), both faces lined
-      const roomPerim = 2 * ((r.widthM || 0) + (r.lengthM || 0));
-      roomInternalWallArea += roomPerim * 0.5 * wallHeightM;
-      // robes
-      if (r.robe === "built_in") robeBuiltInLM += r.robeLengthM || 0;
-      else if (r.robe === "hinged") robeHingedLM += r.robeLengthM || 0;
-      else if (r.robe === "walk_in") robeWalkInLM += r.robeLengthM || 0;
-    }
-    const roomScheduleArea = Object.values(roomFloorByFinish).reduce((a, b) => a + b, 0);
-    const useRoomSchedule = roomScheduleArea > 0;
-
-    /* Internal walls: from room schedule if present, else heuristic */
-    const internalWallArea = useRoomSchedule ? roomInternalWallArea * 2 : gfa * 1.2 * wallHeightM * 2;
-    const plasterboardArea = internalWallArea + netWallArea + (gfa * 0.9); // + ceilings
-    const corniceLM = gfa * 0.6;
-    const internalDoors = useRoomSchedule
-      ? Math.max(2, roomCount + bathrooms.length) // a door per room + bathrooms
-      : Math.max(2, Math.floor(gfa / 25));
-
-    /* ---- Kitchen quantities ---- */
-    const kitchenItems = kitchens.map((k) => {
-      const bench = k.benchLengthM || 0;
-      // splashback area ≈ bench run × 0.6m height
-      const splashbackM2 = bench * 0.6;
-      return { ...k, benchLengthM: bench, splashbackM2 };
-    });
-
-    /* ---- Bathroom quantities ---- */
-    const bathroomItems = bathrooms.map((b) => {
-      const area = (b.widthM || 0) * (b.lengthM || 0);
-      const perim = 2 * ((b.widthM || 0) + (b.lengthM || 0));
-      // wall tile: either full height or splash zones (~1.2m). Full perimeter.
-      const tileH = b.wallTileFullHeight ? wallHeightM : 1.2;
-      const wallTileM2 = perim * tileH;
-      const floorTileM2 = area;
-      const waterproofM2 = area + perim * 0.3; // floor + 300mm up walls min
-      return { ...b, areaM2: area, wallTileM2, floorTileM2, waterproofM2 };
-    });
-
-    /* ---- Staircases ---- */
-    const stairFlights = (staircaseType && staircaseType !== "none" && floors > 1) ? (floors - 1) : 0;
-    const flightRun = wallHeightM * 1.6;
-    const balustradeLM = stairFlights * (flightRun + 1.2);
-
-    return {
-      footprintM2: footprint, perimeterM: perimeter, gfaM2: gfa,
-      wallAreaM2: wallArea, netWallAreaM2: netWallArea, roofAreaM2: roofArea,
-      upperFloorAreaM2: upperFloorArea,
-      slabVolM3: slabVol, footingVolM3: footingVol, concreteTotalM3: slabVol + footingVol,
-      rebarTonne: rebarT,
-      timberFramingLM: timberLM, steelFramingTonne: steelT,
-      lintelLM, gutterLM,
-      plasterboardM2: plasterboardArea, corniceLM,
-      // room/finish data
-      useRoomSchedule, roomFloorByFinish, roomScheduleArea, roomCount,
-      robeBuiltInLM, robeHingedLM, robeWalkInLM,
-      kitchenItems, bathroomItems,
-      kitchenCount: kitchens.length, bathroomCount: bathrooms.length,
-      stairFlights, balustradeLM, staircaseType,
-      windowsM2: openings.windowsM2, windowsCount: openings.windowsCount,
-      doorsExternal: openings.doors, doorsInternal: internalDoors,
-      hasGarage,
-      roofType, claddingType, framingType, floorFinish,
-    };
-  },
-
-  /* Map takeoff onto material catalog and compute material costs */
-  materialCosts(takeoff, spec, region) {
-    const lines = [];
-    const add = (matId, qty, opts = {}) => {
-      const m = Materials.get(matId);
-      if (!m || qty <= 0) return;
-      const rate = Materials.rate(matId, region) * (opts.multiplier || 1);
-      lines.push({
-        category: m.category, label: m.label, unit: m.unit,
-        qty: round(qty, 2), rate: round(rate, 2), total: round(rate * qty, 2),
-        materialId: matId,
-      });
-    };
-
-    // foundation
-    add("concrete_25mpa", takeoff.concreteTotalM3);
-    add("rebar_n12", takeoff.rebarTonne);
-    if (region === "AU") add("termite_membrane", takeoff.footprintM2);
-    add("polythene_dpm", takeoff.footprintM2);
-
-    // frame
-    if (takeoff.framingType === "timber") {
-      add("timber_mgp10", takeoff.timberFramingLM);
-      add("lvl_beam", takeoff.lintelLM * 0.5 + takeoff.upperFloorAreaM2 * 0.3);
-    } else {
-      add("structural_steel", takeoff.steelFramingTonne);
-    }
-    add("steel_lintel", takeoff.lintelLM);
-
-    // roof
-    const roofMat = takeoff.roofType === "tile" ? "concrete_tile"
-                  : takeoff.roofType === "shingle" ? "asphalt_shingle"
-                  : "colorbond_sheet";
-    add(roofMat, takeoff.roofAreaM2);
-    add("roof_insulation", takeoff.roofAreaM2);
-    add("guttering", takeoff.gutterLM);
-
-    // cladding
-    const cladMat = takeoff.claddingType === "weatherboard" ? "weatherboard"
-                  : takeoff.claddingType === "render" ? "render"
-                  : "brick_veneer";
-    add(cladMat, takeoff.netWallAreaM2);
-    add("wall_insulation", takeoff.netWallAreaM2);
-
-    // openings
-    add("window_alum_double", takeoff.windowsM2);
-    add("door_external", takeoff.doorsExternal);
-    add("door_internal", takeoff.doorsInternal);
-    if (takeoff.hasGarage) add("garage_door", 1);
-
-    // interior — linings
-    add("plasterboard", takeoff.plasterboardM2);
-    add("ceiling_cornice", takeoff.corniceLM);
-    add("paint", takeoff.plasterboardM2);
-
-    // flooring — from room schedule if present, else blanket GFA split
-    if (takeoff.useRoomSchedule) {
-      add("floor_timber", takeoff.roomFloorByFinish.timber || 0);
-      add("floor_tile", takeoff.roomFloorByFinish.tile || 0);
-      add("floor_carpet", takeoff.roomFloorByFinish.carpet || 0);
-    } else {
-      const floorMat = takeoff.floorFinish === "tile" ? "floor_tile"
-                     : takeoff.floorFinish === "carpet" ? "floor_carpet"
-                     : "floor_timber";
-      add(floorMat, takeoff.gfaM2 * 0.85);
-      add("floor_tile", takeoff.gfaM2 * 0.15);
-    }
-
-    // joinery — built-in robes & storage
-    add("robe_built_in", takeoff.robeBuiltInLM);
-    add("robe_hinged", takeoff.robeHingedLM);
-    add("robe_walk_in", takeoff.robeWalkInLM);
-
-    // kitchens — itemised per config
-    for (const k of takeoff.kitchenItems) {
-      const cab = k.cabinetry === "custom" ? "kit_cab_custom" : "kit_cab_flatpack";
-      add(cab, k.benchLengthM);
-      const bench = k.benchtop === "laminate" ? "kit_bench_laminate"
-                  : k.benchtop === "natural" ? "kit_bench_natural"
-                  : k.benchtop === "timber" ? "kit_bench_timber"
-                  : "kit_bench_stone";
-      add(bench, k.benchLengthM);
-      const splash = k.splashback === "glass" ? "kit_splashback_glass"
-                   : k.splashback === "stone" ? "kit_splashback_stone"
-                   : "kit_splashback_tile";
-      add(splash, k.splashbackM2);
-      if (k.sinkTap) add("kit_sink_tap", 1);
-      if (k.island) add("kit_island", 1);
-      const appl = k.appliances === "basic" ? "kit_appliances_basic"
-                 : k.appliances === "premium" ? "kit_appliances_premium"
-                 : "kit_appliances_mid";
-      add(appl, 1);
-    }
-
-    // bathrooms — itemised per config
-    for (const b of takeoff.bathroomItems) {
-      add("bath_vanity", b.vanityCount || 1);
-      add("bath_toilet", b.toiletCount || 1);
-      if (b.hasShower) add("bath_shower_screen", 1);
-      if (b.hasBath) add("bath_tub", 1);
-      add("bath_tapware", 1);
-      add("bath_accessories", 1);
-      add("bath_wall_tile", b.wallTileM2);
-      add("bath_floor_tile", b.floorTileM2);
-      add("bath_waterproofing", b.waterproofM2);
-      add("bath_exhaust", 1);
-    }
-
-    // stairs
-    if (takeoff.stairFlights > 0) {
-      const stairMat = takeoff.staircaseType === "steel_glass" ? "stair_steel_glass"
-                     : takeoff.staircaseType === "concrete" ? "stair_concrete"
-                     : "stair_timber";
-      add(stairMat, takeoff.stairFlights);
-      add("balustrade", takeoff.balustradeLM);
-    }
-
-    // services
-    add("electrical_basic", takeoff.gfaM2);
-    add("plumbing_basic", takeoff.gfaM2);
-    add("hvac_split", Math.max(1, Math.ceil(takeoff.gfaM2 / 80)));
-    add("hot_water", 1);
-    if (spec.solar) add("solar_pv", 1);
-
-    return lines;
-  },
-
-  /* Labour cost — applied as a % of materials by trade, then totalled */
-  labourCosts(takeoff, region, complexity = 1.0) {
-    /* rough $/m² GFA for labour by trade, by region */
-    const rates = {
-      AU: { siteworks: 95, concrete: 110, frame: 180, roof: 95, brick: 130, electrical: 120, plumbing: 110, hvac: 45, plaster: 85, paint: 65, tile: 95, joinery: 90, kitchen_bath_fit: 75, finishes: 95 },
-      US: { siteworks: 55, concrete: 65, frame: 110, roof: 60, brick: 80, electrical: 75, plumbing: 70, hvac: 28, plaster: 50, paint: 38, tile: 60, joinery: 55, kitchen_bath_fit: 45, finishes: 55 },
-      UK: { siteworks: 60, concrete: 70, frame: 115, roof: 65, brick: 85, electrical: 78, plumbing: 72, hvac: 32, plaster: 55, paint: 42, tile: 65, joinery: 60, kitchen_bath_fit: 50, finishes: 60 },
-    }[region];
-
-    return Object.entries(rates).map(([trade, rate]) => ({
-      trade: humaniseTradeName(trade),
-      total: round(rate * takeoff.gfaM2 * complexity, 2),
-    }));
-  },
-
-  equipmentCosts(takeoff, region, durationWeeks) {
-    /* Daily/weekly hire rates × duration weighting */
-    const tab = {
-      AU: { excavator: 380, scaffold_m2: 14, crane: 1800, skipBin: 480, formwork_m2: 38, fence_lm: 18 },
-      US: { excavator: 240, scaffold_m2: 9, crane: 1100, skipBin: 320, formwork_m2: 22, fence_lm: 11 },
-      UK: { excavator: 260, scaffold_m2: 10, crane: 1200, skipBin: 340, formwork_m2: 25, fence_lm: 12 },
-    }[region];
-
-    const scaffoldM2 = takeoff.perimeterM * takeoff.upperFloorAreaM2 > 0 ? takeoff.perimeterM * 3 * (takeoff.gfaM2 / takeoff.footprintM2) : 0;
-    const formworkM2 = takeoff.footprintM2 * 0.6;
-    const skipBinsCount = Math.ceil(takeoff.gfaM2 / 50);
-    const craneWeeks = takeoff.upperFloorAreaM2 > 0 ? 2 : 0;
-    const excavatorDays = Math.max(3, Math.ceil(takeoff.footprintM2 / 30));
-    const siteFenceLM = takeoff.perimeterM + 20;
-
-    const items = [
-      { name: "Excavator hire", qty: excavatorDays, unit: "days", rate: tab.excavator, total: excavatorDays * tab.excavator },
-      { name: "Scaffolding (perimeter × storeys)", qty: round(scaffoldM2, 1), unit: "m²·wk", rate: tab.scaffold_m2, total: round(scaffoldM2 * tab.scaffold_m2, 2) },
-      { name: "Formwork (slab edges + footings)", qty: round(formworkM2, 1), unit: "m²", rate: tab.formwork_m2, total: round(formworkM2 * tab.formwork_m2, 2) },
-      { name: "Mobile crane", qty: craneWeeks, unit: "weeks", rate: tab.crane, total: craneWeeks * tab.crane },
-      { name: "Waste skip bins", qty: skipBinsCount, unit: "ea", rate: tab.skipBin, total: skipBinsCount * tab.skipBin },
-      { name: "Site fencing + signage", qty: siteFenceLM, unit: "lin.m", rate: tab.fence_lm, total: siteFenceLM * tab.fence_lm },
-    ].filter((i) => i.total > 0);
-
-    return items;
-  },
-
-  timeline(takeoff, spec) {
-    /* Base duration scales by GFA, floors, and complexity. */
-    const baseWeeks = 8 + Math.sqrt(takeoff.gfaM2) * 1.6 + (spec.floors - 1) * 6;
-    const siteFactor = { flat: 1.0, sloping: 1.18, difficult: 1.35 }[spec.siteCondition] || 1.0;
-    const totalWeeks = Math.round(baseWeeks * siteFactor);
-
-    /* Stage breakdown — % of total */
-    const stages = [
-      { name: "Site preparation & set-out", pct: 0.06, key: "site" },
-      { name: "Foundation & slab", pct: 0.09, key: "foundation" },
-      { name: "Frame & structural", pct: 0.16, key: "frame" },
-      { name: "Roof structure & cover", pct: 0.10, key: "roof" },
-      { name: "External walls & cladding", pct: 0.12, key: "cladding" },
-      { name: "Window & door installation", pct: 0.05, key: "openings" },
-      { name: "Plumbing, electrical, HVAC rough-in", pct: 0.10, key: "services_rough" },
-      { name: "Insulation & plasterboard", pct: 0.08, key: "lining" },
-      { name: "Internal fit-out & joinery", pct: 0.10, key: "fitout" },
-      { name: "Painting & finishes", pct: 0.07, key: "finishes" },
-      { name: "Services fit-off & commissioning", pct: 0.05, key: "commissioning" },
-      { name: "Site clean & handover", pct: 0.02, key: "handover" },
-    ];
-    let week = 0;
-    return {
-      totalWeeks,
-      stages: stages.map((s) => {
-        const weeks = Math.max(1, Math.round(s.pct * totalWeeks));
-        const startWeek = week + 1;
-        const endWeek = week + weeks;
-        week += weeks;
-        return { ...s, weeks, startWeek, endWeek };
-      }),
-    };
-  },
-
-  buildEstimate(spec, region) {
-    const takeoff = this.takeoff(spec);
-    const imported = spec.importedLines && spec.importedLines.length > 0;
-
-    /* Fully-cleared building → genuine zero estimate (no residual minimums).
-       But still honour any added extras (e.g. just adding a single wall). */
-    if (!imported && takeoff.gfaM2 <= 0) {
-      const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
-      const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
-      const extrasEst = (spec.extras && spec.extras.length) ? MaterialsOnly.buildEstimate({ lines: spec.extras }, region) : null;
-      const extrasTotal = extrasEst ? extrasEst.total : 0;
-      return {
-        region, spec, takeoff, imported: false,
-        materialLines: [], materialsTotal: 0,
-        labourLines: [], labourTotal: 0,
-        equipmentLines: [], equipmentTotal: 0,
-        subtotal: 0, prelims: 0, margin: 0, contingency: 0,
-        buildTotal: 0, extrasLines: extrasEst ? extrasEst.lines : [], extrasTotal, extrasByKind: extrasEst ? extrasEst.byKind : null,
-        total: extrasTotal,
-        taxRate, taxLabel,
-        timeline: { totalWeeks: 0, stages: [] },
-      };
-    }
-
-    const materialLines = imported
-      ? spec.importedLines.map((l) => ({ ...l }))
-      : this.materialCosts(takeoff, spec, region);
-    const materialsTotal = materialLines.reduce((s, l) => s + l.total, 0);
-    const complexity = { flat: 1.0, sloping: 1.12, difficult: 1.25 }[spec.siteCondition] || 1.0;
-    const labourLines = this.labourCosts(takeoff, region, complexity);
-    const labourTotal = labourLines.reduce((s, l) => s + l.total, 0);
-    const timeline = this.timeline(takeoff, spec);
-    const equipmentLines = this.equipmentCosts(takeoff, region, timeline.totalWeeks);
-    const equipmentTotal = equipmentLines.reduce((s, l) => s + l.total, 0);
-    const subtotal = materialsTotal + labourTotal + equipmentTotal;
-    /* Preliminaries (site setup, supervision, insurances), margin (builder), contingency */
-    const prelims = subtotal * 0.08;
-    const margin = subtotal * 0.15;
-    const contingency = subtotal * 0.07;
-    const buildTotal = subtotal + prelims + margin + contingency;
-    /* Additional jobs/scope (the quote-builder extras) — added at entered price,
-       no extra markup, shown as a transparent block. */
-    const extrasEst = (spec.extras && spec.extras.length)
-      ? MaterialsOnly.buildEstimate({ lines: spec.extras }, region)
-      : null;
-    const extrasTotal = extrasEst ? extrasEst.total : 0;
-    const total = buildTotal + extrasTotal;
-    /* Tax (GST/VAT) — informational */
-    const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
-    const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
-    return {
-      region, spec, takeoff, imported,
-      materialLines, materialsTotal,
-      labourLines, labourTotal,
-      equipmentLines, equipmentTotal,
-      subtotal, prelims, margin, contingency,
-      buildTotal, extrasLines: extrasEst ? extrasEst.lines : [], extrasTotal, extrasByKind: extrasEst ? extrasEst.byKind : null,
-      total,
-      taxRate, taxLabel,
-      timeline,
-    };
-  },
-};
-
-/* =========================================================================
    MODULE: highrise.js
    A SEPARATE engine for multi-storey / high-rise commercial buildings.
    High-rise estimating is a different discipline from residential: costs are
@@ -1828,74 +880,9 @@ const Estimator = {
    transport (lifts), and fire/life-safety engineering — not by rooms & finishes.
    Costed per m² of GFA per system, with a per-floor structural cycle.
    These are FEASIBILITY-GRADE parametric rates, not tender figures.
+   (HighRiseMaterials now lives in data/highrise-materials.js;
+    HighRiseEstimator lives in logic/highrise-estimator.js.)
    ========================================================================= */
-const HighRiseMaterials = {
-  /* Rates are per m² of Gross Floor Area unless unit says otherwise. */
-  systems: [
-    // ---- SUBSTRUCTURE ----
-    { id: "hr_piling", label: "Piled foundations / raft", unit: "m²site", category: "substructure",
-      regions: { AU: 420, US: 280, UK: 310 }, note: "Deep foundations for tower loads" },
-    { id: "hr_basement", label: "Basement / podium structure", unit: "m²base", category: "substructure",
-      regions: { AU: 2600, US: 1700, UK: 1900 }, note: "Per m² of basement floor" },
-    { id: "hr_excavation", label: "Bulk excavation + shoring", unit: "m³", category: "substructure",
-      regions: { AU: 95, US: 62, UK: 70 } },
-
-    // ---- SUPERSTRUCTURE ----
-    { id: "hr_core_rc", label: "RC core (lift/stair shear walls)", unit: "m²gfa", category: "superstructure",
-      regions: { AU: 340, US: 220, UK: 250 }, note: "Slip-formed reinforced concrete core" },
-    { id: "hr_frame_rc", label: "RC columns + post-tensioned slabs", unit: "m²gfa", category: "superstructure",
-      regions: { AU: 520, US: 340, UK: 380 } },
-    { id: "hr_frame_steel", label: "Structural steel frame + metal deck", unit: "m²gfa", category: "superstructure",
-      regions: { AU: 640, US: 420, UK: 470 } },
-    { id: "hr_frame_composite", label: "Composite steel/concrete frame", unit: "m²gfa", category: "superstructure",
-      regions: { AU: 580, US: 380, UK: 425 } },
-
-    // ---- FAÇADE ----
-    { id: "hr_curtain_wall", label: "Unitised curtain wall (glazed)", unit: "m²fac", category: "facade",
-      regions: { AU: 1250, US: 850, UK: 950 }, note: "Per m² of façade area" },
-    { id: "hr_precast_facade", label: "Precast concrete panel façade", unit: "m²fac", category: "facade",
-      regions: { AU: 780, US: 520, UK: 580 } },
-    { id: "hr_window_wall", label: "Window-wall system", unit: "m²fac", category: "facade",
-      regions: { AU: 920, US: 620, UK: 690 } },
-
-    // ---- VERTICAL TRANSPORT ----
-    { id: "hr_lift_passenger", label: "Passenger lift (per car, full rise)", unit: "ea", category: "transport",
-      regions: { AU: 185000, US: 130000, UK: 145000 }, note: "Scales with floors served" },
-    { id: "hr_lift_goods", label: "Goods / service lift", unit: "ea", category: "transport",
-      regions: { AU: 240000, US: 165000, UK: 185000 } },
-    { id: "hr_escalator", label: "Escalator (podium levels)", unit: "ea", category: "transport",
-      regions: { AU: 165000, US: 115000, UK: 130000 } },
-
-    // ---- BUILDING SERVICES (MEP) ----
-    { id: "hr_hvac_central", label: "Central HVAC (chilled water/VAV)", unit: "m²gfa", category: "services",
-      regions: { AU: 420, US: 290, UK: 320 } },
-    { id: "hr_electrical_dist", label: "Electrical distribution + standby", unit: "m²gfa", category: "services",
-      regions: { AU: 280, US: 190, UK: 210 } },
-    { id: "hr_hydraulic", label: "Hydraulics (water/sewer/booster)", unit: "m²gfa", category: "services",
-      regions: { AU: 180, US: 120, UK: 135 } },
-    { id: "hr_bms", label: "Building management system", unit: "m²gfa", category: "services",
-      regions: { AU: 75, US: 50, UK: 56 } },
-
-    // ---- FIRE & LIFE SAFETY ----
-    { id: "hr_sprinkler", label: "Sprinkler + fire hydrant system", unit: "m²gfa", category: "fire",
-      regions: { AU: 95, US: 62, UK: 70 }, note: "Mandatory all storeys (NCC E1/IBC 903)" },
-    { id: "hr_fire_detection", label: "Fire detection + EWIS alarm", unit: "m²gfa", category: "fire",
-      regions: { AU: 65, US: 42, UK: 48 } },
-    { id: "hr_fire_stairs", label: "Fire-isolated stairs + pressurisation", unit: "ea", category: "fire",
-      regions: { AU: 320000, US: 220000, UK: 245000 }, note: "Min 2 egress stairs; scales with rise" },
-
-    // ---- FIT-OUT (base building) ----
-    { id: "hr_fitout_core", label: "Core fit-out (lobbies, amenities, WCs)", unit: "m²gfa", category: "fitout",
-      regions: { AU: 240, US: 160, UK: 180 } },
-    { id: "hr_ceilings_floors", label: "Raised floors + suspended ceilings", unit: "m²gfa", category: "fitout",
-      regions: { AU: 185, US: 125, UK: 140 } },
-    { id: "hr_carpark", label: "Car park fit-out + ventilation", unit: "m²base", category: "fitout",
-      regions: { AU: 320, US: 210, UK: 235 } },
-  ],
-  get(id) { return this.systems.find((s) => s.id === id); },
-  rate(id, region) { const s = this.get(id); return s ? s.regions[region] ?? 0 : 0; },
-};
-
 const HighRiseCodes = {
   AU: {
     name: "National Construction Code — Volume One (Class 2–9)",
@@ -1983,639 +970,6 @@ const Legislation = {
   },
 };
 
-const HighRiseEstimator = {
-  /* spec: { floorPlateM2, floors, floorHeightM, basementLevels, structureType,
-            facadeType, occupancy, passengerLifts, goodsLifts, hasEscalators,
-            siteCondition } */
-  takeoff(spec) {
-    const { floorPlateM2, floors, floorHeightM, basementLevels, facadeType, structureType } = spec;
-    const gfa = floorPlateM2 * floors;
-    const basementArea = floorPlateM2 * (basementLevels || 0);
-    const totalHeightM = floors * floorHeightM;
-    // façade area: assume ~square plate, perimeter × height; +20% for articulation
-    const plateSide = Math.sqrt(Math.max(1, floorPlateM2));
-    const perimeter = 4 * plateSide;
-    const facadeArea = perimeter * totalHeightM * 1.2;
-    // excavation for basements: area × depth × levels
-    const excavationM3 = basementArea * 3.5;
-    // fire stairs: 2 minimum, +1 per ~1500 m² plate over 1000
-    const fireStairs = Math.max(2, Math.ceil(floorPlateM2 / 1500) + 1);
-    return {
-      gfaM2: gfa, floorPlateM2, floors, totalHeightM, basementArea,
-      facadeArea, excavationM3, fireStairs,
-      siteAreaM2: floorPlateM2 * 1.3, // footprint + setbacks
-      facadeType, structureType,
-    };
-  },
-
-  systemCosts(t, spec, region) {
-    const lines = [];
-    const add = (id, qty) => {
-      const s = HighRiseMaterials.get(id);
-      if (!s || qty <= 0) return;
-      const rate = HighRiseMaterials.rate(id, region);
-      lines.push({ category: s.category, label: s.label, unit: s.unit, qty: round(qty, 1), rate: round(rate, 2), total: round(rate * qty, 2) });
-    };
-
-    // substructure
-    add("hr_piling", t.siteAreaM2);
-    add("hr_excavation", t.excavationM3);
-    if (t.basementArea > 0) add("hr_basement", t.basementArea);
-
-    // superstructure: core always RC; frame by type
-    add("hr_core_rc", t.gfaM2);
-    const frame = t.structureType === "steel" ? "hr_frame_steel"
-                : t.structureType === "composite" ? "hr_frame_composite"
-                : "hr_frame_rc";
-    add(frame, t.gfaM2);
-
-    // façade
-    const fac = t.facadeType === "precast" ? "hr_precast_facade"
-              : t.facadeType === "window_wall" ? "hr_window_wall"
-              : "hr_curtain_wall";
-    add(fac, t.facadeArea);
-
-    // vertical transport — lift cost scales with rise (floors/10 factor, min 1)
-    const riseFactor = Math.max(1, t.floors / 10);
-    const pax = spec.passengerLifts || Math.max(1, Math.ceil(t.floors / 8));
-    for (let i = 0; i < pax; i++) add("hr_lift_passenger", riseFactor);
-    if (spec.goodsLifts) for (let i = 0; i < spec.goodsLifts; i++) add("hr_lift_goods", riseFactor);
-    if (spec.hasEscalators) add("hr_escalator", 2);
-
-    // services (MEP)
-    add("hr_hvac_central", t.gfaM2);
-    add("hr_electrical_dist", t.gfaM2);
-    add("hr_hydraulic", t.gfaM2);
-    add("hr_bms", t.gfaM2);
-
-    // fire & life safety
-    add("hr_sprinkler", t.gfaM2);
-    add("hr_fire_detection", t.gfaM2);
-    add("hr_fire_stairs", t.fireStairs);
-
-    // fit-out (base building)
-    add("hr_fitout_core", t.gfaM2);
-    add("hr_ceilings_floors", t.gfaM2);
-    if (t.basementArea > 0) add("hr_carpark", t.basementArea);
-
-    return lines;
-  },
-
-  timeline(t, spec) {
-    // high-rise programme: mobilisation + substructure + (floor cycle × floors) + fit-out + commissioning
-    const floorCycleDays = { rc: 7, composite: 6, steel: 5 }[spec.structureType] || 7; // days per typical floor
-    const structureWeeks = Math.ceil((t.floors * floorCycleDays) / 5);
-    const substructureWeeks = 8 + (spec.basementLevels || 0) * 6;
-    const facadeWeeks = Math.ceil(t.floors * 0.6);
-    const fitoutWeeks = Math.ceil(t.floors * 0.8);
-    const totalWeeks = 12 + substructureWeeks + structureWeeks + Math.round(facadeWeeks * 0.5) + fitoutWeeks + 12;
-    const stages = [
-      { name: "Mobilisation & site establishment", weeks: 8 },
-      { name: "Piling & substructure", weeks: substructureWeeks },
-      { name: "Core & superstructure cycle", weeks: structureWeeks },
-      { name: "Façade installation (trails structure)", weeks: facadeWeeks },
-      { name: "Services rough-in (MEP risers)", weeks: Math.ceil(t.floors * 0.5) },
-      { name: "Vertical transport installation", weeks: 10 },
-      { name: "Base-building fit-out", weeks: fitoutWeeks },
-      { name: "Fire & life-safety commissioning", weeks: 8 },
-      { name: "Testing, certification & handover", weeks: 6 },
-    ];
-    let week = 0;
-    return {
-      totalWeeks,
-      stages: stages.map((s) => { const startWeek = week + 1; week += s.weeks; return { ...s, startWeek, endWeek: week }; }),
-    };
-  },
-
-  buildEstimate(spec, region) {
-    const takeoff = this.takeoff(spec);
-    const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
-    const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
-    if (takeoff.gfaM2 <= 0) {
-      return { mode: "highrise", region, spec, takeoff, systemLines: [], systemsTotal: 0,
-        prelims: 0, designFees: 0, margin: 0, contingency: 0, total: 0, taxRate, taxLabel,
-        timeline: { totalWeeks: 0, stages: [] } };
-    }
-    const systemLines = this.systemCosts(takeoff, spec, region);
-    const systemsTotal = systemLines.reduce((a, l) => a + l.total, 0);
-    const timeline = this.timeline(takeoff, spec);
-    // commercial loadings differ from residential
-    const complexity = { flat: 1.0, sloping: 1.08, difficult: 1.18 }[spec.siteCondition] || 1.0;
-    const adjSystems = systemsTotal * complexity;
-    const prelims = adjSystems * 0.12;     // site, cranes, hoists, supervision (higher for towers)
-    const designFees = adjSystems * 0.10;  // engineering, fire, façade consultants
-    const margin = adjSystems * 0.10;      // builder margin (thinner % on large jobs)
-    const contingency = adjSystems * 0.08;
-    const total = adjSystems + prelims + designFees + margin + contingency;
-    return {
-      mode: "highrise", region, spec, takeoff,
-      systemLines, systemsTotal: adjSystems,
-      prelims, designFees, margin, contingency, total,
-      taxRate, taxLabel, timeline,
-    };
-  },
-};
-
-/* =========================================================================
-   MODULE: materials-only.js
-   Pure material pricing — no labour, equipment, margin, or programme.
-   You list materials + quantities (or import a sheet) and get the raw
-   supply cost, plus order quantities with waste. Ideal for sanity-checking
-   the catalogue and for "supply only" quotes.
-   ========================================================================= */
-/* A small labour & trade rate card so labour lines can auto-price too.
-   Rates are indicative supply-of-labour day/hour/unit rates. */
-const LabourRates = {
-  /* Hourly rates per worker (day rate ÷ ~8h). A labour line = workers × hours × rate. */
-  catalog: [
-    { id: "lab_carpenter", label: "Carpenter", regions: { AU: 65, US: 45, UK: 40 } },
-    { id: "lab_apprentice", label: "Apprentice", regions: { AU: 35, US: 25, UK: 22 } },
-    { id: "lab_bricklayer", label: "Bricklayer", regions: { AU: 70, US: 48, UK: 43 } },
-    { id: "lab_concreter", label: "Concreter", regions: { AU: 68, US: 46, UK: 41 } },
-    { id: "lab_electrician", label: "Electrician", regions: { AU: 80, US: 55, UK: 49 } },
-    { id: "lab_plumber", label: "Plumber", regions: { AU: 80, US: 55, UK: 49 } },
-    { id: "lab_plasterer", label: "Plasterer", regions: { AU: 63, US: 43, UK: 38 } },
-    { id: "lab_painter", label: "Painter", regions: { AU: 58, US: 40, UK: 35 } },
-    { id: "lab_tiler", label: "Tiler", regions: { AU: 65, US: 45, UK: 40 } },
-    { id: "lab_roofer", label: "Roofer", regions: { AU: 68, US: 46, UK: 41 } },
-    { id: "lab_labourer", label: "General labourer", regions: { AU: 45, US: 31, UK: 28 } },
-    { id: "lab_supervisor", label: "Site supervisor", regions: { AU: 90, US: 63, UK: 55 } },
-    { id: "lab_crane", label: "Crane + operator", regions: { AU: 275, US: 188, UK: 169 } },
-    { id: "lab_excavator", label: "Excavator + operator", regions: { AU: 138, US: 95, UK: 85 } },
-  ],
-  get(id) { return this.catalog.find((l) => l.id === id); },
-  rate(id, region) { const l = this.get(id); return l ? l.regions[region] ?? 0 : 0; }, // per hour
-};
-
-/* =========================================================================
-   MODULE: quote-builder.js  (was materials-only)
-   A single editable quote of mixed line items. Each line has a `kind`:
-     - "material" → priced from the Materials catalogue (or a fixed/file rate)
-     - "labour"   → priced from the LabourRates card (or a fixed rate)
-     - "element"  → a free-text job/trade/allowance with the rate you type
-   Everything sums into ONE total, grouped by kind, so a client gets a single
-   quote covering material + labour + trades, not three separate ones.
-   ========================================================================= */
-/* =========================================================================
-   MODULE: wall-builder.js
-   Turn a single wall (length × height) into priced quote lines: the frame,
-   lining, insulation and finish a wall of that size needs, plus optional
-   add-ons (power points, switches, a door, etc.). Outputs lines in the same
-   shape the quote builder uses, so a wall flows into the one quote.
-   ========================================================================= */
-const WallBuilder = {
-  /* Add-ons: fixed "supply + install" rates per item, by region. */
-  addons: [
-    { id: "wa_power", label: "Power point (GPO, supply + install)", unit: "ea", kind: "element", regions: { AU: 145, US: 120, UK: 110 } },
-    { id: "wa_switch", label: "Light switch (supply + install)", unit: "ea", kind: "element", regions: { AU: 110, US: 90, UK: 85 } },
-    { id: "wa_data", label: "Data / TV point", unit: "ea", kind: "element", regions: { AU: 160, US: 130, UK: 120 } },
-    { id: "wa_light", label: "Downlight / light fitting", unit: "ea", kind: "element", regions: { AU: 130, US: 105, UK: 95 } },
-    { id: "wa_door", label: "Internal door + frame (in wall)", unit: "ea", kind: "element", regions: { AU: 620, US: 430, UK: 380 } },
-    { id: "wa_window", label: "Window opening (frame + reveal)", unit: "ea", kind: "element", regions: { AU: 780, US: 540, UK: 480 } },
-    { id: "wa_skirting", label: "Skirting + cornice (per wall)", unit: "ea", kind: "element", regions: { AU: 180, US: 130, UK: 115 } },
-    { id: "wa_waterproof", label: "Wet-area waterproofing", unit: "m²", kind: "element", regions: { AU: 75, US: 55, UK: 50 } },
-    { id: "wa_tile", label: "Wall tiling (supply + lay)", unit: "m²", kind: "element", regions: { AU: 130, US: 95, UK: 85 } },
-  ],
-  getAddon(id) { return this.addons.find((a) => a.id === id); },
-
-  /* Build quote lines for a wall.
-     opts: { lengthM, heightM, construction, insulated, finish, sides, labour } */
-  toLines(opts, region, mkId) {
-    const L = +opts.lengthM || 0;
-    const H = +opts.heightM || 0;
-    const area = L * H;
-    const lines = [];
-    if (area <= 0) return lines;
-    const sides = opts.sides === 1 ? 1 : 2; // lined one or both sides
-    const push = (kind, materialId, labourId, label, qty, unit, fixedRate) => {
-      lines.push({ id: mkId(), kind, materialId: materialId || null, labourId: labourId || null, label, qty: round(qty, 2), unit, fixedRate: fixedRate ?? null });
-    };
-    const pushLabour = (labourId, label, days) => {
-      lines.push({ id: mkId(), kind: "labour", materialId: null, labourId, label, workers: 1, hours: round(days * 8, 1), unit: "hr", fixedRate: null });
-    };
-
-    if (opts.construction === "stud") {
-      // Framing: studs @450 + top/bottom plates. Approx lin.m of timber ≈ area×2.2
-      push("material", "timber_mgp10", null, "Wall framing (studs + plates)", area * 2.2, "lin.m");
-      // Lining both sides (or one)
-      push("material", "plasterboard", null, `Plasterboard lining (${sides === 2 ? "both sides" : "one side"})`, area * sides, "m²");
-      if (opts.insulated) push("material", "wall_insulation", null, "Acoustic / thermal insulation", area, "m²");
-    } else if (opts.construction === "brick") {
-      push("material", "brick_veneer", null, "Brick / blockwork", area, "m²");
-      if (opts.insulated) push("material", "wall_insulation", null, "Insulation", area, "m²");
-    }
-
-    // Finish
-    if (opts.finish === "paint") push("material", "paint", null, `Paint (${sides === 2 ? "both sides" : "one side"})`, area * sides, "m²");
-    else if (opts.finish === "render") push("material", "render", null, "Render finish", area, "m²");
-    else if (opts.finish === "tile") push("element", null, null, "Wall tiling (supply + lay)", area, "m²", this.getAddon("wa_tile").regions[region]);
-
-    // Add-ons
-    for (const a of (opts.addonList || [])) {
-      const def = this.getAddon(a.id);
-      if (!def) continue;
-      const qty = a.qty || 1;
-      push("element", null, null, def.label, qty, def.unit, def.regions[region]);
-    }
-
-    // Labour estimate (optional): rough trade-days → converted to hours
-    if (opts.labour) {
-      const carpDays = opts.construction === "stud" ? Math.max(0.5, round(area / 12, 1)) : Math.max(0.5, round(area / 8, 1));
-      pushLabour("lab_carpenter", opts.construction === "stud" ? "Carpenter (frame + line)" : "Bricklayer / blocklayer", carpDays);
-      if (opts.finish === "paint" || opts.finish === "render") pushLabour("lab_painter", "Painter / finisher", Math.max(0.5, round(area / 25, 1)));
-      const hasElec = (opts.addonList || []).some((a) => ["wa_power", "wa_switch", "wa_data", "wa_light"].includes(a.id));
-      if (hasElec) pushLabour("lab_electrician", "Electrician (points + rough-in)", 0.5);
-    }
-    return lines;
-  },
-
-  /* ---- Job presets ----
-     Each preset declares the single dimension it needs (area in m², or length
-     in m) and produces sensible MATERIAL lines for that job. Labour is added
-     only if the user ticks it (a rough trade-day estimate). Add-ons optional. */
-  presets: [
-    {
-      id: "timber_wall", label: "Timber stud wall (frame + lining)", dim: "wall",
-      note: "A new stud-framed wall — framing, plasterboard, optional insulation & finish.",
-    },
-    {
-      id: "kitchen_bench", label: "Kitchen bench / cabinetry", dim: "length", dimLabel: "Bench / cabinet run (m)",
-      note: "Cabinetry + benchtop for a run of kitchen bench.",
-      variants: [
-        { id: "flatpack_laminate", label: "Flat-pack + laminate top" },
-        { id: "flatpack_stone", label: "Flat-pack + stone top" },
-        { id: "custom_stone", label: "Custom joinery + stone top" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const v = variant || "flatpack_laminate";
-        const cab = v === "custom_stone" ? "kit_cab_custom" : "kit_cab_flatpack";
-        const bench = v === "flatpack_laminate" ? "kit_bench_laminate" : "kit_bench_stone";
-        const cabM = Materials.get(cab), benchM = Materials.get(bench);
-        return [
-          { id: mk(), kind: "material", materialId: cab, label: cabM.label, qty: round(a, 2), unit: "lin.m" },
-          { id: mk(), kind: "material", materialId: bench, label: benchM.label, qty: round(a, 2), unit: "lin.m" },
-          { id: mk(), kind: "material", materialId: "kit_sink_tap", label: "Sink + mixer tapware", qty: 1, unit: "ea" },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_carpenter", label: "Cabinetmaker / installer", days: Math.max(0.5, round(a / 4, 1)) }],
-      addons: ["wa_power"],
-    },
-    {
-      id: "laundry_cabinet", label: "Laundry / vanity cabinet", dim: "length", dimLabel: "Cabinet run (m)",
-      note: "Cabinetry + benchtop + tub/basin for a laundry or vanity run.",
-      lines: (a, region, mk) => {
-        const tubRate = { AU: 320, US: 230, UK: 200 }[region];
-        return [
-          { id: mk(), kind: "material", materialId: "kit_cab_flatpack", label: "Cabinetry — flat-pack + install", qty: round(a, 2), unit: "lin.m" },
-          { id: mk(), kind: "material", materialId: "kit_bench_laminate", label: "Benchtop — laminate", qty: round(a, 2), unit: "lin.m" },
-          { id: mk(), kind: "element", label: "Laundry tub / basin + tapware", qty: 1, unit: "ea", fixedRate: tubRate },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_carpenter", label: "Cabinetmaker / installer", days: Math.max(0.5, round(a / 4, 1)) }],
-      addons: ["wa_power"],
-    },
-    {
-      id: "drywall", label: "Drywall / plasterboard lining", dim: "area", dimLabel: "Wall area (m²)",
-      note: "Lining an existing frame — board, set, no framing.",
-      lines: (a, region, mk) => {
-        const L = [];
-        L.push({ id: mk(), kind: "material", materialId: "plasterboard", label: "Plasterboard 10mm + set joints", qty: round(a, 2), unit: "m²" });
-        return L;
-      },
-      labour: (a) => [{ labourId: "lab_plasterer", label: "Plasterer (hang + set)", days: Math.max(0.5, round(a / 30, 1)) }],
-      addons: ["wa_skirting", "wa_power", "wa_switch"],
-    },
-    {
-      id: "painting", label: "Painting only", dim: "area", dimLabel: "Area to paint (m²)",
-      note: "Prep + 2 coats over existing surface.",
-      lines: (a, region, mk) => [{ id: mk(), kind: "material", materialId: "paint", label: "Paint, 2 coats + primer", qty: round(a, 2), unit: "m²" }],
-      labour: (a) => [{ labourId: "lab_painter", label: "Painter", days: Math.max(0.5, round(a / 35, 1)) }],
-      addons: [],
-    },
-    {
-      id: "flooring", label: "Flooring", dim: "area", dimLabel: "Floor area (m²)",
-      note: "Floor covering over a prepared subfloor.",
-      variants: [
-        { id: "floor_timber", label: "Engineered timber" },
-        { id: "floor_tile", label: "Tile" },
-        { id: "floor_carpet", label: "Carpet" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const matId = variant || "floor_timber";
-        const m = Materials.get(matId);
-        return [{ id: mk(), kind: "material", materialId: matId, label: m.label, qty: round(a, 2), unit: "m²" }];
-      },
-      labour: (a) => [{ labourId: "lab_tiler", label: "Floor layer", days: Math.max(0.5, round(a / 25, 1)) }],
-      addons: [],
-    },
-    {
-      id: "fencing", label: "Fencing", dim: "length", dimLabel: "Fence length (m)",
-      note: "Various fence types ~1.8m high (panels/palings, posts, footings).",
-      variants: [
-        { id: "timber_paling", label: "Timber paling" },
-        { id: "colorbond", label: "Colorbond steel" },
-        { id: "aluminium_slat", label: "Aluminium slat" },
-        { id: "pool_glass", label: "Frameless glass (pool)" },
-        { id: "chainmesh", label: "Chain mesh" },
-        { id: "picket", label: "Timber picket" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const v = variant || "timber_paling";
-        const rates = {
-          timber_paling: { AU: 95, US: 68, UK: 60 }, colorbond: { AU: 110, US: 78, UK: 70 },
-          aluminium_slat: { AU: 220, US: 150, UK: 135 }, pool_glass: { AU: 380, US: 260, UK: 235 },
-          chainmesh: { AU: 55, US: 38, UK: 34 }, picket: { AU: 120, US: 82, UK: 74 },
-        };
-        const labels = {
-          timber_paling: "Timber paling fence + rails", colorbond: "Colorbond fence panels",
-          aluminium_slat: "Aluminium slat fence", pool_glass: "Frameless glass pool fence + spigots",
-          chainmesh: "Chain mesh fence", picket: "Timber picket fence",
-        };
-        const fenceRate = rates[v][region];
-        const postRate = { AU: 38, US: 27, UK: 24 }[region];
-        const posts = Math.ceil(a / 2.4) + 1;
-        const out = [{ id: mk(), kind: "element", label: labels[v], qty: round(a, 2), unit: "m", fixedRate: fenceRate }];
-        if (v !== "pool_glass") out.push({ id: mk(), kind: "element", label: "Posts + concrete footings", qty: posts, unit: "ea", fixedRate: postRate });
-        return out;
-      },
-      labour: (a) => [{ labourId: "lab_carpenter", label: "Fencer", days: Math.max(0.5, round(a / 15, 1)) }],
-      addons: ["wa_door"],
-    },
-    {
-      id: "pool", label: "Swimming pool", dim: "area", dimLabel: "Pool surface area (m²)",
-      note: "In-ground pool shell + filtration. Excludes deck, fencing & landscaping (add separately).",
-      variants: [
-        { id: "concrete", label: "Concrete / gunite" },
-        { id: "fibreglass", label: "Fibreglass shell" },
-        { id: "vinyl", label: "Vinyl liner" },
-        { id: "plunge", label: "Plunge / small" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const v = variant || "concrete";
-        const m2Rate = { concrete: { AU: 2200, US: 1500, UK: 1700 }, fibreglass: { AU: 1500, US: 1050, UK: 1200 },
-          vinyl: { AU: 1100, US: 800, UK: 900 }, plunge: { AU: 1800, US: 1250, UK: 1400 } }[v][region];
-        const labels = { concrete: "Concrete pool shell + finish", fibreglass: "Fibreglass pool shell (supply+set)",
-          vinyl: "Vinyl liner pool", plunge: "Plunge pool (compact)" };
-        const filterRate = { AU: 3500, US: 2400, UK: 2700 }[region];
-        const excavRate = { AU: 95, US: 65, UK: 72 }[region];
-        return [
-          { id: mk(), kind: "element", label: labels[v], qty: round(a, 2), unit: "m²", fixedRate: m2Rate },
-          { id: mk(), kind: "element", label: "Excavation + spoil removal", qty: round(a * 1.6, 2), unit: "m³", fixedRate: excavRate },
-          { id: mk(), kind: "element", label: "Filtration, pump & plumbing", qty: 1, unit: "ea", fixedRate: filterRate },
-          { id: mk(), kind: "material", materialId: "concrete_25mpa", label: "Surround / bond beam concrete", qty: round(a * 0.15, 2), unit: "m³" },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_concreter", label: "Pool builder / crew", days: Math.max(3, round(a / 4, 1)) }],
-      addons: [],
-    },
-    {
-      id: "concreting", label: "Concrete slab / driveway", dim: "area", dimLabel: "Area (m²)",
-      note: "Reinforced concrete slab — driveway, shed slab, path, patio.",
-      variants: [
-        { id: "plain", label: "Plain / broom finish" },
-        { id: "exposed", label: "Exposed aggregate" },
-        { id: "coloured", label: "Coloured / stencil" },
-        { id: "polished", label: "Polished" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const v = variant || "plain";
-        const finId = { plain: "concrete_plain", exposed: "concrete_exposed", coloured: "concrete_stencil", polished: "concrete_polished" }[v];
-        const fin = Materials.get(finId);
-        return [
-          { id: mk(), kind: "material", materialId: finId, label: fin.label, qty: round(a, 2), unit: "m²" },
-          { id: mk(), kind: "material", materialId: "slab_mesh", label: "Reinforcing mesh", qty: round(a, 2), unit: "m²" },
-          { id: mk(), kind: "material", materialId: "fill_road_base", label: "Road base sub-grade", qty: round(a * 0.1, 2), unit: "m³" },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_concreter", label: "Concreter crew", days: Math.max(0.5, round(a / 30, 1)) }],
-      addons: [],
-    },
-    {
-      id: "retaining", label: "Retaining wall", dim: "area", dimLabel: "Wall face area (m²)",
-      note: "Retaining wall — sleeper, besser block or concrete sleeper.",
-      variants: [
-        { id: "timber_sleeper", label: "Treated timber sleeper" },
-        { id: "concrete_sleeper", label: "Concrete sleeper + steel posts" },
-        { id: "besser", label: "Besser block (core-filled)" },
-        { id: "rock", label: "Rock / boulder wall" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const v = variant || "concrete_sleeper";
-        const rate = { timber_sleeper: { AU: 260, US: 175, UK: 195 }, concrete_sleeper: { AU: 360, US: 245, UK: 270 },
-          besser: { AU: 420, US: 285, UK: 320 }, rock: { AU: 480, US: 325, UK: 360 } }[v][region];
-        const labels = { timber_sleeper: "Timber sleeper retaining wall", concrete_sleeper: "Concrete sleeper wall + posts",
-          besser: "Besser block wall (core-filled)", rock: "Rock / boulder retaining wall" };
-        return [
-          { id: mk(), kind: "element", label: labels[v], qty: round(a, 2), unit: "m²", fixedRate: rate },
-          { id: mk(), kind: "element", label: "Ag drain + gravel backfill", qty: round(a, 2), unit: "m²", fixedRate: { AU: 45, US: 30, UK: 34 }[region] },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_concreter", label: "Retaining crew", days: Math.max(1, round(a / 8, 1)) }],
-      addons: [],
-    },
-    {
-      id: "tiling", label: "Tiling (wall or floor)", dim: "area", dimLabel: "Area to tile (m²)",
-      note: "Tile supply + lay, including adhesive and grout.",
-      variants: [
-        { id: "ceramic", label: "Ceramic" },
-        { id: "porcelain", label: "Porcelain" },
-        { id: "stone", label: "Natural stone" },
-        { id: "mosaic", label: "Mosaic / feature" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const v = variant || "ceramic";
-        const rate = { ceramic: { AU: 110, US: 75, UK: 82 }, porcelain: { AU: 140, US: 95, UK: 105 },
-          stone: { AU: 190, US: 130, UK: 145 }, mosaic: { AU: 220, US: 150, UK: 165 } }[v][region];
-        const labels = { ceramic: "Ceramic tiles + lay", porcelain: "Porcelain tiles + lay", stone: "Natural stone tiles + lay", mosaic: "Mosaic / feature tiles + lay" };
-        return [
-          { id: mk(), kind: "element", label: labels[v], qty: round(a, 2), unit: "m²", fixedRate: rate },
-          { id: mk(), kind: "element", label: "Waterproofing (wet areas)", qty: round(a, 2), unit: "m²", fixedRate: { AU: 35, US: 24, UK: 27 }[region] },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_tiler", label: "Tiler", days: Math.max(0.5, round(a / 12, 1)) }],
-      addons: [],
-    },
-    {
-      id: "roofing", label: "Roofing / re-roof", dim: "area", dimLabel: "Roof area (m²)",
-      note: "Roof covering — sheet or tile, including flashings.",
-      variants: [
-        { id: "colorbond", label: "Colorbond / metal sheet" },
-        { id: "zincalume", label: "Zincalume" },
-        { id: "concrete_tile", label: "Concrete tile" },
-        { id: "terracotta", label: "Terracotta tile" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const v = variant || "colorbond";
-        const matId = { colorbond: "metal_roof_sheet", zincalume: "zincalume_sheet", concrete_tile: "concrete_tile", terracotta: "terracotta_tile" }[v];
-        const m = Materials.get(matId);
-        return [
-          { id: mk(), kind: "material", materialId: matId, label: m.label, qty: round(a, 2), unit: "m²" },
-          { id: mk(), kind: "material", materialId: "sarking", label: "Sarking / reflective foil", qty: round(a, 2), unit: "m²" },
-          { id: mk(), kind: "material", materialId: "roof_flashing", label: "Ridge capping & flashings", qty: round(Math.sqrt(a) * 2, 2), unit: "lin.m" },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_roofer", label: "Roofer", days: Math.max(0.5, round(a / 20, 1)) }],
-      addons: [],
-    },
-    {
-      id: "carport", label: "Carport / shed", dim: "area", dimLabel: "Covered area (m²)",
-      note: "Steel-frame carport or shed — frame, roof, slab.",
-      variants: [
-        { id: "carport_single", label: "Open carport" },
-        { id: "shed_enclosed", label: "Enclosed shed / garage" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const v = variant || "carport_single";
-        const rate = { carport_single: { AU: 320, US: 220, UK: 245 }, shed_enclosed: { AU: 520, US: 355, UK: 395 } }[v][region];
-        const label = v === "carport_single" ? "Carport frame + roof (steel)" : "Shed frame, roof & walls (steel)";
-        return [
-          { id: mk(), kind: "element", label, qty: round(a, 2), unit: "m²", fixedRate: rate },
-          { id: mk(), kind: "material", materialId: "concrete_plain", label: "Concrete slab", qty: round(a, 2), unit: "m²" },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_carpenter", label: "Builder / installer", days: Math.max(1, round(a / 12, 1)) }],
-      addons: [],
-    },
-    {
-      id: "deck", label: "Deck / pergola", dim: "area", dimLabel: "Deck area (m²)",
-      note: "Timber/composite deck on a framed substructure, posts set on stirrups into concrete footings.",
-      variants: [
-        { id: "deck_merbau", label: "Merbau hardwood" },
-        { id: "deck_treated_pine", label: "Treated pine" },
-        { id: "deck_composite", label: "Composite (Trex/Modwood)" },
-      ],
-      lines: (a, region, mk, variant) => {
-        const boardId = variant || "deck_merbau";
-        const board = Materials.get(boardId);
-        // posts: roughly one per ~2.5m² for a low deck; footings ~0.03m³ each
-        const posts = Math.max(2, Math.ceil(a / 2.5));
-        return [
-          { id: mk(), kind: "material", materialId: boardId, label: board.label, qty: round(a, 2), unit: "m²" },
-          { id: mk(), kind: "material", materialId: "deck_substructure", label: "Bearers, joists & framing", qty: round(a, 2), unit: "m²" },
-          { id: mk(), kind: "material", materialId: "timber_treated_post", label: "Treated posts (in-ground)", qty: round(posts * 0.9, 2), unit: "lin.m" },
-          { id: mk(), kind: "material", materialId: "post_stirrup", label: "Post stirrups / brackets", qty: posts, unit: "ea" },
-          { id: mk(), kind: "material", materialId: "footing_concrete", label: "Footing concrete (post holes)", qty: round(posts * 0.03, 2), unit: "m³" },
-        ];
-      },
-      labour: (a) => [{ labourId: "lab_carpenter", label: "Carpenter (deck build)", days: Math.max(1, round(a / 10, 1)) }],
-      addons: [],
-    },
-  ],
-  getPreset(id) { return this.presets.find((p) => p.id === id); },
-
-  /* Build lines from a chosen preset + dimension (+ optional variant, labour, add-ons). */
-  presetToLines(presetId, opts, region, mk) {
-    const p = this.getPreset(presetId);
-    if (!p) return [];
-    // the timber wall uses the richer wall builder (construction/finish/sides/insulation)
-    if (p.dim === "wall") {
-      return this.toLines({
-        lengthM: opts.lengthM, heightM: opts.heightM,
-        construction: "stud", insulated: opts.insulated, finish: opts.finish,
-        sides: opts.sides, labour: opts.labour, addonList: opts.addonList,
-      }, region, mk);
-    }
-    const dimVal = +opts.dim || 0;
-    if (dimVal <= 0) return [];
-    const lines = p.lines(dimVal, region, mk, opts.variant);
-    // add-ons
-    for (const a of (opts.addonList || [])) {
-      const def = this.getAddon(a.id);
-      if (!def) continue;
-      lines.push({ id: mk(), kind: "element", materialId: null, labourId: null, label: def.label, qty: a.qty || 1, unit: def.unit, fixedRate: def.regions[region] });
-    }
-    // labour (tick-on)
-    if (opts.labour && p.labour) {
-      for (const lb of p.labour(dimVal)) {
-        lines.push({ id: mk(), kind: "labour", materialId: null, labourId: lb.labourId, label: lb.label, workers: 1, hours: round((lb.days || 0) * 8, 1), unit: "hr", fixedRate: null });
-      }
-    }
-    return lines;
-  },
-};
-
-const MaterialsOnly = {
-  rateFor(item, region) {
-    if (item.kind === "labour" && item.labourId) return LabourRates.rate(item.labourId, region);
-    if ((item.kind === "material" || !item.kind) && item.materialId) return Materials.rate(item.materialId, region);
-    return null;
-  },
-  catalogLabel(item) {
-    if (item.kind === "labour" && item.labourId) return LabourRates.get(item.labourId)?.label;
-    if (item.materialId) return Materials.get(item.materialId)?.label;
-    return null;
-  },
-  catalogUnit(item) {
-    if (item.kind === "labour" && item.labourId) return LabourRates.get(item.labourId)?.unit;
-    if (item.materialId) return Materials.get(item.materialId)?.unit;
-    return "";
-  },
-
-  buildEstimate(matSpec, region) {
-    const lines = [];
-    for (const item of (matSpec.lines || [])) {
-      const kind = item.kind || "material";
-      const qty = +item.qty || 0;
-      const catLabel = this.catalogLabel(item);
-      const catUnit = this.catalogUnit(item);
-      const catRate = this.rateFor(item, region);
-      const materialId = kind === "material" ? (item.materialId || null) : null;
-
-      // ---- LABOUR: workers × hours × hourly rate ----
-      if (kind === "labour") {
-        const workers = +item.workers || 1;
-        const hours = +item.hours || 0;
-        const hourly = item.fixedRate != null && isFinite(item.fixedRate) ? +item.fixedRate : (catRate || 0);
-        const total = workers * hours * hourly;
-        lines.push({
-          kind: "labour", materialId: null, labourId: item.labourId || null,
-          category: "labour",
-          label: item.label || catLabel || "Labour",
-          workers, hours, unit: "hr",
-          rate: round(hourly, 2),
-          qty: round(workers * hours, 2),  // total man-hours, for display
-          total: round(total, 2),
-          priceSource: item.fixedRate != null ? "manual" : "catalogue",
-          needsPrice: hourly <= 0, alloc: null,
-        });
-        continue;
-      }
-
-      // pricing priority: file total → fixed rate → catalogue rate
-      let rate = null, total = null, priceSource = "";
-      if (item.fixedTotal != null && isFinite(item.fixedTotal)) {
-        total = item.fixedTotal;
-        rate = item.fixedRate != null ? item.fixedRate : (qty ? item.fixedTotal / qty : null);
-        priceSource = "file";
-      } else if (item.fixedRate != null && isFinite(item.fixedRate)) {
-        rate = item.fixedRate; total = item.fixedRate * qty; priceSource = "manual";
-      } else if (catRate != null && qty > 0) {
-        rate = catRate; total = catRate * qty; priceSource = "catalogue";
-      }
-
-      const needsPrice = total == null;
-      lines.push({
-        kind, materialId,
-        labourId: null,
-        category: kind === "element" ? "trades & elements" : (item.materialId ? Materials.get(item.materialId)?.category : "materials"),
-        label: item.label || catLabel || (kind === "element" ? "Item" : "Material"),
-        unit: item.unit || catUnit || "",
-        qty: qty || null,
-        rate: rate != null ? round(rate, 2) : null,
-        total: total != null ? round(total, 2) : 0,
-        priceSource, needsPrice,
-        alloc: materialId && qty > 0 ? Allocation.forMaterial(materialId, qty) : null,
-      });
-    }
-    const total = lines.reduce((a, l) => a + (l.total || 0), 0);
-    const byKind = { material: 0, labour: 0, element: 0 };
-    for (const l of lines) byKind[l.kind] = (byKind[l.kind] || 0) + (l.total || 0);
-    const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
-    const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
-    return { mode: "materials", region, spec: matSpec, lines, materialsTotal: total, total, byKind, taxRate, taxLabel };
-  },
-};
-
 /* =========================================================================
    MODULE: reporter.js
    Builds a downloadable text-format report from an estimate.
@@ -2624,7 +978,7 @@ const Reporter = {
   build(estimate, projectNo) {
     const { region, spec, takeoff, materialLines, materialsTotal,
             labourLines, labourTotal, equipmentLines, equipmentTotal,
-            subtotal, prelims, margin, contingency, total, taxRate, taxLabel,
+            subtotal, prelims, prelimsPct, margin, contingency, contingencyPct, total, taxRate, taxLabel,
             timeline } = estimate;
     const currency = currencySymbol(region);
     const lines = [];
@@ -2695,9 +1049,9 @@ const Reporter = {
     lines.push("BUILDER ADD-ONS");
     lines.push(half);
     lines.push(pad("Direct costs subtotal", 62) + `${currency}${fmt(subtotal)}`);
-    lines.push(pad("Preliminaries (8%)", 62) + `${currency}${fmt(prelims)}`);
+    lines.push(pad(`Preliminaries (${Math.round(prelimsPct * 100)}%)`, 62) + `${currency}${fmt(prelims)}`);
     lines.push(pad("Builder margin (15%)", 62) + `${currency}${fmt(margin)}`);
-    lines.push(pad("Contingency (7%)", 62) + `${currency}${fmt(contingency)}`);
+    lines.push(pad(`Contingency (${Math.round(contingencyPct * 100)}%)`, 62) + `${currency}${fmt(contingency)}`);
     lines.push(half);
     lines.push(pad("TOTAL ESTIMATE", 62) + `${currency}${fmt(total)}`);
     if (taxRate > 0) lines.push(pad(`+ ${taxLabel}`, 62) + `${currency}${fmt(total * taxRate)}`);
@@ -2732,7 +1086,7 @@ const Reporter = {
   },
 
   buildHighRise(est, projectNo) {
-    const { region, spec, takeoff, systemLines, systemsTotal, prelims, designFees, margin, contingency, total, taxRate, taxLabel, timeline } = est;
+    const { region, spec, takeoff, systemLines, systemsTotal, equipmentLines = [], equipmentTotal = 0, prelims, designFees, margin, contingency, total, taxRate, taxLabel, timeline } = est;
     const currency = currencySymbol(region);
     const lines = [];
     const rule = "=".repeat(78), half = "-".repeat(78);
@@ -2762,6 +1116,16 @@ const Reporter = {
     }
     lines.push(half);
     lines.push(pad("Systems subtotal (adj.)", 54) + `${currency}${fmt(systemsTotal)}`);
+    if (equipmentLines.length) {
+      lines.push("");
+      lines.push("SITE EQUIPMENT & PLANT");
+      lines.push(half);
+      for (const l of equipmentLines) {
+        lines.push(pad(l.name, 40) + pad(`${l.qty} ${l.unit}`, 14) + `${currency}${fmt(l.total)}`);
+      }
+      lines.push(half);
+      lines.push(pad("Equipment subtotal", 54) + `${currency}${fmt(equipmentTotal)}`);
+    }
     lines.push(pad("Preliminaries (12%)", 54) + `${currency}${fmt(prelims)}`);
     lines.push(pad("Design & consultant fees (10%)", 54) + `${currency}${fmt(designFees)}`);
     lines.push(pad("Builder margin (10%)", 54) + `${currency}${fmt(margin)}`);
@@ -2827,911 +1191,8 @@ const Reporter = {
 };
 
 /* =========================================================================
-   MODULE: engine3D.js
-   Three.js scene. Builds a procedural building from a spec and animates
-   the construction sequence.
-   ========================================================================= */
-/* Slice-and-dice treemap: packs rooms into a rectangle with no gaps/overlaps,
-   areas proportional to each room's footprint. Returns [{x,z,w,l,room}]. */
-function sliceAndDice(rooms, x, z, w, l, horizontal) {
-  const areaOf = (r) => Math.max(0.1, (r.widthM || 0) * (r.lengthM || 0));
-  if (rooms.length === 1) {
-    return [{ x, z, w, l, room: rooms[0] }];
-  }
-  const total = rooms.reduce((a, r) => a + areaOf(r), 0);
-  // split into two groups near half the area
-  let acc = 0, splitIdx = 0;
-  for (let i = 0; i < rooms.length; i++) {
-    acc += areaOf(rooms[i]);
-    if (acc >= total / 2) { splitIdx = i + 1; break; }
-  }
-  splitIdx = Math.max(1, Math.min(rooms.length - 1, splitIdx));
-  const groupA = rooms.slice(0, splitIdx);
-  const groupB = rooms.slice(splitIdx);
-  const areaA = groupA.reduce((a, r) => a + areaOf(r), 0);
-  const ratio = areaA / total;
-  if (horizontal) {
-    const wA = w * ratio;
-    return [
-      ...sliceAndDice(groupA, x, z, wA, l, false),
-      ...sliceAndDice(groupB, x + wA, z, w - wA, l, false),
-    ];
-  } else {
-    const lA = l * ratio;
-    return [
-      ...sliceAndDice(groupA, x, z, w, lA, true),
-      ...sliceAndDice(groupB, x, z + lA, w, l - lA, true),
-    ];
-  }
-}
-
-class Engine3D {
-  constructor(mountEl) {
-    this.mount = mountEl;
-    this.width = mountEl.clientWidth;
-    this.height = mountEl.clientHeight;
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xe8eaec);
-    this.scene.fog = new THREE.Fog(0xe8eaec, 50, 140);
-
-    this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 0.1, 500);
-    this.camera.position.set(28, 22, 28);
-    this.camera.lookAt(0, 4, 0);
-
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
-    // Cap pixel ratio at 1.5 — drawing at full 2x/3x device ratio costs 4-9x the
-    // pixels for no visible benefit on this kind of model.
-    this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
-    this.renderer.setSize(this.width, this.height);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap; // cheaper than PCFSoft
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
-    if ("outputColorSpace" in this.renderer) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    mountEl.appendChild(this.renderer.domElement);
-
-    // Lights — sky/ground hemisphere for natural fill, key light for form, soft fill to lift shadows
-    const hemi = new THREE.HemisphereLight(0xdfeeff, 0xb9a98a, 0.55);
-    this.scene.add(hemi);
-    const ambient = new THREE.AmbientLight(0xffffff, 0.25);
-    this.scene.add(ambient);
-    const dir = new THREE.DirectionalLight(0xfff4d6, 1.05);
-    dir.position.set(24, 34, 18);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
-    dir.shadow.camera.left = -40;
-    dir.shadow.camera.right = 40;
-    dir.shadow.camera.top = 40;
-    dir.shadow.camera.bottom = -40;
-    dir.shadow.camera.near = 1;
-    dir.shadow.camera.far = 120;
-    dir.shadow.bias = -0.0004;
-    this.scene.add(dir);
-    // Cool fill from the opposite side to stop shadowed faces going dead black
-    const fill = new THREE.DirectionalLight(0xcfe0ff, 0.25);
-    fill.position.set(-18, 14, -12);
-    this.scene.add(fill);
-
-    // Ground — subtle two-tone so the model reads against it
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0xc4bfae, roughness: 1.0 });
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.02;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
-
-    // Grid
-    const grid = new THREE.GridHelper(80, 40, 0x6b7279, 0xc9ccd0);
-    grid.position.y = 0.01;
-    grid.material.opacity = 0.25;
-    grid.material.transparent = true;
-    this.scene.add(grid);
-
-    // Building group
-    this.buildingGroup = new THREE.Group();
-    this.scene.add(this.buildingGroup);
-
-    // Animation state
-    this.progress = 0; // 0..1 across all stages
-    this.cameraAngle = Math.PI * 0.25;
-    this.autoRotate = true;
-    this.playing = false;
-    this.spec = null;
-
-    // Walkthrough state
-    this.mode = "orbit"; // "orbit" | "walk"
-    this.walkWaypoints = [];
-    this.walkT = 0;          // 0..1 along the whole path
-    this.walkSpeed = 0.0009; // per frame
-    this.roofMeshes = [];    // hidden during walkthrough
-    this.onWalkProgress = null;
-    this.onModeChange = null;
-
-    this.animate = this.animate.bind(this);
-    this._animId = requestAnimationFrame(this.animate);
-
-    this._resizeObs = new ResizeObserver(() => this.resize());
-    this._resizeObs.observe(mountEl);
-
-    // ---- User camera controls: drag to orbit, wheel/pinch to zoom ----
-    this.zoomFactor = 1;      // 0.4 (close) .. 2.2 (far)
-    this.tiltFactor = 1;      // vertical
-    this._userOrbiting = false;
-    const el = this.renderer.domElement;
-    el.style.touchAction = "none";
-    let dragging = false, lastX = 0, lastY = 0, pinchDist = 0;
-    const clampZoom = (z) => Math.max(0.4, Math.min(2.2, z));
-    const clampTilt = (t) => Math.max(0.35, Math.min(1.8, t));
-
-    el.addEventListener("pointerdown", (e) => {
-      if (this.mode === "walk") return;
-      dragging = true; lastX = e.clientX; lastY = e.clientY;
-      this.autoRotate = false; this._userOrbiting = true; this.requestRender && this.requestRender();
-      el.setPointerCapture && el.setPointerCapture(e.pointerId);
-    });
-    el.addEventListener("pointermove", (e) => {
-      if (!dragging || this.mode === "walk") return;
-      const dx = e.clientX - lastX, dy = e.clientY - lastY;
-      lastX = e.clientX; lastY = e.clientY;
-      this.cameraAngle -= dx * 0.008;
-      this.tiltFactor = clampTilt(this.tiltFactor + dy * 0.004);
-      this._needsRender = true;
-    });
-    const endDrag = (e) => { dragging = false; try { el.releasePointerCapture && el.releasePointerCapture(e.pointerId); } catch (x) {} };
-    el.addEventListener("pointerup", endDrag);
-    el.addEventListener("pointercancel", endDrag);
-    el.addEventListener("wheel", (e) => {
-      if (this.mode === "walk") return;
-      e.preventDefault();
-      this.autoRotate = false; this._userOrbiting = true;
-      this.zoomFactor = clampZoom(this.zoomFactor + (e.deltaY > 0 ? 0.12 : -0.12));
-      this._needsRender = true;
-    }, { passive: false });
-    // pinch zoom
-    el.addEventListener("touchstart", (e) => {
-      if (e.touches.length === 2) { pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }
-    }, { passive: true });
-    el.addEventListener("touchmove", (e) => {
-      if (e.touches.length === 2 && this.mode !== "walk") {
-        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        if (pinchDist) { this.autoRotate = false; this._userOrbiting = true; this.zoomFactor = clampZoom(this.zoomFactor * (pinchDist / d)); this._needsRender = true; }
-        pinchDist = d;
-      }
-    }, { passive: true });
-  }
-
-  resize() {
-    this.width = this.mount.clientWidth;
-    this.height = this.mount.clientHeight;
-    this.camera.aspect = this.width / this.height;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setSize(this.width, this.height);
-  }
-
-  /* Build / rebuild the building meshes from spec */
-  buildFromSpec(spec) {
-    this.spec = spec;
-    // Clear previous
-    while (this.buildingGroup.children.length) {
-      const c = this.buildingGroup.children[0];
-      this.buildingGroup.remove(c);
-      c.geometry?.dispose();
-      if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
-      else c.material?.dispose();
-    }
-    /* Scale down for viewport — divide real metres so very large buildings fit. */
-    const scale = 1.0;
-    const w = spec.widthM * scale;
-    const l = spec.lengthM * scale;
-    const floorH = spec.wallHeightM * scale;
-    const floors = spec.floors;
-    const totalH = floorH * floors;
-
-    /* --- Foundation (slab) --- */
-    const slabH = 0.4;
-    const slabMat = new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.9 });
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, slabH, l + 0.6), slabMat);
-    slab.position.y = slabH / 2;
-    slab.castShadow = true;
-    slab.receiveShadow = true;
-    slab.userData.stage = "foundation";
-    this.buildingGroup.add(slab);
-
-    /* --- Frame posts (corners + intermediates) --- */
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x8b6f4a, roughness: 0.8 });
-    const postGeo = new THREE.BoxGeometry(0.18, totalH, 0.18);
-    const cornerOffsets = [
-      [-w / 2 + 0.1, l / 2 - 0.1], [w / 2 - 0.1, l / 2 - 0.1],
-      [-w / 2 + 0.1, -l / 2 + 0.1], [w / 2 - 0.1, -l / 2 + 0.1],
-    ];
-    const allPosts = [...cornerOffsets];
-    /* intermediate posts at ~2m spacing along each wall */
-    const stepX = Math.max(2.0, w / Math.ceil(w / 2.0));
-    const stepZ = Math.max(2.0, l / Math.ceil(l / 2.0));
-    for (let x = -w / 2 + stepX; x < w / 2 - 0.5; x += stepX) {
-      allPosts.push([x, l / 2 - 0.1]);
-      allPosts.push([x, -l / 2 + 0.1]);
-    }
-    for (let z = -l / 2 + stepZ; z < l / 2 - 0.5; z += stepZ) {
-      allPosts.push([-w / 2 + 0.1, z]);
-      allPosts.push([w / 2 - 0.1, z]);
-    }
-    for (const [px, pz] of allPosts) {
-      const post = new THREE.Mesh(postGeo, frameMat);
-      post.position.set(px, slabH + totalH / 2, pz);
-      post.castShadow = true;
-      post.userData.stage = "frame";
-      this.buildingGroup.add(post);
-    }
-    /* horizontal floor plates between each storey */
-    for (let f = 0; f <= floors; f++) {
-      const plateY = slabH + f * floorH;
-      const plateGeoX = new THREE.BoxGeometry(w, 0.15, 0.15);
-      const plateGeoZ = new THREE.BoxGeometry(0.15, 0.15, l);
-      const p1 = new THREE.Mesh(plateGeoX, frameMat);
-      const p2 = new THREE.Mesh(plateGeoX, frameMat);
-      const p3 = new THREE.Mesh(plateGeoZ, frameMat);
-      const p4 = new THREE.Mesh(plateGeoZ, frameMat);
-      p1.position.set(0, plateY, l / 2 - 0.1);
-      p2.position.set(0, plateY, -l / 2 + 0.1);
-      p3.position.set(-w / 2 + 0.1, plateY, 0);
-      p4.position.set(w / 2 - 0.1, plateY, 0);
-      [p1, p2, p3, p4].forEach((m) => { m.castShadow = true; m.userData.stage = "frame"; this.buildingGroup.add(m); });
-    }
-
-    /* --- Walls (per floor, per side) — 4 panels per floor --- */
-    const claddingColor = spec.claddingType === "weatherboard" ? 0xe8e2d0
-                       : spec.claddingType === "render" ? 0xece9e2
-                       : 0xb46a4a;
-    const wallMat = new THREE.MeshStandardMaterial({ color: claddingColor, roughness: 0.85 });
-    const wallThk = 0.2;
-    for (let f = 0; f < floors; f++) {
-      const cy = slabH + f * floorH + floorH / 2;
-      // front
-      const wallFront = new THREE.Mesh(new THREE.BoxGeometry(w, floorH, wallThk), wallMat);
-      wallFront.position.set(0, cy, l / 2);
-      wallFront.userData.stage = "walls";
-      // back
-      const wallBack = new THREE.Mesh(new THREE.BoxGeometry(w, floorH, wallThk), wallMat);
-      wallBack.position.set(0, cy, -l / 2);
-      wallBack.userData.stage = "walls";
-      // left
-      const wallLeft = new THREE.Mesh(new THREE.BoxGeometry(wallThk, floorH, l), wallMat);
-      wallLeft.position.set(-w / 2, cy, 0);
-      wallLeft.userData.stage = "walls";
-      // right
-      const wallRight = new THREE.Mesh(new THREE.BoxGeometry(wallThk, floorH, l), wallMat);
-      wallRight.position.set(w / 2, cy, 0);
-      wallRight.userData.stage = "walls";
-      [wallFront, wallBack, wallLeft, wallRight].forEach((m) => { m.castShadow = true; m.receiveShadow = true; this.buildingGroup.add(m); });
-    }
-
-    /* --- Windows (front + back, evenly spaced per floor) --- */
-    const windowMat = new THREE.MeshStandardMaterial({
-      color: 0x6fa8d1, roughness: 0.1, metalness: 0.5,
-      emissive: 0x223a4e, emissiveIntensity: 0.3,
-    });
-    const winW = 1.0, winH = 1.2;
-    const winsPerSide = Math.max(2, Math.floor(w / 2.5));
-    for (let f = 0; f < floors; f++) {
-      const cy = slabH + f * floorH + floorH * 0.55;
-      for (let i = 0; i < winsPerSide; i++) {
-        const x = -w / 2 + (w / (winsPerSide + 1)) * (i + 1);
-        const winF = new THREE.Mesh(new THREE.BoxGeometry(winW, winH, 0.05), windowMat);
-        winF.position.set(x, cy, l / 2 + wallThk / 2 + 0.01);
-        winF.userData.stage = "finishes";
-        const winB = new THREE.Mesh(new THREE.BoxGeometry(winW, winH, 0.05), windowMat);
-        winB.position.set(x, cy, -l / 2 - wallThk / 2 - 0.01);
-        winB.userData.stage = "finishes";
-        this.buildingGroup.add(winF);
-        this.buildingGroup.add(winB);
-      }
-      const winsPerEnd = Math.max(1, Math.floor(l / 3));
-      for (let i = 0; i < winsPerEnd; i++) {
-        const z = -l / 2 + (l / (winsPerEnd + 1)) * (i + 1);
-        const winL = new THREE.Mesh(new THREE.BoxGeometry(0.05, winH, winW), windowMat);
-        winL.position.set(-w / 2 - wallThk / 2 - 0.01, cy, z);
-        winL.userData.stage = "finishes";
-        const winR = new THREE.Mesh(new THREE.BoxGeometry(0.05, winH, winW), windowMat);
-        winR.position.set(w / 2 + wallThk / 2 + 0.01, cy, z);
-        winR.userData.stage = "finishes";
-        this.buildingGroup.add(winL);
-        this.buildingGroup.add(winR);
-      }
-    }
-
-    /* --- Front door --- */
-    const doorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.7 });
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.0, 0.06), doorMat);
-    door.position.set(0, slabH + 1.0, l / 2 + wallThk / 2 + 0.02);
-    door.userData.stage = "finishes";
-    this.buildingGroup.add(door);
-
-    /* --- Roof (gable or hip approximated as a prism) --- */
-    const roofColor = spec.roofType === "tile" ? 0x6a3a2e
-                   : spec.roofType === "shingle" ? 0x3a3a40
-                   : 0x4a4f56; // colorbond default
-    const roofMat = new THREE.MeshStandardMaterial({ color: roofColor, roughness: 0.7, metalness: 0.2 });
-    const ridgeH = (Math.min(w, l) / 2) * Math.tan((spec.roofPitch * Math.PI) / 180);
-    /* Build a triangular-prism roof along the longer axis. */
-    const roofShape = new THREE.Shape();
-    roofShape.moveTo(-w / 2 - 0.4, 0);
-    roofShape.lineTo(w / 2 + 0.4, 0);
-    roofShape.lineTo(0, ridgeH);
-    roofShape.lineTo(-w / 2 - 0.4, 0);
-    const extrudeSettings = { depth: l + 0.8, bevelEnabled: false };
-    const roofGeo = new THREE.ExtrudeGeometry(roofShape, extrudeSettings);
-    roofGeo.translate(0, 0, -(l + 0.8) / 2);
-    const roof = new THREE.Mesh(roofGeo, roofMat);
-    roof.position.y = slabH + totalH;
-    roof.castShadow = true;
-    roof.userData.stage = "roof";
-    this.buildingGroup.add(roof);
-
-    /* --- Garage attached --- */
-    if (spec.hasGarage) {
-      const gw = 6, gl = 6.5, gh = 2.6;
-      const garageMat = new THREE.MeshStandardMaterial({ color: claddingColor, roughness: 0.85 });
-      const garage = new THREE.Group();
-      const gWallF = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, wallThk), garageMat);
-      gWallF.position.set(0, gh / 2, gl / 2);
-      const gWallB = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, wallThk), garageMat);
-      gWallB.position.set(0, gh / 2, -gl / 2);
-      const gWallR = new THREE.Mesh(new THREE.BoxGeometry(wallThk, gh, gl), garageMat);
-      gWallR.position.set(gw / 2, gh / 2, 0);
-      const gRoof = new THREE.Mesh(new THREE.BoxGeometry(gw + 0.4, 0.2, gl + 0.4), roofMat);
-      gRoof.position.set(0, gh + 0.1, 0);
-      const gDoor = new THREE.Mesh(new THREE.BoxGeometry(gw - 1, gh - 0.4, 0.08),
-        new THREE.MeshStandardMaterial({ color: 0xc8cdd1, roughness: 0.6 }));
-      gDoor.position.set(0, (gh - 0.4) / 2 + 0.1, gl / 2 + wallThk / 2 + 0.01);
-      [gWallF, gWallB, gWallR, gRoof, gDoor].forEach((m) => { m.castShadow = true; m.userData.stage = "finishes"; garage.add(m); });
-      garage.position.set(-w / 2 - gw / 2 - 0.4, slabH, 0);
-      garage.userData.stage = "finishes";
-      this.buildingGroup.add(garage);
-    }
-
-    /* --- Solar PV array on roof --- */
-    if (spec.solar) {
-      const panelMat = new THREE.MeshStandardMaterial({ color: 0x12233a, roughness: 0.3, metalness: 0.4, emissive: 0x0a1530, emissiveIntensity: 0.2 });
-      const rows = 2, cols = 4;
-      const panelW = 1.6, panelH = 1.0;
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const panel = new THREE.Mesh(new THREE.BoxGeometry(panelW, 0.05, panelH), panelMat);
-          panel.rotation.z = -(spec.roofPitch * Math.PI / 180);
-          panel.position.set(-(cols - 1) * panelW / 2 + c * panelW * 1.05,
-                             slabH + totalH + ridgeH * 0.55,
-                             -(rows - 1) * panelH / 2 + r * panelH * 1.05 + 1);
-          panel.userData.stage = "finishes";
-          this.buildingGroup.add(panel);
-        }
-      }
-    }
-
-    /* --- Interior partitions + room floors (from room schedule) --- */
-    this.roofMeshes = [];
-    this.walkWaypoints = [];
-    const rooms = (spec.rooms || []).filter((r) => (r.widthM || 0) * (r.lengthM || 0) > 0);
-    const inset = 0.25;
-    const interiorRect = { x: -w / 2 + inset, z: -l / 2 + inset, w: w - 2 * inset, l: l - 2 * inset };
-
-    if (rooms.length > 0) {
-      const layout = sliceAndDice(rooms, interiorRect.x, interiorRect.z, interiorRect.w, interiorRect.l, interiorRect.w >= interiorRect.l);
-      const partWallMat = new THREE.MeshStandardMaterial({ color: 0xf0ece3, roughness: 0.92 });
-      const partThk = 0.1;
-      const partH = floorH - 0.15;
-      const doorW = 0.9, doorH = 2.05;
-      const floorColors = { timber: 0xb98a55, tile: 0xd7d3c8, carpet: 0x9a8d86 };
-
-      // collect interior edges, dedup so shared walls aren't doubled
-      const edgeMap = new Map();
-      const isBoundary = (a, b, axis) => {
-        // axis 'x' => horizontal edge at constant z; 'z' => vertical edge at constant x
-        if (axis === "z") return Math.abs(a - (-w / 2 + inset)) < 0.05 || Math.abs(a - (w / 2 - inset)) < 0.05;
-        return Math.abs(a - (-l / 2 + inset)) < 0.05 || Math.abs(a - (l / 2 - inset)) < 0.05;
-      };
-
-      for (const cell of layout) {
-        // per-room floor patch (subtle colour so rooms read in walkthrough)
-        const fcol = floorColors[cell.room.floorFinish] || floorColors.timber;
-        const floorPatch = new THREE.Mesh(
-          new THREE.BoxGeometry(cell.w - partThk, 0.04, cell.l - partThk),
-          new THREE.MeshStandardMaterial({ color: fcol, roughness: 0.85 })
-        );
-        floorPatch.position.set(cell.x + cell.w / 2, slabH + 0.03, cell.z + cell.l / 2);
-        floorPatch.receiveShadow = true;
-        floorPatch.userData.stage = "walls";
-        this.buildingGroup.add(floorPatch);
-
-        // store walkthrough waypoint at room centre, eye height
-        this.walkWaypoints.push({
-          x: cell.x + cell.w / 2, z: cell.z + cell.l / 2,
-          name: cell.room.name || cell.room.type,
-        });
-
-        // four edges -> dedup
-        const edges = [
-          { axis: "z", at: cell.x, from: cell.z, to: cell.z + cell.l },                 // left (const x)
-          { axis: "z", at: cell.x + cell.w, from: cell.z, to: cell.z + cell.l },          // right
-          { axis: "x", at: cell.z, from: cell.x, to: cell.x + cell.w },                  // bottom (const z)
-          { axis: "x", at: cell.z + cell.l, from: cell.x, to: cell.x + cell.w },          // top
-        ];
-        for (const e of edges) {
-          const key = `${e.axis}:${e.at.toFixed(2)}:${e.from.toFixed(2)}:${e.to.toFixed(2)}`;
-          if (edgeMap.has(key)) continue;
-          edgeMap.set(key, true);
-          if (isBoundary(e.at, null, e.axis)) continue; // skip walls on building boundary (handled by exterior)
-          // build a partition wall along this edge with a centred doorway gap
-          const len = Math.abs(e.to - e.from);
-          const mid = (e.from + e.to) / 2;
-          const segLen = Math.max(0.1, (len - doorW) / 2);
-          const makeSeg = (segCenter, segLength) => {
-            const geo = e.axis === "z"
-              ? new THREE.BoxGeometry(partThk, partH, segLength)
-              : new THREE.BoxGeometry(segLength, partH, partThk);
-            const m = new THREE.Mesh(geo, partWallMat);
-            const y = slabH + partH / 2;
-            if (e.axis === "z") m.position.set(e.at, y, segCenter);
-            else m.position.set(segCenter, y, e.at);
-            m.castShadow = true; m.receiveShadow = true; m.userData.stage = "walls";
-            this.buildingGroup.add(m);
-          };
-          if (len > doorW + 0.4) {
-            makeSeg(e.from + segLen / 2, segLen);
-            makeSeg(e.to - segLen / 2, segLen);
-            // lintel above doorway
-            const lintelGeo = e.axis === "z"
-              ? new THREE.BoxGeometry(partThk, partH - doorH, doorW)
-              : new THREE.BoxGeometry(doorW, partH - doorH, partThk);
-            const lintel = new THREE.Mesh(lintelGeo, partWallMat);
-            const ly = slabH + doorH + (partH - doorH) / 2;
-            if (e.axis === "z") lintel.position.set(e.at, ly, mid);
-            else lintel.position.set(mid, ly, e.at);
-            lintel.userData.stage = "walls";
-            this.buildingGroup.add(lintel);
-          } else {
-            makeSeg(mid, len); // too short for a door — solid
-          }
-        }
-      }
-    }
-
-    /* --- Staircase (between each storey) --- */
-    if (spec.staircaseType && spec.staircaseType !== "none" && floors > 1) {
-      const stairColor = spec.staircaseType === "steel_glass" ? 0x8a9099
-                       : spec.staircaseType === "concrete" ? 0xb8b4ad
-                       : 0x9c6b3f;
-      const stairMat = new THREE.MeshStandardMaterial({ color: stairColor, roughness: 0.7, metalness: spec.staircaseType === "steel_glass" ? 0.5 : 0.1 });
-      const railMat = new THREE.MeshStandardMaterial({ color: spec.staircaseType === "steel_glass" ? 0x6fa8d1 : 0x3a2a1a, roughness: 0.4, metalness: 0.3, transparent: spec.staircaseType === "steel_glass", opacity: spec.staircaseType === "steel_glass" ? 0.45 : 1 });
-      const stepWidth = 1.1;
-      const stepRun = 0.27;
-      const x0 = w / 2 - inset - 0.4; // place near right interior edge
-      const z0 = -l / 2 + inset + 0.6;
-      for (let f = 0; f < floors - 1; f++) {
-        const baseY = slabH + f * floorH;
-        const rise = floorH;
-        const nSteps = Math.max(12, Math.round(rise / 0.18));
-        const stepRise = rise / nSteps;
-        const runScale = Math.min(1, (l - 2 * inset - 1) / (nSteps * stepRun)); // fit within length
-        for (let i = 0; i < nSteps; i++) {
-          const h = (i + 1) * stepRise;
-          const step = new THREE.Mesh(new THREE.BoxGeometry(stepWidth, h, stepRun * runScale), stairMat);
-          step.position.set(x0 - stepWidth / 2, baseY + h / 2, z0 + (i + 0.5) * stepRun * runScale);
-          step.castShadow = true; step.receiveShadow = true;
-          step.userData.stage = "finishes";
-          this.buildingGroup.add(step);
-        }
-        // handrail along the flight
-        const runLen = nSteps * stepRun * runScale;
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.9, runLen), railMat);
-        rail.position.set(x0 - stepWidth + 0.05, baseY + rise / 2 + 0.5, z0 + runLen / 2);
-        rail.rotation.x = -Math.atan2(rise, runLen);
-        rail.userData.stage = "finishes";
-        this.buildingGroup.add(rail);
-      }
-    }
-
-    // tag roof meshes for walkthrough hide
-    this.buildingGroup.traverse((o) => {
-      if (o.userData && o.userData.stage === "roof") this.roofMeshes.push(o);
-    });
-
-    /* Stage indices for animation reveal */
-    this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
-  }
-
-  /* Empty the model entirely — materials-only mode shows just the site. */
-  clearBuilding() {
-    this.isTower = false;
-    while (this.buildingGroup.children.length) {
-      const c = this.buildingGroup.children[0];
-      this.buildingGroup.remove(c);
-      c.geometry?.dispose();
-      if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose()); else c.material?.dispose();
-    }
-    this.roofMeshes = [];
-    this.walkWaypoints = [];
-  }
-
-  /* Quote mode: lay out simple massing blocks so you can SEE what you're
-     quoting. Not accurate geometry — a readable representation: walls as
-     panels, decks/slabs as platforms, fences as picket lines, roofs as
-     pitched caps, cabinetry as low boxes. Items are placed on a tidy grid. */
-  buildMassing(lines) {
-    this.clearBuilding();
-    this.isTower = false;
-    this.spec = null;
-    const items = (lines || []).filter((l) => l.kind === "material" || l.kind === "element");
-    if (!items.length) { this._needsRender = true; return; }
-
-    const palette = {
-      wall: 0xe8e2d6, deck: 0x9c6b3f, slab: 0xa9a9a9, fence: 0x8a6a44,
-      roof: 0x6a7075, tile: 0xd9d2c4, cabinet: 0xb98a5e, generic: 0xc7cdd2,
-    };
-    const mat = (c, rough = 0.85, metal = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: rough, metalness: metal });
-    const classify = (l) => {
-      const s = (l.label || "").toLowerCase() + " " + (l.materialId || "");
-      if (/deck|bearer|joist/.test(s)) return "deck";
-      if (/wall|framing|plasterboard|brick|render|cladding|lining/.test(s)) return "wall";
-      if (/slab|concrete|footing|driveway|paving/.test(s)) return "slab";
-      if (/fence|paling|colorbond fence|picket/.test(s)) return "fence";
-      if (/roof|sheet|flashing|sarking|truss/.test(s)) return "roof";
-      if (/tile|tiling/.test(s)) return "tile";
-      if (/cabinet|bench|joinery|vanity|cabinetry/.test(s)) return "cabinet";
-      return "generic";
-    };
-
-    // group items by class so we draw one representative block per class
-    const groups = {};
-    for (const l of items) { const k = classify(l); (groups[k] = groups[k] || []).push(l); }
-    const keys = Object.keys(groups);
-    const spacing = 9;
-    const cols = Math.ceil(Math.sqrt(keys.length));
-    const startX = -((cols - 1) * spacing) / 2;
-
-    keys.forEach((k, i) => {
-      const gx = startX + (i % cols) * spacing;
-      const gz = startX + Math.floor(i / cols) * spacing;
-      const g = new THREE.Group();
-      g.position.set(gx, 0, gz);
-      const qty = groups[k].reduce((a, l) => a + (+l.qty || 0), 0);
-      const size = Math.max(2, Math.min(6, Math.sqrt(qty || 4)));
-
-      if (k === "wall") {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(size * 1.6, 3, 0.25), mat(palette.wall));
-        m.position.y = 1.5; m.castShadow = true; m.receiveShadow = true; g.add(m);
-      } else if (k === "deck") {
-        const board = new THREE.Mesh(new THREE.BoxGeometry(size * 1.4, 0.25, size * 1.4), mat(palette.deck, 0.7));
-        board.position.y = 0.7; board.castShadow = true; board.receiveShadow = true; g.add(board);
-        for (const dx of [-1, 1]) for (const dz of [-1, 1]) {
-          const post = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.7, 0.2), mat(0x5a4530));
-          post.position.set(dx * size * 0.6, 0.35, dz * size * 0.6); g.add(post);
-        }
-      } else if (k === "slab") {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(size * 1.6, 0.18, size * 1.6), mat(palette.slab, 0.95));
-        m.position.y = 0.09; m.receiveShadow = true; g.add(m);
-      } else if (k === "fence") {
-        for (let p = 0; p < 6; p++) {
-          const pk = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.8, 0.12), mat(palette.fence, 0.8));
-          pk.position.set(-2.5 + p, 0.9, 0); pk.castShadow = true; g.add(pk);
-        }
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(6, 0.12, 0.08), mat(palette.fence, 0.8));
-        rail.position.y = 1.4; g.add(rail);
-      } else if (k === "roof") {
-        const geo = new THREE.ConeGeometry(size, size * 0.7, 4);
-        const m = new THREE.Mesh(geo, mat(palette.roof, 0.5, 0.3));
-        m.position.y = size * 0.35 + 0.5; m.rotation.y = Math.PI / 4; m.castShadow = true; g.add(m);
-        const base = new THREE.Mesh(new THREE.BoxGeometry(size * 1.4, 0.5, size * 1.4), mat(palette.wall));
-        base.position.y = 0.25; g.add(base);
-      } else if (k === "tile") {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(size * 1.4, 0.05, size * 1.4), mat(palette.tile, 0.4));
-        m.position.y = 0.05; m.receiveShadow = true; g.add(m);
-      } else if (k === "cabinet") {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(size * 1.4, 0.9, 0.6), mat(palette.cabinet, 0.6));
-        m.position.y = 0.45; m.castShadow = true; g.add(m);
-        const top = new THREE.Mesh(new THREE.BoxGeometry(size * 1.5, 0.06, 0.7), mat(0x2a2a2a, 0.3));
-        top.position.y = 0.93; g.add(top);
-      } else {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mat(palette.generic));
-        m.position.y = size / 2; m.castShadow = true; g.add(m);
-      }
-      this.buildingGroup.add(g);
-    });
-
-    // frame the camera on the layout
-    this.zoomFactor = Math.max(0.8, Math.min(1.6, cols * 0.45));
-    this._needsRender = true;
-  }
-
-  /* Build a high-rise tower: stacked floor plates, central core, façade. */
-  buildTower(spec) {
-    this.spec = spec;
-    this.isTower = true;
-    while (this.buildingGroup.children.length) {
-      const c = this.buildingGroup.children[0];
-      this.buildingGroup.remove(c);
-      c.geometry?.dispose();
-      if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose()); else c.material?.dispose();
-    }
-    this.roofMeshes = [];
-    this.walkWaypoints = [];
-
-    const plateSide = Math.sqrt(Math.max(1, spec.floorPlateM2));
-    const sc = 0.5; // visual scale-down so tall towers fit the viewport
-    const side = plateSide * sc;
-    const fh = spec.floorHeightM * sc;
-    const floors = spec.floors;
-    const baseY = 0.4;
-
-    // podium / basement indication
-    const basement = spec.basementLevels || 0;
-    if (basement > 0) {
-      const podMat = new THREE.MeshStandardMaterial({ color: 0x7a7d80, roughness: 0.9 });
-      const pod = new THREE.Mesh(new THREE.BoxGeometry(side * 1.3, basement * fh, side * 1.3), podMat);
-      pod.position.y = baseY - (basement * fh) / 2;
-      pod.userData.stage = "foundation";
-      this.buildingGroup.add(pod);
-    }
-
-    // slab + core colours by structure type
-    const slabColor = spec.structureType === "steel" ? 0x9aa0a6 : 0xbdb9b0;
-    const slabMat = new THREE.MeshStandardMaterial({ color: slabColor, roughness: 0.85 });
-    const coreMat = new THREE.MeshStandardMaterial({ color: 0x6e7378, roughness: 0.9 });
-    // façade material
-    const facadeIsGlass = spec.facadeType !== "precast";
-    const facadeMat = new THREE.MeshStandardMaterial({
-      color: facadeIsGlass ? 0x6fa8d1 : 0xcfcabf,
-      roughness: facadeIsGlass ? 0.12 : 0.85,
-      metalness: facadeIsGlass ? 0.5 : 0.05,
-      transparent: facadeIsGlass, opacity: facadeIsGlass ? 0.55 : 1,
-      emissive: facadeIsGlass ? 0x1a2c3a : 0x000000, emissiveIntensity: facadeIsGlass ? 0.25 : 0,
-    });
-    const mullionMat = new THREE.MeshStandardMaterial({ color: 0x3a3d40, roughness: 0.5, metalness: 0.4 });
-
-    // central core (lift/stair shaft) — runs full height
-    const coreSide = side * 0.28;
-    const totalH = floors * fh;
-    const core = new THREE.Mesh(new THREE.BoxGeometry(coreSide, totalH, coreSide), coreMat);
-    core.position.set(0, baseY + totalH / 2, 0);
-    core.castShadow = true; core.userData.stage = "frame";
-    this.buildingGroup.add(core);
-
-    // per-floor: slab plate + façade ring
-    for (let f = 0; f < floors; f++) {
-      const fy = baseY + f * fh;
-      // slab
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(side, fh * 0.12, side), slabMat);
-      slab.position.set(0, fy + fh * 0.06, 0);
-      slab.castShadow = true; slab.receiveShadow = true; slab.userData.stage = "frame";
-      this.buildingGroup.add(slab);
-      // façade panels — 4 sides
-      const panelH = fh * 0.86;
-      const cy = fy + fh / 2;
-      const mk = (w, d, x, z) => {
-        const m = new THREE.Mesh(new THREE.BoxGeometry(w, panelH, d), facadeMat);
-        m.position.set(x, cy, z); m.castShadow = true; m.userData.stage = "walls";
-        this.buildingGroup.add(m);
-      };
-      mk(side, 0.06, 0, side / 2);
-      mk(side, 0.06, 0, -side / 2);
-      mk(0.06, side, side / 2, 0);
-      mk(0.06, side, -side / 2, 0);
-      // floor-line mullion band
-      const band = new THREE.Mesh(new THREE.BoxGeometry(side + 0.1, fh * 0.06, side + 0.1), mullionMat);
-      band.position.set(0, fy + 0.02, 0); band.userData.stage = "walls";
-      this.buildingGroup.add(band);
-
-      // walkthrough waypoint at each floor's lobby (next to core), eye height
-      this.walkWaypoints.push({ x: coreSide / 2 + 1.2, z: 0, y: fy + 1.55 * sc, name: `Level ${f + 1}` });
-    }
-
-    // crown / plant level
-    const crown = new THREE.Mesh(new THREE.BoxGeometry(side * 0.9, fh * 0.6, side * 0.9), coreMat);
-    crown.position.set(0, baseY + totalH + fh * 0.3, 0);
-    crown.castShadow = true; crown.userData.stage = "roof";
-    this.roofMeshes.push(crown);
-    this.buildingGroup.add(crown);
-
-    // ground plane reference already exists; frame camera for tower height
-    this.towerHeight = totalH;
-    this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
-    this.progress = 1;
-  }
-
-  /* progress 0..1: reveal stages in order */
-  setProgress(p) {
-    this.progress = Math.max(0, Math.min(1, p));
-    this._needsRender = true;
-    if (!this.spec) return;
-    const stageCount = this.stageOrder.length;
-    const stageProgress = this.progress * stageCount;
-    this.buildingGroup.traverse((obj) => {
-      if (!obj.isMesh && !(obj.isGroup && obj.userData.stage)) return;
-      const stage = obj.userData.stage;
-      if (!stage) return;
-      const stageIdx = this.stageOrder.indexOf(stage);
-      const reveal = stageProgress - stageIdx; // 0..1+
-      if (reveal <= 0) {
-        obj.visible = false;
-      } else if (reveal >= 1) {
-        obj.visible = true;
-        obj.scale.set(1, 1, 1);
-        if (obj.userData._origY === undefined) obj.userData._origY = obj.position.y;
-        obj.position.y = obj.userData._origY;
-      } else {
-        obj.visible = true;
-        const e = easeOutCubic(reveal);
-        if (stage === "foundation") {
-          obj.scale.set(e, 1, e);
-        } else if (stage === "frame") {
-          obj.scale.set(1, e, 1);
-          if (obj.userData._origY === undefined) obj.userData._origY = obj.position.y;
-        } else if (stage === "walls") {
-          obj.scale.set(1, e, 1);
-          if (obj.userData._origY === undefined) obj.userData._origY = obj.position.y;
-          /* Wall grows from the floor — shift down. Each wall is centred so scale Y is enough but visually a slide-up looks nicer */
-        } else if (stage === "roof") {
-          if (obj.userData._origY === undefined) obj.userData._origY = obj.position.y;
-          obj.position.y = obj.userData._origY + (1 - e) * 8;
-          obj.scale.set(1, 1, 1);
-        } else if (stage === "finishes") {
-          obj.scale.set(e, e, e);
-        }
-      }
-    });
-  }
-
-  setAutoRotate(v) { this.autoRotate = v; }
-  setPlaying(v) { this.playing = v; }
-
-  /* ----- Walkthrough ----- */
-  startWalk() {
-    if (this.walkWaypoints.length === 0) return false;
-    // ensure fully built so interior exists
-    this.progress = 1;
-    this.setProgress(1);
-    this.mode = "walk";
-    this.autoRotate = false;
-    this.walkT = 0;
-    // hide roof so we can see inside; soften fog
-    this.roofMeshes.forEach((m) => (m.visible = false));
-    this.scene.fog.near = 60; this.scene.fog.far = 200;
-    if (this.onModeChange) this.onModeChange("walk");
-    return true;
-  }
-  stopWalk() {
-    this.mode = "orbit";
-    this.roofMeshes.forEach((m) => (m.visible = true));
-    this.scene.fog.near = 50; this.scene.fog.far = 140;
-    this.autoRotate = true;
-    if (this.onModeChange) this.onModeChange("orbit");
-  }
-  setWalkT(t) { this.walkT = Math.max(0, Math.min(1, t)); }
-
-  /* Sample camera position + look target along the waypoint path at param t (0..1) */
-  _sampleWalk(t) {
-    const wp = this.walkWaypoints;
-    const n = wp.length;
-    const ey = (p) => (p.y != null ? p.y : this._eyeY());
-    if (n === 1) {
-      return { pos: [wp[0].x, ey(wp[0]), wp[0].z], look: [wp[0].x + 1, ey(wp[0]), wp[0].z], name: wp[0].name };
-    }
-    const segs = n - 1;
-    const scaled = t * segs;
-    const i = Math.min(segs - 1, Math.floor(scaled));
-    const local = scaled - i;
-    const a = wp[i], b = wp[i + 1];
-    const px = a.x + (b.x - a.x) * local;
-    const pz = a.z + (b.z - a.z) * local;
-    const py = ey(a) + (ey(b) - ey(a)) * local;
-    return {
-      pos: [px, py, pz],
-      look: [b.x, ey(b), b.z],
-      name: local < 0.5 ? a.name : b.name,
-    };
-  }
-  _eyeY() {
-    const slabH = 0.4;
-    return slabH + 1.55;
-  }
-
-  animate() {
-    this._animId = requestAnimationFrame(this.animate);
-
-    // Skip all work when the canvas isn't visible (scrolled away / tab hidden).
-    // This is the single biggest perf win — no GPU churn when you're reading
-    // the cost breakdown instead of looking at the model.
-    if (this.paused) return;
-
-    // When idle (not rotating, not walking, not playing), there's nothing moving
-    // — render once to settle, then stop until something changes.
-    const moving = this.mode === "walk" || this.autoRotate || this.playing;
-    if (!moving) {
-      if (this._needsRender) { this.renderer.render(this.scene, this.camera); this._needsRender = false; }
-      return;
-    }
-
-    if (this.mode === "walk") {
-      this.walkT += this.walkSpeed;
-      if (this.walkT >= 1) this.walkT = 0; // loop the tour
-      const s = this._sampleWalk(this.walkT);
-      this.camera.position.set(s.pos[0], s.pos[1], s.pos[2]);
-      this.camera.lookAt(s.look[0], s.look[1], s.look[2]);
-      if (this.onWalkProgress) this.onWalkProgress(this.walkT, s.name);
-      this.renderer.render(this.scene, this.camera);
-      return;
-    }
-
-    if (this.autoRotate || this._userOrbiting) {
-      if (this.autoRotate) this.cameraAngle += 0.0025;
-      const zoom = this.zoomFactor || 1;
-      const tilt = this.tiltFactor != null ? this.tiltFactor : 1;
-      if (this.isTower && this.towerHeight) {
-        const h = this.towerHeight;
-        const r = Math.max(30, h * 1.1) * zoom;
-        this.camera.position.x = Math.cos(this.cameraAngle) * r;
-        this.camera.position.z = Math.sin(this.cameraAngle) * r;
-        this.camera.position.y = (h * 0.6 + 6) * tilt;
-        this.camera.lookAt(0, h * 0.45, 0);
-      } else {
-        const r = 30 * zoom;
-        this.camera.position.x = Math.cos(this.cameraAngle) * r;
-        this.camera.position.z = Math.sin(this.cameraAngle) * r;
-        this.camera.position.y = 18 * tilt;
-        this.camera.lookAt(0, 4, 0);
-      }
-    }
-    if (this.playing) {
-      this.progress += 0.0035;
-      if (this.progress >= 1) {
-        this.progress = 1;
-        this.playing = false;
-        if (this.onComplete) this.onComplete();
-      }
-      this.setProgress(this.progress);
-    }
-    this.renderer.render(this.scene, this.camera);
-  }
-
-  setPaused(v) { this.paused = v; if (!v) this._needsRender = true; }
-  requestRender() { this._needsRender = true; }
-
-  dispose() {
-    cancelAnimationFrame(this._animId);
-    this._resizeObs.disconnect();
-    this.renderer.dispose();
-    if (this.renderer.domElement.parentNode === this.mount) {
-      this.mount.removeChild(this.renderer.domElement);
-    }
-  }
-}
-
-/* =========================================================================
    Utility helpers
    ========================================================================= */
-function round(n, d = 2) { const f = Math.pow(10, d); return Math.round(n * f) / f; }
-function fmt(n) { return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
-function pad(s, n) { s = String(s); return s.length >= n ? s.slice(0, n - 1) + " " : s + " ".repeat(n - s.length); }
-function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
-function currencySymbol(region) { return { AU: "A$", US: "$", UK: "£" }[region] || "$"; }
-function humaniseTradeName(k) {
-  return ({
-    siteworks: "Siteworks & earthworks",
-    concrete: "Concretors",
-    frame: "Carpenters / framers",
-    roof: "Roofers",
-    brick: "Bricklayers / cladders",
-    electrical: "Electricians",
-    plumbing: "Plumbers & drainers",
-    hvac: "HVAC technicians",
-    plaster: "Plasterers",
-    paint: "Painters",
-    tile: "Tilers & floor-layers",
-    joinery: "Cabinet-makers & joiners",
-    kitchen_bath_fit: "Joinery — kitchen & bath fit",
-    finishes: "Finishing carpenters",
-  })[k] || k;
-}
 function genProjectNo() {
   const d = new Date();
   return `EST-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${Math.floor(Math.random() * 9000 + 1000)}`;
@@ -3764,9 +1225,6 @@ const DEFAULT_MAT_SPEC = {
     { id: "e1", kind: "element", label: "Site clean & rubbish removal", qty: 1, unit: "item", fixedRate: 850 },
   ],
 };
-
-let _rid = 0;
-const nextId = () => `r${++_rid}`;
 
 const ROOM_TYPES = ["Bedroom", "Living", "Dining", "Study", "Media", "Laundry", "Hallway", "Walk-in robe", "Other"];
 const ROOM_DEFAULT_FINISH = {
@@ -3820,6 +1278,33 @@ const EMPTY_SPEC = {
   rooms: [], kitchens: [], bathrooms: [],
   extras: [],
 };
+
+/* Turn Quote-mode line-items into a representative 3D building spec, so the
+   viewport renders a real inferred model (footprint + cladding + roof + openings)
+   sized from what's been quoted — instead of abstract blocks. Returns null when
+   nothing buildable has been quoted yet. */
+function specFromQuoteLines(lines) {
+  const items = (lines || []).filter((l) => (l.kind === "material" || l.kind === "element") && (+l.qty > 0));
+  if (!items.length) return null;
+  const inf = inferSpecFromImport(items.map((l) => ({
+    materialId: l.materialId || null,
+    qty: +l.qty || 0,
+    total: +(l.fixedTotal != null ? l.fixedTotal : l.total || 0) || 0,
+  })));
+  return {
+    ...EMPTY_SPEC,
+    widthM: inf.side, lengthM: inf.side, floors: 1,
+    wallHeightM: 2.7, roofPitch: 18, slabThicknessM: 0.1,
+    claddingType: inf.cladding, roofType: inf.roof, floorFinish: inf.floorFinish,
+    staircaseType: inf.staircaseType, hasGarage: inf.hasGarage,
+    openings: {
+      windowsCount: inf.counts.windows || 0,
+      windowsM2: (inf.counts.windows || 0) * 1.8,
+      doors: inf.counts.doorsExt || 1,
+    },
+    rooms: [], kitchens: [], bathrooms: [],
+  };
+}
 
 const RES_SECTION_CLEAR = {
   dimensions: { widthM: 0, lengthM: 0, floors: 1, wallHeightM: 2.4, roofPitch: 0, slabThicknessM: 0.1 },
@@ -3884,6 +1369,367 @@ function buildTemplateSpecFromImport(lines, source) {
   };
 }
 
+/* ---- Landing: pick who you are → your workflow ---- */
+const USER_PATHS = [
+  { id: "homeowner", title: "Homeowner / Owner-builder", blurb: "Design a home, watch it rise in 3D, and know the cost before you break ground.", flow: "Estimate → 3D → Materials → Proposal", emoji: "🏡" },
+  { id: "tradie", title: "Builder / Tradie", blurb: "Quote any job line-by-line — walls, decks, fit-outs — and hand over a clean proposal.", flow: "Quote → Materials → Timeline → Proposal", emoji: "🔨" },
+  { id: "developer", title: "Developer", blurb: "Feasibility-grade tower estimates: systems, programme, design fees, $/m² GFA.", flow: "Estimate → Timeline → AI → Proposal", emoji: "🏙️" },
+];
+
+function UserPathsSection({ onPick }) {
+  return (
+    <section style={{ maxWidth: 1480, margin: "0 auto", padding: "24px 24px 88px" }}>
+      <Reveal variant="fade-up">
+        <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Your workflow</div>
+        <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 28 }}>
+          One workspace per project. <span style={{ color: TOKENS.hivisDeep }}>No bouncing between pages.</span>
+        </h2>
+      </Reveal>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+        {USER_PATHS.map((p, i) => (
+          <motion.div key={p.id}
+            initial={{ opacity: 0, y: 60, rotate: i % 2 ? 4 : -4 }} whileInView={{ opacity: 1, y: 0, rotate: 0 }}
+            viewport={{ once: true, amount: 0.3 }} transition={{ type: "spring", stiffness: 70, damping: 14, delay: i * 0.08 }}
+            whileHover={{ y: -8, boxShadow: "0 18px 40px rgba(15,17,20,0.18)" }}
+            onClick={() => onPick(p.id)}
+            style={{ background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, borderTop: `4px solid ${TOKENS.hivis}`, padding: "26px 22px", cursor: "pointer", ...CARD_SHAPES[i % CARD_SHAPES.length] }}>
+            <div style={{ fontSize: 34, marginBottom: 12 }}>{p.emoji}</div>
+            <div className="ec-display" style={{ fontSize: 20, marginBottom: 8 }}>{p.title}</div>
+            <p style={{ fontSize: 13, color: TOKENS.inkSoft, lineHeight: 1.55, marginBottom: 14 }}>{p.blurb}</p>
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisDeep }}>{p.flow}</div>
+            <div className="ec-mono" style={{ marginTop: 14, fontSize: 11, fontWeight: 700, color: TOKENS.ink }}>START A PROJECT →</div>
+          </motion.div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* ---- Projects screen: every project is one workspace ---- */
+function ProjectsScreen({ onOpen, onNew }) {
+  const [projects, setProjects] = useState(listProjects);
+  const [name, setName] = useState("");
+  const [type, setType] = useState("homeowner");
+  const refresh = () => setProjects(listProjects());
+  const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Custom Job" };
+  return (
+    <main style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px 64px", minHeight: "60vh" }}>
+      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Projects</div>
+      <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 24 }}>Every project, one workspace.</h2>
+
+      <div className="ec-card" style={{ padding: 18, marginBottom: 28, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <input className="ec-input" placeholder="New project name…" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
+        <select className="ec-select" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }}>
+          {USER_PATHS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+        </select>
+        <button className="ec-btn ec-btn-hivis" onClick={() => onNew(type, name.trim() || "Untitled project")}>+ New project</button>
+      </div>
+
+      {projects.length === 0 ? (
+        <p style={{ color: TOKENS.inkSoft, fontSize: 14 }}>No projects yet — create your first one above.</p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+          {projects.map((p, i) => (
+            <motion.div key={p.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+              className="ec-card" style={{ padding: 18, cursor: "pointer", borderTop: `3px solid ${TOKENS.hivis}` }}
+              onClick={() => onOpen(getProject(p.id) || p)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
+                <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel }}>{modeLabel[p.buildMode] || p.buildMode}</span>
+              </div>
+              <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 6 }}>
+                {p.region} · updated {new Date(p.updatedAt).toLocaleDateString()}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px" }}
+                  onClick={(e) => { e.stopPropagation(); duplicateProject(p.id); refresh(); }}>Duplicate</button>
+                <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberDeep }}
+                  onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) { deleteProject(p.id); refresh(); } }}>Delete</button>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      )}
+    </main>
+  );
+}
+
+/* ---- Workflow stepper: the workspace's linear flow ---- */
+const WORKFLOW = [
+  { id: "estimate", label: "Estimate" },
+  { id: "three_d", label: "3D" },
+  { id: "materials", label: "Materials" },
+  { id: "timeline", label: "Timeline" },
+  { id: "ai", label: "AI" },
+  { id: "quote", label: "Quote" },
+  { id: "proposal", label: "Proposal" },
+];
+
+function WorkflowStepper({ stage, onStage, buildMode }) {
+  /* Not a linear stepper — a jump-anywhere tab row. Every section works
+     independently at any point, so there's no numbering, no connector line,
+     and no "completed" state; only the active section is highlighted. */
+  const stages = WORKFLOW.filter((s) => !(buildMode === "materials" && ["estimate", "timeline"].includes(s.id)));
+  return (
+    <div style={{ maxWidth: 1480, margin: "0 auto", padding: "16px 24px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+        {stages.map((s) => {
+          const active = s.id === stage;
+          return (
+            <motion.button key={s.id} whileHover={{ y: -2 }} onClick={() => onStage(s.id)}
+              className="ec-mono" aria-current={active ? "page" : undefined}
+              style={{
+                flexShrink: 0, display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
+                padding: "8px 14px", fontSize: 11, letterSpacing: "0.08em", fontWeight: 700,
+                border: `1px solid ${active ? TOKENS.ink : TOKENS.rule}`,
+                background: active ? TOKENS.ink : TOKENS.paperLight,
+                color: active ? TOKENS.hivis : TOKENS.ink,
+              }}>
+              <Icon name={`workflow.${s.id}`} size={15} strokeWidth={2.2} />
+              {s.label}
+            </motion.button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ---- AI crew: six specialists that act on the live project ---- */
+function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec, estimate, currency, onSpecPatch, onAddQuoteLines }) {
+  const [personaId, setPersonaId] = useState(PERSONAS[0].id);
+  const persona = PERSONAS.find((p) => p.id === personaId);
+  const [msgs, setMsgs] = useState(() => (getProject(projectId)?.chats?.[personaId]) || []);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [showPrompts, setShowPrompts] = useState(false);
+
+  const switchPersona = (id) => {
+    setPersonaId(id);
+    setMsgs((getProject(projectId)?.chats?.[id]) || []);
+    setErr("");
+  };
+  const persist = (id, list) => {
+    const p = getProject(projectId);
+    if (p) saveProject(projectId, { chats: { ...(p.chats || {}), [id]: list.slice(-30) } });
+  };
+
+  const send = async (text) => {
+    const q = (text || input).trim();
+    if (!q || busy) return;
+    setInput(""); setErr(""); setBusy(true);
+    const next = [...msgs, { role: "user", content: q }];
+    setMsgs(next);
+    try {
+      const ctx = {
+        name: projectName, buildMode, region,
+        specSummary: summariseSpec(buildMode, spec, hrSpec, estimate),
+        estimateSummary: summariseEstimate(estimate, currency),
+      };
+      const reply = await aiChat({
+        system: buildSystemPrompt(persona, ctx),
+        messages: next.map(({ role, content }) => ({ role, content })),
+        maxTokens: 1200,
+      });
+      const { text: cleaned, actions } = parseActions(reply);
+      const done = [...next, { role: "assistant", content: cleaned, actions }];
+      setMsgs(done); persist(personaId, done);
+    } catch (e) { setErr(aiErrMsg(e)); setMsgs(msgs); }
+    setBusy(false);
+  };
+
+  const applyAction = (a) => {
+    if (a.type === "update_spec" && a.patch) onSpecPatch(a.patch);
+    if (a.type === "add_quote_lines" && Array.isArray(a.lines)) onAddQuoteLines(a.lines);
+  };
+
+  return (
+    <main style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", minHeight: "60vh" }}>
+      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>AI crew</div>
+      <h2 className="ec-display" style={{ fontSize: 30, lineHeight: 1, marginBottom: 6 }}>
+        Six specialists. <span style={{ color: TOKENS.hivisDeep }}>One project.</span>
+      </h2>
+      <p style={{ fontSize: 13, color: TOKENS.inkSoft, maxWidth: 620, marginBottom: 22 }}>
+        Not a chatbot — each specialist reads this project's live spec and estimate, and can propose
+        changes you apply with one click.
+      </p>
+
+      {/* persona cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 22 }}>
+        {PERSONAS.map((p, i) => (
+          <motion.div key={p.id} whileHover={{ y: -4 }} onClick={() => switchPersona(p.id)}
+            style={{
+              padding: "14px 12px", cursor: "pointer", textAlign: "center",
+              background: p.id === personaId ? TOKENS.ink : TOKENS.paperLight,
+              border: `1px solid ${p.id === personaId ? TOKENS.ink : TOKENS.rule}`,
+              borderTop: `3px solid ${p.id === personaId ? TOKENS.hivis : TOKENS.rule}`,
+            }}>
+            <div style={{ display: "flex", justifyContent: "center", color: p.id === personaId ? TOKENS.hivis : TOKENS.steel }}>
+              <Icon name={`persona.${p.id}`} size={24} strokeWidth={2} />
+            </div>
+            <div className="ec-display" style={{ fontSize: 14, marginTop: 8, color: p.id === personaId ? TOKENS.hivis : TOKENS.ink }}>{p.name}</div>
+            <div className="ec-mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", marginTop: 3, color: p.id === personaId ? "rgba(242,244,247,0.7)" : TOKENS.steel }}>{p.role.toUpperCase()}</div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* chat panel */}
+      <div className="ec-card" style={{ padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "12px 18px", borderBottom: `1px solid ${TOKENS.rule}`, background: TOKENS.paperLight }}>
+          <span className="ec-display" style={{ fontSize: 16, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon name={`persona.${persona.id}`} size={18} color={TOKENS.hivisDeep} />
+            {persona.name} — {persona.role}
+          </span>
+          <div style={{ fontSize: 11.5, color: TOKENS.inkSoft, marginTop: 2 }}>{persona.tone}</div>
+        </div>
+        <div style={{ padding: 18, maxHeight: 420, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
+          {(msgs.length === 0 || showPrompts) && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {persona.starters.map((s) => (
+                <button key={s} className="ec-btn ec-btn-ghost" style={{ fontSize: 11 }} onClick={() => { setShowPrompts(false); send(s); }}>{s}</button>
+              ))}
+            </div>
+          )}
+          {msgs.map((m, i) => (
+            <motion.div key={i}
+              initial={{ opacity: 0, y: 12, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: "spring", stiffness: 420, damping: 32 }}
+              style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "82%", display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
+              <div style={{
+                padding: "10px 14px", fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap",
+                background: m.role === "user" ? TOKENS.ink : TOKENS.card,
+                color: m.role === "user" ? TOKENS.paper : TOKENS.ink,
+                border: `1px solid ${m.role === "user" ? TOKENS.ink : TOKENS.rule}`,
+                borderRadius: m.role === "user" ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
+                boxShadow: "0 10px 20px -13px rgba(15,17,20,0.22)",
+              }}>{m.content}</div>
+              {(m.actions || []).map((a, j) => (
+                <button key={j} className="ec-btn ec-btn-hivis" style={{ marginTop: 6, fontSize: 11 }} onClick={() => applyAction(a)}>
+                  ⚡ Apply: {a.label || a.type}
+                </button>
+              ))}
+            </motion.div>
+          ))}
+          {busy && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{persona.name} is thinking…</div>}
+          {err && <div style={{ fontSize: 12, color: TOKENS.emberDeep }}>{err}</div>}
+        </div>
+        <div style={{ padding: 14, borderTop: `1px solid ${TOKENS.rule}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderRadius: 26, padding: 6, boxShadow: "0 12px 22px -16px rgba(15,17,20,0.3)" }}>
+            <button type="button" onClick={() => setShowPrompts((v) => !v)} title="Quick prompts" aria-label="Quick prompts"
+              style={{ width: 38, height: 38, flexShrink: 0, borderRadius: 13, border: "none", cursor: "pointer",
+                background: showPrompts ? TOKENS.ink : TOKENS.paperLight, color: showPrompts ? TOKENS.hivis : TOKENS.inkSoft,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
+              <Icon name="ui.plus" size={18} strokeWidth={2.2} />
+            </button>
+            <input placeholder={`Ask ${persona.name} about this project…`}
+              value={input} onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
+              style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", outline: "none",
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: TOKENS.ink, padding: "0 4px" }} />
+            <motion.button type="button" whileTap={{ scale: 0.9 }} disabled={busy} onClick={() => send()} aria-label="Send message"
+              style={{ width: 38, height: 38, flexShrink: 0, borderRadius: 13, border: "none", cursor: busy ? "default" : "pointer",
+                background: input.trim() && !busy ? "linear-gradient(90deg, #F5C518 0%, #F58E1A 100%)" : TOKENS.rule,
+                color: input.trim() && !busy ? TOKENS.ink : TOKENS.steel,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
+              <Icon name="ui.send" size={16} strokeWidth={2.2} />
+            </motion.button>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* ---- Proposal: the client-facing document, print-ready ---- */
+function ProposalSection({ projectName, estimate, currency, region, buildMode, projectNo, reportText }) {
+  const est = estimate || {};
+  const money = (v) => `${currency}${fmt(v || 0)}`;
+  const rows = buildMode === "materials"
+    ? (est.lines || []).map((l) => [l.label, `${l.qty} ${l.unit || ""}`, money(l.total)])
+    : buildMode === "highrise"
+    ? (est.systemLines || []).map((l) => [l.label, `${fmt(l.qty)} ${l.unit || ""}`, money(l.total)])
+    : [
+        ["Materials (waste-adjusted)", "", money(est.materialsTotal)],
+        ["Labour — all trades", "", money(est.labourTotal)],
+        ["Equipment & site establishment", "", money(est.equipmentTotal)],
+        ["Preliminaries", "", money(est.prelims)],
+        ["Builder's margin", "", money(est.margin)],
+        ["Contingency", "", money(est.contingency)],
+      ];
+  const doPrint = () => window.print();
+  return (
+    <main style={{ maxWidth: 900, margin: "0 auto", padding: "28px 24px 64px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} className="no-print">
+        <div className="ec-eyebrow">Proposal — client-facing</div>
+        <button className="ec-btn ec-btn-hivis" onClick={doPrint}>Print / save as PDF</button>
+      </div>
+      <style>{`@media print { .no-print, header, footer { display: none !important; } body { background: #fff !important; } }`}</style>
+      <div className="ec-card" style={{ padding: "48px 52px", background: "#fff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: `3px solid ${TOKENS.hivis}`, paddingBottom: 22, marginBottom: 26 }}>
+          <div>
+            <BYOLogo size={44} />
+            <h1 className="ec-display" style={{ fontSize: 30, margin: "16px 0 4px" }}>{projectName || "Project proposal"}</h1>
+            <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>
+              {projectNo} · {region} · {new Date().toLocaleDateString()}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel }}>PROPOSED TOTAL</div>
+            <div className="ec-display" style={{ fontSize: 34, color: TOKENS.hivisDeep }}>{money(est.total)}</div>
+            {est.taxRate > 0 && <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>+ {money(est.total * est.taxRate)} {est.taxLabel}</div>}
+          </div>
+        </div>
+
+        <h3 className="ec-display" style={{ fontSize: 16, marginBottom: 10 }}>Scope of works</h3>
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: TOKENS.inkSoft, marginBottom: 22 }}>
+          {buildMode === "highrise"
+            ? `Feasibility estimate for a ${est.spec?.floors}-storey ${est.spec?.occupancy || ""} tower, ${fmt(est.takeoff?.gfaM2 || 0)} m² GFA, prepared from parametric system rates.`
+            : buildMode === "materials"
+            ? `Itemised quotation covering ${(est.lines || []).length} lines of materials, labour and trade works as listed below.`
+            : `Construction of a ${est.spec?.widthM}×${est.spec?.lengthM} m, ${est.spec?.floors}-storey residence (${fmt(est.takeoff?.gfaM2 || 0)} m² GFA) including structure, envelope, services and finishes as itemised below.`}
+        </p>
+
+        <h3 className="ec-display" style={{ fontSize: 16, marginBottom: 10 }}>Cost summary</h3>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginBottom: 22 }}>
+          <tbody>
+            {rows.map(([a, b, c], i) => (
+              <tr key={i} style={{ borderBottom: `1px solid ${TOKENS.rule}` }}>
+                <td style={{ padding: "8px 0" }}>{a}</td>
+                <td className="ec-mono" style={{ padding: "8px 0", color: TOKENS.steel, fontSize: 11 }}>{b}</td>
+                <td className="ec-mono" style={{ padding: "8px 0", textAlign: "right" }}>{c}</td>
+              </tr>
+            ))}
+            <tr>
+              <td className="ec-display" style={{ padding: "12px 0", fontSize: 15 }}>TOTAL {est.taxRate > 0 ? "(excl. tax)" : ""}</td>
+              <td />
+              <td className="ec-mono" style={{ padding: "12px 0", textAlign: "right", fontWeight: 700, fontSize: 16, color: TOKENS.hivisDeep }}>{money(est.total)}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        {est.timeline?.totalWeeks && (
+          <>
+            <h3 className="ec-display" style={{ fontSize: 16, marginBottom: 10 }}>Programme</h3>
+            <p style={{ fontSize: 13, color: TOKENS.inkSoft, marginBottom: 22 }}>
+              Estimated construction period: <b>{est.timeline.totalWeeks} weeks</b> (~{(est.timeline.totalWeeks / 4.33).toFixed(1)} months), subject to approvals, weather and site conditions.
+            </p>
+          </>
+        )}
+
+        <h3 className="ec-display" style={{ fontSize: 16, marginBottom: 10 }}>Terms & basis</h3>
+        <p style={{ fontSize: 11.5, lineHeight: 1.6, color: TOKENS.steel }}>
+          This proposal is a feasibility-grade estimate generated from parametric market rates, valid 30 days.
+          It is not a fixed-price contract. Final pricing requires supplier quotations, engineering
+          documentation and site inspection. All work to comply with local building codes; structural
+          elements require certification by a licensed engineer.
+        </p>
+      </div>
+    </main>
+  );
+}
+
 export default function App() {
   const [region, setRegion] = useState("AU");
   const [buildMode, setBuildMode] = useState("residential"); // residential | highrise
@@ -3891,38 +1737,94 @@ export default function App() {
   const [hrSpec, setHrSpec] = useState(DEFAULT_HR_SPEC);
   const [matSpec, setMatSpec] = useState(DEFAULT_MAT_SPEC);
   const [tab, setTab] = useState("estimate");
+
+  /* ---- Workspace navigation: landing → projects → project workspace ----
+     Every project lives in ONE workspace, walked as a linear workflow:
+     Estimate → 3D → Materials → Timeline → AI → Quote → Proposal. */
+  const [screen, setScreen] = useState("landing");     // landing | projects | workspace
+  const [projectId, setProjectId] = useState(null);
+  const [projectName, setProjectName] = useState("");
+  const [userType, setUserType] = useState(null);      // homeowner | tradie | developer — gates which build modes show
+  const [stage, setStage] = useState("estimate");      // workflow stage id
+
+  const openProject = useCallback((p) => {
+    setProjectId(p.id); setProjectName(p.name);
+    setUserType(p.userType || null);
+    setBuildMode(p.buildMode || "residential");
+    setRegion(p.region || "AU");
+    if (p.spec) setSpec(p.spec);
+    if (p.hrSpec) setHrSpec(p.hrSpec);
+    if (p.matSpec) setMatSpec(p.matSpec);
+    setStage((p.buildMode || "residential") === "materials" ? "quote" : "estimate");
+    setTab("estimate");
+    setScreen("workspace");
+    window.scrollTo({ top: 0 });
+  }, []);
+
+  const newProject = useCallback((userType, name) => {
+    const buildModeFor = { homeowner: "residential", developer: "highrise", tradie: "materials" };
+    const p = createProject({ name, userType, buildMode: buildModeFor[userType] || "residential", region });
+    openProject(p);
+  }, [region, openProject]);
+
+  /* Autosave the open project whenever its data changes (debounced) */
+  useEffect(() => {
+    if (!projectId) return;
+    const t = setTimeout(() => {
+      saveProject(projectId, { spec, hrSpec, matSpec, region, buildMode, name: projectName });
+    }, 700);
+    return () => clearTimeout(t);
+  }, [projectId, spec, hrSpec, matSpec, region, buildMode, projectName]);
+  const [ratesVersion, setRatesVersion] = useState(0); // bumped after equipment rate overrides change
   const [projectNo] = useState(genProjectNo);
   const [autoRotate, setAutoRotate] = useState(true);
   const [progress, setProgress] = useState(1); // start fully built
   const [walkMode, setWalkMode] = useState(false);
   const [walkRoom, setWalkRoom] = useState("");
   const [walkT, setWalkT] = useState(0);
+  const [engineReady, setEngineReady] = useState(false);
   const viewportRef = useRef(null);
   const engineRef = useRef(null);
+  const ioRef = useRef(null);
   const shaderCanvasRef = useShaderBackground();
 
-  /* Mount Three.js once */
-  useEffect(() => {
-    if (!viewportRef.current) return;
-    const eng = new Engine3D(viewportRef.current);
-    engineRef.current = eng;
-    eng.buildFromSpec(spec);
-    eng.setProgress(progress);
-    eng.onComplete = () => setProgress(1);
-    eng.onWalkProgress = (t, name) => { setWalkT(t); setWalkRoom(name || ""); };
-    eng.onModeChange = (m) => setWalkMode(m === "walk");
-
+  /* Create the Three.js engine the first time the viewport container actually
+     lands in the DOM, via a callback ref — NOT a one-shot mount effect. The
+     container doesn't exist on the landing screen and unmounts on the AI/
+     Proposal stages, so a []-deps effect ran too early and never retried,
+     leaving the 3D blank everywhere. On later remounts the same canvas moves
+     to the new node; the build effect below runs the first build once ready. */
+  const attachViewport = useCallback((node) => {
+    viewportRef.current = node;
+    if (!node) return; // unmounting — keep the engine; its canvas detaches with the old node
+    if (engineRef.current) {
+      engineRef.current.remount(node);
+    } else {
+      const eng = new Engine3D(node);
+      engineRef.current = eng;
+      eng.onComplete = () => setProgress(1);
+      eng.onWalkProgress = (t, name) => { setWalkT(t); setWalkRoom(name || ""); };
+      eng.onModeChange = (m) => setWalkMode(m === "walk");
+      setEngineReady(true);
+    }
     // Pause rendering when the viewport scrolls off-screen — the biggest perf win.
-    const io = new IntersectionObserver(
-      ([e]) => eng.setPaused(!e.isIntersecting),
+    ioRef.current?.disconnect();
+    ioRef.current = new IntersectionObserver(
+      ([e]) => engineRef.current?.setPaused(!e.isIntersecting),
       { threshold: 0.01 }
     );
-    io.observe(viewportRef.current);
-    // Also pause when the browser tab is hidden.
-    const onVis = () => eng.setPaused(document.hidden);
-    document.addEventListener("visibilitychange", onVis);
+    ioRef.current.observe(node);
+  }, []);
 
-    return () => { io.disconnect(); document.removeEventListener("visibilitychange", onVis); eng.dispose(); };
+  /* Pause when the tab is hidden; tidy up if the app ever unmounts. */
+  useEffect(() => {
+    const onVis = () => engineRef.current?.setPaused(document.hidden);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      ioRef.current?.disconnect();
+      engineRef.current?.dispose();
+    };
   }, []);
 
   /* Rebuild on spec or mode change (exit walkthrough first) */
@@ -3936,13 +1838,15 @@ export default function App() {
       setProgress(1);
     } else if (buildMode === "materials") {
       eng.isTower = false;
-      eng.buildMassing(matSpec.lines || []);   // show simple blocks of what's quoted
+      const qSpec = specFromQuoteLines(matSpec.lines);
+      if (qSpec) { eng.buildFromSpec(qSpec); eng.setProgress(1); }  // real inferred building from the quote
+      else eng.buildMassing([]);                                    // nothing quoted yet → empty viewport
     } else {
       eng.isTower = false;
       eng.buildFromSpec(spec);
       eng.setProgress(progress);
     }
-  }, [spec, hrSpec, matSpec, buildMode]);
+  }, [spec, hrSpec, matSpec, buildMode, engineReady]);
 
   useEffect(() => { if (buildMode === "residential") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
@@ -3952,7 +1856,13 @@ export default function App() {
     () => buildMode === "highrise" ? HighRiseEstimator.buildEstimate(hrSpec, region)
       : buildMode === "materials" ? MaterialsOnly.buildEstimate(matSpec, region)
       : Estimator.buildEstimate(spec, region),
-    [spec, hrSpec, matSpec, buildMode, region]
+    [spec, hrSpec, matSpec, buildMode, region, ratesVersion]
+  );
+
+  /* Representative building inferred from the quote — drives the Quote-mode viewport label */
+  const quoteMassingSpec = useMemo(
+    () => (buildMode === "materials" ? specFromQuoteLines(matSpec.lines) : null),
+    [buildMode, matSpec]
   );
 
   /* Spec update helper */
@@ -3982,6 +1892,21 @@ export default function App() {
   const resetDefaults = useCallback(() => {
     if (buildMode === "highrise") setHrSpec({ ...DEFAULT_HR_SPEC });
     else setSpec({ ...DEFAULT_SPEC, rooms: DEFAULT_SPEC.rooms.map((r) => ({ ...r, id: nextId() })), kitchens: DEFAULT_SPEC.kitchens.map((k) => ({ ...k, id: nextId() })), bathrooms: DEFAULT_SPEC.bathrooms.map((b) => ({ ...b, id: nextId() })) });
+  }, [buildMode]);
+
+  /* Load a whole-building preset — sets a complete spec in one action,
+     the same way an import does, but from a curated template rather than
+     a file. */
+  const applyPreset = useCallback((presetId) => {
+    if (!presetId) return;
+    if (buildMode === "highrise") {
+      const preset = HIGHRISE_PRESETS.find((p) => p.id === presetId);
+      if (preset) setHrSpec({ ...EMPTY_HR_SPEC, ...preset.buildSpec() });
+    } else if (buildMode === "residential") {
+      const preset = RESIDENTIAL_PRESETS.find((p) => p.id === presetId);
+      if (preset) setSpec(preset.buildSpec());
+    }
+    setTab("estimate");
   }, [buildMode]);
 
   /* Push imported takeoff lines into the estimator: clears everything first,
@@ -4129,7 +2054,11 @@ export default function App() {
   const currency = currencySymbol(region);
 
   return (
-    <div style={{ background: TOKENS.paper, minHeight: "100vh", color: TOKENS.ink, fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ minHeight: "100vh", color: TOKENS.ink, fontFamily: "'Inter', sans-serif" }}>
+      {/* Ambient 3D: structure endlessly assembling & breaking apart behind the app */}
+      <BackgroundScene opacity={0.45} />
+      {/* Content layer — translucent paper so the scene ghosts through between cards */}
+      <div style={{ position: "relative", zIndex: 1, background: "rgba(246,247,248,0.90)" }}>
       {/* Inline style block for fonts + custom colors (Tailwind core only supports utility classes) */}
       <style>{`
         @import url('${FONT_URL}');
@@ -4267,6 +2196,7 @@ export default function App() {
         }
       `}</style>
 
+      {screen === "landing" && <>
       {/* ============== HERO ============== */}
       <section style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden", background: "#000" }}>
         <canvas ref={shaderCanvasRef} className="ec-hero-canvas" style={{ touchAction: "none" }} />
@@ -4313,7 +2243,7 @@ export default function App() {
               fontFamily: "'JetBrains Mono', monospace",
             }}>
               <span style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} className="ec-live" />
-              Built for trades · owner-builders · curious homeowners
+              For homeowners · tradies · builders · developers
             </div>
           </div>
 
@@ -4326,7 +2256,7 @@ export default function App() {
             letterSpacing: "-0.01em",
             maxWidth: 1100,
           }}>
-            Build your own.
+            Estimates &amp; quotes.
           </h1>
           <h1 className="ec-display ec-fade-up ec-delay-3" style={{
             fontSize: "clamp(48px, 9vw, 132px)",
@@ -4340,7 +2270,7 @@ export default function App() {
             letterSpacing: "-0.01em",
             maxWidth: 1100,
           }}>
-            Know the cost.
+            In seconds.
           </h1>
 
           <p className="ec-fade-up ec-delay-4" style={{
@@ -4350,11 +2280,11 @@ export default function App() {
             color: "rgba(255, 240, 220, 0.85)",
             fontWeight: 400,
           }}>
-            A live 3D estimator for homes and high-rises. Turn dimensions, materials, and site conditions into itemised costs, a construction programme, and direct supplier searches — before you ever break ground.
+            Instant estimates and quotes — material lists, codes and compliance, project scope, even the management — generated in seconds. Feed it numbers, a design, or a plain-English brief and let AI do the dirty work: from a homeowner&apos;s extension to a developer&apos;s full project.
           </p>
 
           <div className="ec-fade-up ec-delay-4" style={{ marginTop: 36, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-            <button onClick={() => document.getElementById("tool")?.scrollIntoView({ behavior: "smooth" })}
+            <button onClick={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
               style={{
                 padding: "14px 28px",
                 background: "linear-gradient(90deg, #F5C518 0%, #F58E1A 100%)",
@@ -4407,22 +2337,48 @@ export default function App() {
         </div>
       </section>
 
-      {/* ============== STICKY HEADER (appears after hero) ============== */}
-      <header style={{
+      {/* ============== HOW IT WORKS — flying step cards on dark glass ============== */}
+      <HowItWorksSection />
+
+      {/* ============== SITE TOOLKIT — flying tool/material cards ============== */}
+      <ToolkitSection />
+
+      {/* ============== USER PATHS — pick who you are, get your workflow ============== */}
+      <UserPathsSection onPick={(t) => { setScreen("projects"); window.scrollTo({ top: 0 }); }} />
+      </>}
+
+      {screen !== "landing" && <>
+      {/* ====== STICKY TOPBAR: header + workflow stepper pinned together ====== */}
+      <div style={{
         position: "sticky", top: 0, zIndex: 30,
-        borderBottom: `1px solid ${TOKENS.rule}`,
         background: "rgba(246, 247, 248, 0.92)",
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
+        borderBottom: `1px solid ${TOKENS.rule}`,
       }}>
-        <div style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+      <header style={{
+        borderBottom: screen === "workspace" ? `1px solid ${TOKENS.rule}` : "none",
+      }}>
+        <div className="hdr-in" style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <BYOLogo size={28} />
-            <div className="ec-display" style={{ fontSize: 16, color: TOKENS.ink, letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
+            <span onClick={() => setScreen("landing")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+              <BYOLogo size={28} />
+              <div className="ec-display hdr-word" style={{ fontSize: 16, color: TOKENS.ink, letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
+            </span>
+            <button className="ec-btn ec-btn-ghost" onClick={() => setScreen("projects")}
+              style={{ marginLeft: 6, background: screen === "projects" ? TOKENS.ink : "transparent", color: screen === "projects" ? TOKENS.paper : TOKENS.ink }}>
+              Projects
+            </button>
+            {screen === "workspace" && (
+              <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
+                title="Project name" style={{ width: 170, fontWeight: 600, fontSize: 13 }} />
+            )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+          <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-              {[["residential","Residential"],["highrise","High-rise"],["materials","Quote"]].map(([m, label]) => (
+              {[["residential","Residential"],["highrise","High-rise"],["materials","Custom Job"]]
+                .filter(([m]) => userType !== "homeowner" || m !== "highrise")
+                .map(([m, label]) => (
                 <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
                   className="ec-mono"
                   style={{
@@ -4434,7 +2390,7 @@ export default function App() {
                   }}>{label}</button>
               ))}
             </div>
-            <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.inkSoft }}>
+            <div className="ec-mono hdr-proj" style={{ fontSize: 10, color: TOKENS.inkSoft }}>
               <span style={{ color: TOKENS.steel, marginRight: 5 }}>PROJ</span>{projectNo}
             </div>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.ink}` }}>
@@ -4454,50 +2410,40 @@ export default function App() {
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" /></svg>
               Save / share
             </button>
-            <button className="ec-btn ec-btn-ghost" onClick={copyReport} title="Copy estimate text">
+            <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
               {copied ? "Copied ✓" : "Copy"}
             </button>
           </div>
         </div>
       </header>
 
-      {/* ============== HOW IT WORKS ============== */}
-      <section id="how" style={{ padding: "96px 24px 64px", background: TOKENS.paper }}>
-        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <Reveal variant="fade-up">
-            <div className="ec-eyebrow" style={{ marginBottom: 10 }}>How it works</div>
-            <h2 className="ec-display" style={{ fontSize: "clamp(32px, 5vw, 56px)", lineHeight: 1, margin: 0, letterSpacing: "-0.01em", maxWidth: 800 }}>
-              Four steps from <span style={{ color: TOKENS.emberDeep }}>idea</span> to a defendable number.
-            </h2>
-          </Reveal>
-          <Reveal variant="fade-up" delay={0.1}>
-            <p style={{ marginTop: 16, fontSize: 16, lineHeight: 1.6, color: TOKENS.inkSoft, maxWidth: 640 }}>
-              No login, no upload, no waiting. Type in your dimensions and watch everything else compute live.
-            </p>
-          </Reveal>
+      {/* ====== WORKFLOW STEPPER (workspace) — pinned under the header ====== */}
+      {screen === "workspace" && (
+        <WorkflowStepper stage={stage} onStage={(s) => {
+          setStage(s);
+          if (s === "estimate") setTab("estimate");
+          if (s === "materials") setTab(buildMode === "materials" ? "estimate" : "spreadsheet");
+          if (s === "timeline" && buildMode !== "materials") setTab("timeline");
+          if (s === "quote") setTab("estimate");
+          // Scroll to the matching section after the stage/tab re-render commits.
+          const anchor = { three_d: "ws-viewport", estimate: "ws-results", materials: "ws-results", timeline: "ws-results", quote: "ws-results" }[s];
+          requestAnimationFrame(() => {
+            const el = anchor && document.getElementById(anchor);
+            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+            else window.scrollTo({ top: 0, behavior: "smooth" }); // ai / proposal swap the view
+          });
+        }} buildMode={buildMode} />
+      )}
+      </div>
 
-          <div style={{ marginTop: 56, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 20 }}>
-            {[
-              { n: "01", title: "Configure", body: "Dimensions, floors, framing, cladding, roof, openings, site condition. Metric for now — toggle region for AU, US, or UK rates.", icon: "config" },
-              { n: "02", title: "Watch it rise", body: "A 3D model rebuilds the moment you change a value. Hit play to scrub the construction sequence stage by stage.", icon: "build" },
-              { n: "03", title: "See the numbers", body: "Itemised materials, trade-by-trade labour, equipment hire, builder build-up, and a programme in weeks. All live.", icon: "data" },
-              { n: "04", title: "Take it further", body: "Search live prices at Bunnings, Reece, Home Depot, Wickes and more. Download a takeoff sheet for your records.", icon: "share" },
-            ].map((s, i) => (
-              <Reveal key={s.n} variant="fade-up" delay={0.15 + i * 0.08}>
-                <div className="ec-card" style={{ padding: 24, height: "100%", display: "flex", flexDirection: "column", gap: 14, position: "relative", overflow: "hidden" }}>
-                  <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.18em", color: TOKENS.emberDeep, fontWeight: 700 }}>{s.n}</div>
-                  <HowItWorksIcon kind={s.icon} />
-                  <h3 className="ec-display" style={{ fontSize: 22, margin: 0, letterSpacing: "0.01em" }}>{s.title}</h3>
-                  <p style={{ fontSize: 14, lineHeight: 1.55, color: TOKENS.inkSoft, margin: 0 }}>{s.body}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* ============== PROJECTS SCREEN ============== */}
+      {screen === "projects" && (
+        <ProjectsScreen onOpen={openProject} onNew={newProject} />
+      )}
 
       {/* ============== MAIN GRID (estimator tool) ============== */}
-      <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "48px 24px 64px", display: "grid", gridTemplateColumns: "minmax(320px, 380px) 1fr", gap: 28 }} className="grid-responsive">
+      {screen === "workspace" && !["ai", "proposal"].includes(stage) && (
+      <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", display: "grid", gridTemplateColumns: stage === "three_d" ? "1fr" : "minmax(320px, 380px) 1fr", gap: 28 }} className={"grid-responsive" + (stage === "three_d" ? " stage-3d" : "")}>
         <style>{`
           main.grid-responsive { box-sizing: border-box; }
           main.grid-responsive * { min-width: 0; }
@@ -4508,6 +2454,14 @@ export default function App() {
           @media (max-width: 560px) {
             main.grid-responsive { padding: 24px 12px 40px !important; }
             .ec-viewport { height: 320px !important; }
+          }
+          /* Compact one-row sticky header on small screens — never eat the viewport */
+          @media (max-width: 880px) {
+            .hdr-in { padding: 8px 12px !important; gap: 8px !important; flex-wrap: nowrap !important; }
+            .hdr-word, .hdr-proj, .hdr-copy { display: none !important; }
+            .hdr-actions { gap: 8px !important; flex-wrap: nowrap !important; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+            .hdr-actions::-webkit-scrollbar { display: none; }
+            .hdr-actions > * { flex-shrink: 0; }
           }
         `}</style>
 
@@ -4532,8 +2486,24 @@ export default function App() {
                 ↺ Reset to sample
               </button>
             </div>
+            {buildMode !== "materials" && (
+              <select className="ec-input ec-mono" defaultValue=""
+                style={{ width: "100%", marginBottom: 16, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase" }}
+                onChange={(e) => { applyPreset(e.target.value); e.target.value = ""; }}>
+                <option value="" disabled>▤ Load a building preset…</option>
+                {(buildMode === "highrise" ? HIGHRISE_PRESETS : RESIDENTIAL_PRESETS).map((p) => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+            )}
           </Reveal>
 
+          {/* keyed remount + enter animation only — an exit-blocking transition
+              (mode="wait") can leave the stale panel visible in rAF-throttled
+              background tabs, so the old panel is dropped instantly instead */}
+          <motion.div key={"panel-" + buildMode}
+            initial={{ opacity: 0, x: -14 }} animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}>
           {buildMode === "materials" ? (
             <MaterialsPanel lines={matSpec.lines} setLines={(l) => setMatSpec({ lines: l })} region={region} currency={currencySymbol(region)} summary={estimate} />
           ) : buildMode === "highrise" ? (
@@ -4542,17 +2512,13 @@ export default function App() {
             <ImportedPanel spec={spec} estimate={estimate} currency={currencySymbol(region)} onClear={clearImport} onUnlock={unlockImport} />
           ) : (
           <>
-          <InputCard title="Dimensions" onClear={() => clearSection("dimensions")}>
-            <InputRow>
-              <Field label="Width (m)"><input className="ec-input" type="number" min="3" max="60" step="0.5" value={spec.widthM} onChange={(e) => update({ widthM: +e.target.value })} /></Field>
-              <Field label="Length (m)"><input className="ec-input" type="number" min="3" max="60" step="0.5" value={spec.lengthM} onChange={(e) => update({ lengthM: +e.target.value })} /></Field>
-            </InputRow>
+          <InputCard title="Dimensions" badge="Parametric" onClear={() => clearSection("dimensions")}>
+            <SliderField label="Length" value={spec.lengthM} unit="m" min={3} max={60} step={0.5} onChange={(v) => update({ lengthM: v })} />
+            <SliderField label="Width" value={spec.widthM} unit="m" min={3} max={60} step={0.5} onChange={(v) => update({ widthM: v })} />
+            <SliderField label="Wall height" value={spec.wallHeightM} unit="m" min={2.4} max={4.0} step={0.1} onChange={(v) => update({ wallHeightM: v })} />
+            <SliderField label="Roof pitch" value={spec.roofPitch} unit="°" min={0} max={45} step={1} onChange={(v) => update({ roofPitch: v })} />
             <InputRow>
               <Field label="Floors"><input className="ec-input" type="number" min="1" max="4" step="1" value={spec.floors} onChange={(e) => update({ floors: +e.target.value })} /></Field>
-              <Field label="Wall height (m)"><input className="ec-input" type="number" min="2.4" max="4.0" step="0.1" value={spec.wallHeightM} onChange={(e) => update({ wallHeightM: +e.target.value })} /></Field>
-            </InputRow>
-            <InputRow>
-              <Field label="Roof pitch (°)"><input className="ec-input" type="number" min="0" max="45" step="1" value={spec.roofPitch} onChange={(e) => update({ roofPitch: +e.target.value })} /></Field>
               <Field label="Slab thickness (m)"><input className="ec-input" type="number" min="0.08" max="0.3" step="0.01" value={spec.slabThicknessM} onChange={(e) => update({ slabThicknessM: +e.target.value })} /></Field>
             </InputRow>
           </InputCard>
@@ -4639,6 +2605,7 @@ export default function App() {
           </div>
           </>
           )}
+          </motion.div>
         </section>
 
         {/* ===== RIGHT — VIEWPORT & RESULTS ===== */}
@@ -4649,15 +2616,26 @@ export default function App() {
           </Reveal>
 
           {/* 3D viewport */}
-          <div className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden" }}>
-            <div ref={viewportRef} style={{ position: "absolute", inset: 0 }} />
+          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden", scrollMarginTop: 132 }}>
+            <div ref={attachViewport} style={{ position: "absolute", inset: 0 }} />
             {/* Dimension annotations overlay */}
             <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
               {buildMode === "materials" ? (
-                <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
-                  Quote massing · simple blocks
-                </div>
+                quoteMassingSpec ? (
+                  <>
+                    <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                      {quoteMassingSpec.widthM}m × {quoteMassingSpec.lengthM}m · inferred model
+                    </div>
+                    <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                      Massed from quoted items
+                    </div>
+                  </>
+                ) : (
+                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    Add quote items to see the 3D model
+                  </div>
+                )
               ) : buildMode === "highrise" ? (
                 <>
                   <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
@@ -4735,7 +2713,7 @@ export default function App() {
           </div>
 
           {/* Headline cost cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16 }}>
+          <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16, scrollMarginTop: 132 }}>
             <StaggerReveal variant="fade-up" stagger={0.06}>
               {buildMode === "materials" ? [
                 <CostCard key="t" label="Quote total" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
@@ -4766,24 +2744,55 @@ export default function App() {
             {(buildMode === "highrise"
               ? [{ id: "estimate", label: "Elemental cost plan" }, { id: "timeline", label: "Programme" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
               : buildMode === "materials"
-              ? [{ id: "estimate", label: "Quote breakdown" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "suppliers", label: "Suppliers" }]
-              : [{ id: "estimate", label: "Cost breakdown" }, { id: "timeline", label: "Programme" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
+              ? [{ id: "estimate", label: "Quote breakdown" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "cadbim", label: "Import CAD / BIM" }, { id: "suppliers", label: "Suppliers" }]
+              : [{ id: "estimate", label: "Cost breakdown" }, { id: "timeline", label: "Programme" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "cadbim", label: "Import CAD / BIM" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
             ).map((t) => (
               <div key={t.id} className={"ec-tab" + (tab === t.id ? " ec-tab-active" : "")} onClick={() => setTab(t.id)}>{t.label}</div>
             ))}
           </div>
 
           <div style={{ marginTop: 20 }}>
-            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} />)}
+              <motion.div key={tab + "-" + buildMode}
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}>
+            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
             {tab === "timeline" && buildMode !== "materials" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
             {tab === "spreadsheet" && buildMode === "residential" && <SpreadsheetTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
             {tab === "spreadsheet" && buildMode === "materials" && <SpreadsheetTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {tab === "sketchup" && buildMode === "residential" && <SketchUpTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
+            {tab === "sketchup" && buildMode === "materials" && <SketchUpTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
+            {tab === "cadbim" && buildMode === "residential" && <CadBimTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
+            {tab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {tab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
             {tab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
+              </motion.div>
           </div>
         </section>
       </main>
+      )}
+
+      {/* ============== AI CREW STAGE ============== */}
+      {screen === "workspace" && stage === "ai" && (
+        <AICrewSection projectId={projectId} projectName={projectName} buildMode={buildMode} region={region}
+          spec={spec} hrSpec={hrSpec} estimate={estimate} currency={currency}
+          onSpecPatch={(patch) => {
+            if (buildMode === "highrise") updateHr(patch);
+            else if (buildMode === "materials") return; // no building spec to patch in quote mode
+            else update(patch);
+          }}
+          onAddQuoteLines={(lines) => {
+            const mk = (l) => ({ id: nextId(), kind: l.kind || "element", label: l.label || "AI line", qty: +l.qty || 1, unit: l.unit || "ea", rate: +l.rate || 0, useCustomRate: true });
+            if (buildMode === "materials") setMatSpec((s) => ({ lines: [...(s.lines || []), ...lines.map(mk)] }));
+            else setSpec((s) => ({ ...s, extras: [...(s.extras || []), ...lines.map(mk)] }));
+          }} />
+      )}
+
+      {/* ============== PROPOSAL STAGE ============== */}
+      {screen === "workspace" && stage === "proposal" && (
+        <ProposalSection projectName={projectName} estimate={estimate} currency={currency} region={region}
+          buildMode={buildMode} projectNo={projectNo} reportText={buildReportText} />
+      )}
+      </>}
 
       {/* Footer disclaimer */}
       <footer style={{ borderTop: `1px solid ${TOKENS.rule}`, marginTop: 48, padding: "20px 24px", background: TOKENS.paperLight }}>
@@ -4800,6 +2809,7 @@ export default function App() {
           </div>
         </div>
       </footer>
+      </div>
     </div>
   );
 }
@@ -4969,11 +2979,23 @@ function BathroomCard({ spec, setSpec }) {
 }
 
 function BYOLogo({ size = 34, dark = false }) {
-  // "BYO" monogram in a hi-vis tile — the stacked bars evoke building floors
+  /* Circular monogram: the outer ring IS the "O", with B and Y nested inside.
+     Hi-vis ring on an ink disc, tick marks like a site level dial. */
+  const ink = dark ? "#f2f4f7" : TOKENS.ink;
   return (
-    <div style={{ width: size, height: size, background: TOKENS.hivis, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2, flexShrink: 0 }}>
-      <span className="ec-display" style={{ fontSize: size * 0.42, lineHeight: 1, color: TOKENS.ink, letterSpacing: "-0.02em", fontWeight: 800 }}>BYO</span>
-    </div>
+    <svg width={size} height={size} viewBox="0 0 48 48" style={{ flexShrink: 0, display: "block" }} aria-label="BYO logo">
+      <circle cx="24" cy="24" r="22" fill={TOKENS.ink} />
+      <circle cx="24" cy="24" r="18.5" fill="none" stroke={TOKENS.hivis} strokeWidth="4" />
+      {/* dial ticks */}
+      {[45, 135, 225, 315].map((a) => (
+        <line key={a} x1={24 + 15 * Math.cos((a * Math.PI) / 180)} y1={24 + 15 * Math.sin((a * Math.PI) / 180)}
+          x2={24 + 12.5 * Math.cos((a * Math.PI) / 180)} y2={24 + 12.5 * Math.sin((a * Math.PI) / 180)}
+          stroke={TOKENS.hivis} strokeWidth="1.6" opacity="0.7" />
+      ))}
+      {/* B + Y nested inside the O-ring */}
+      <text x="17.5" y="29.5" textAnchor="middle" fontFamily="'Barlow Condensed', sans-serif" fontWeight="800" fontSize="16.5" fill="#f2f4f7" letterSpacing="-0.5">B</text>
+      <text x="29.5" y="29.5" textAnchor="middle" fontFamily="'Barlow Condensed', sans-serif" fontWeight="800" fontSize="16.5" fill={TOKENS.hivis} letterSpacing="-0.5">Y</text>
+    </svg>
   );
 }
 
@@ -5064,8 +3086,21 @@ function stageLabel(p) {
   return "COMPLETE";
 }
 
-/* ---- Cost breakdown tab ---- */
-/* ---- High-rise input panel ---- */
+/* ---- Carport-style parametric slider row (label · live value · range) ---- */
+function SliderField({ label, value, unit, min, max, step, onChange }) {
+  return (
+    <div style={{ margin: "12px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6 }}>
+        <span style={{ color: TOKENS.inkSoft, letterSpacing: "0.03em" }}>{label}</span>
+        <span className="ec-mono" style={{ color: TOKENS.ink, fontVariantNumeric: "tabular-nums" }}>{value} {unit}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        style={{ width: "100%", accentColor: TOKENS.hivisDeep }}
+        onChange={(e) => onChange(parseFloat(e.target.value))} />
+    </div>
+  );
+}
+
 /* ---- Unified quote builder: material + labour + trades in one list ---- */
 function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, currency, embed, summary }) {
   const lines = linesProp || [];
@@ -5158,26 +3193,10 @@ Rules:
 {"items":[{"preset":"<id>","lengthM":<n>,"heightM":<n>,"dim":<n>,"finish":"<s>","sides":<n>,"variant":"<id>","labour":<bool>,"addons":[{"id":"<addonId>","qty":<n>}],"label":"<short human label>"}],"note":"<assumptions or unmapped parts, or empty>"}`;
 
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 1500,
-          system: sys,
-          messages: [{ role: "user", content: `Request: "${aiText.trim()}"` }],
-        }),
-      });
-      if (!resp.ok) {
-        setAiError(`The AI service returned an error (${resp.status}). Give it a second and try again.`);
-        setAiBusy(false); return;
-      }
-      const data = await resp.json();
-      if (data.error) {
-        setAiError(`AI error: ${data.error.message || "unknown"}. Try again in a moment.`);
-        setAiBusy(false); return;
-      }
-      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const textOut = (await aiChat({
+        system: sys, maxTokens: 1500,
+        messages: [{ role: "user", content: `Request: "${aiText.trim()}"` }],
+      })).trim();
       // Robust JSON extraction: find the outermost {...} block even if prose surrounds it
       let parsed = null;
       const start = textOut.indexOf("{");
@@ -5208,7 +3227,7 @@ Rules:
       setAiText("");
       if (parsed.note) setAiNote(parsed.note);
     } catch (e) {
-      setAiError("Couldn't reach the AI service — check your connection and try again. The manual builder below always works.");
+      setAiError(aiErrMsg(e) + " The manual builder below always works.");
     }
     setAiBusy(false);
   };
@@ -5357,20 +3376,16 @@ Rules:
 Respond as ONLY JSON, no markdown:
 {"steps":[{"n":1,"title":"<step>","detail":"<what happens, 1-2 sentences>","uses":"<materials/trades from the list>"}],"summary":"<one line on total sequence>"}`;
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1500, system: sys, messages: [{ role: "user", content: `The quote contains:\n${itemList}` }] }),
-      });
-      if (!resp.ok) { setStepsErr(`AI service error (${resp.status}). Try again shortly.`); setStepsBusy(false); return; }
-      const data = await resp.json();
-      if (data.error) { setStepsErr("AI error — try again in a moment."); setStepsBusy(false); return; }
-      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const textOut = (await aiChat({
+        system: sys, maxTokens: 1500,
+        messages: [{ role: "user", content: `The quote contains:\n${itemList}` }],
+      })).trim();
       const st = textOut.indexOf("{"), en = textOut.lastIndexOf("}");
       let parsed = null;
       if (st >= 0 && en > st) { try { parsed = JSON.parse(textOut.slice(st, en + 1)); } catch (e2) {} }
       if (!parsed || !Array.isArray(parsed.steps)) { setStepsErr("Couldn't read the steps — hit the button again."); setStepsBusy(false); return; }
       setSteps(parsed);
-    } catch (e) { setStepsErr("Couldn't reach the AI service — check your connection."); }
+    } catch (e) { setStepsErr(aiErrMsg(e)); }
     setStepsBusy(false);
   };
   return (
@@ -5729,14 +3744,10 @@ Rules:
 - Respond with ONLY a JSON object, no markdown, no prose:
 {"spec":{<only the fields you're confident about>},"note":"<anything you couldn't map, or empty>"}`;
     try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 500, system: sys, messages: [{ role: "user", content: `Description: "${aiText.trim()}"` }] }),
-      });
-      if (!resp.ok) { setAiError(`The AI service returned an error (${resp.status}). Try again in a moment.`); setAiBusy(false); return; }
-      const data = await resp.json();
-      if (data.error) { setAiError(`AI error: ${data.error.message || "unknown"}. Try again shortly.`); setAiBusy(false); return; }
-      const textOut = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+      const textOut = (await aiChat({
+        system: sys, maxTokens: 500,
+        messages: [{ role: "user", content: `Description: "${aiText.trim()}"` }],
+      })).trim();
       let parsed = null;
       const jStart = textOut.indexOf("{"); const jEnd = textOut.lastIndexOf("}");
       if (jStart >= 0 && jEnd > jStart) { try { parsed = JSON.parse(textOut.slice(jStart, jEnd + 1)); } catch (e2) { /* noop */ } }
@@ -5761,7 +3772,7 @@ Rules:
       setAiText("");
       if (parsed.note) setAiNote(parsed.note);
     } catch (e) {
-      setAiError("Couldn't reach the AI service — check your connection and try again. You can always fill the fields below by hand.");
+      setAiError(aiErrMsg(e) + " You can always fill the fields below by hand.");
     }
     setAiBusy(false);
   };
@@ -5796,12 +3807,10 @@ Rules:
       </div>
 
       <InputCard title="Massing" badge={`${fmt(t.gfaM2)} m² GFA`} onClear={() => clearSection("massing")}>
+        <SliderField label="Floor plate" value={hrSpec.floorPlateM2} unit="m²" min={300} max={5000} step={50} onChange={(v) => updateHr({ floorPlateM2: v })} />
+        <SliderField label="Floors (above ground)" value={hrSpec.floors} unit="" min={5} max={120} step={1} onChange={(v) => updateHr({ floors: v })} />
+        <SliderField label="Floor-to-floor" value={hrSpec.floorHeightM} unit="m" min={3.0} max={6.0} step={0.1} onChange={(v) => updateHr({ floorHeightM: v })} />
         <InputRow>
-          <Field label="Floor plate (m²)"><input className="ec-input" type="number" min="300" max="5000" step="50" value={hrSpec.floorPlateM2} onChange={(e) => updateHr({ floorPlateM2: +e.target.value })} /></Field>
-          <Field label="Floors (above ground)"><input className="ec-input" type="number" min="5" max="120" step="1" value={hrSpec.floors} onChange={(e) => updateHr({ floors: +e.target.value })} /></Field>
-        </InputRow>
-        <InputRow>
-          <Field label="Floor-to-floor (m)"><input className="ec-input" type="number" min="3.0" max="6.0" step="0.1" value={hrSpec.floorHeightM} onChange={(e) => updateHr({ floorHeightM: +e.target.value })} /></Field>
           <Field label="Basement levels"><input className="ec-input" type="number" min="0" max="8" step="1" value={hrSpec.basementLevels} onChange={(e) => updateHr({ basementLevels: +e.target.value })} /></Field>
         </InputRow>
         <p className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 4 }}>
@@ -5875,8 +3884,17 @@ function HighRiseEstimateTab({ estimate, currency }) {
           <TakeoffTable rows={lines.map((l) => ({ label: l.label, qty: `${fmt(l.qty)} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
         </div>
       ))}
+      {estimate.equipmentLines?.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <SectionHeader index="B" title="Site equipment & plant" />
+          <TakeoffTable rows={estimate.equipmentLines.map((l) => ({ label: l.name, qty: `${fmt(l.qty)} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
+          <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
+            <span>EQUIPMENT SUBTOTAL</span><span>{currency}{fmt(estimate.equipmentTotal)}</span>
+          </div>
+        </div>
+      )}
       <div style={{ marginTop: 12, background: TOKENS.card, border: `2px solid ${TOKENS.ink}`, padding: 16 }}>
-        <SectionHeader index="B" title="Cost build-up" />
+        <SectionHeader index="C" title="Cost build-up" />
         <div className="ec-mono" style={{ fontSize: 13 }}>
           {[["Systems subtotal (adj.)", estimate.systemsTotal], ["Preliminaries (12%)", estimate.prelims], ["Design & consultant fees (10%)", estimate.designFees], ["Builder margin (10%)", estimate.margin], ["Contingency (8%)", estimate.contingency]].map(([label, val]) => (
             <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}` }}>
@@ -5923,7 +3941,101 @@ function HighRiseTimelineTab({ estimate }) {
   );
 }
 
-function EstimateTab({ estimate, currency }) {
+/* ---- Cost breakdown charts (visual summary above the itemised tables) ----
+   Two single-hue horizontal bar charts: each is one measure (cost) across
+   categories, sorted descending, value + % always shown as text so identity is
+   never colour-alone. Fills use the steel palette; the hi-vis cap is the brand
+   accent; hover promotes a bar to full ink. No rainbow, no dual axis. */
+function CostBar({ label, value, max, total, currency, fill, hovered, onHover, idx }) {
+  const widthPct = max > 0 ? Math.max(1.5, (value / max) * 100) : 0;
+  const pct = total > 0 ? (value / total) * 100 : 0;
+  const isHover = hovered === idx;
+  return (
+    <div
+      onMouseEnter={() => onHover(idx)}
+      onMouseLeave={() => onHover(null)}
+      title={`${label}: ${currency}${fmt(value)} (${pct.toFixed(1)}%)`}
+      aria-label={`${label}: ${currency}${fmt(value)}, ${pct.toFixed(1)} percent`}
+      style={{ display: "grid", gridTemplateColumns: "minmax(110px, 168px) 1fr minmax(104px, auto)", alignItems: "center", gap: 12, padding: "3px 0", cursor: "default" }}
+    >
+      <div className="ec-mono" style={{ fontSize: 11, color: isHover ? TOKENS.ink : TOKENS.inkSoft, textTransform: "capitalize", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: isHover ? 600 : 400 }}>
+        {label}
+      </div>
+      <div style={{ position: "relative", height: 20, background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, borderRadius: 3 }}>
+        <div style={{
+          position: "absolute", top: 0, bottom: 0, left: 0,
+          width: `${widthPct}%`,
+          background: isHover ? TOKENS.ink : fill,
+          borderRadius: "3px 4px 4px 3px",
+          borderRight: `2px solid ${TOKENS.hivisDeep}`,
+          transition: `width 260ms ${DesignSystem.motion.ease.swift}, background ${DesignSystem.motion.duration.instant} ${DesignSystem.motion.ease.standard}`,
+        }} />
+      </div>
+      <div className="ec-mono" style={{ fontSize: 12, color: TOKENS.ink, fontWeight: 600, textAlign: "right", whiteSpace: "nowrap" }}>
+        {currency}{fmt(value)}
+        <span style={{ color: TOKENS.steel, fontWeight: 400, marginLeft: 6, fontSize: 10 }}>{pct.toFixed(0)}%</span>
+      </div>
+    </div>
+  );
+}
+
+function CostBreakdown({ estimate, currency }) {
+  const [hoverA, setHoverA] = useState(null);
+  const [hoverB, setHoverB] = useState(null);
+
+  const buildup = useMemo(() => {
+    const rows = [
+      { label: "Materials", value: estimate.materialsTotal },
+      { label: "Labour", value: estimate.labourTotal },
+      { label: "Equipment", value: estimate.equipmentTotal },
+      { label: "Preliminaries", value: estimate.prelims },
+      { label: "Builder margin", value: estimate.margin },
+      { label: "Contingency", value: estimate.contingency },
+    ];
+    if (estimate.extrasTotal > 0) rows.push({ label: "Additional items", value: estimate.extrasTotal });
+    return rows.filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
+  }, [estimate]);
+
+  const byCategory = useMemo(() => {
+    const g = {};
+    for (const l of estimate.materialLines) g[l.category] = (g[l.category] || 0) + (l.total || 0);
+    return Object.entries(g).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  }, [estimate]);
+
+  if (!estimate.total || estimate.total <= 0) return null;
+
+  const buildMax = Math.max(...buildup.map((r) => r.value), 1);
+  const catMax = Math.max(...byCategory.map((r) => r.value), 1);
+  const matTotal = estimate.materialsTotal || 1;
+
+  return (
+    <div style={{ marginBottom: 30 }}>
+      <SectionHeader index="∑" title="Cost breakdown — at a glance" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 28 }}>
+        <div>
+          <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.steel, marginBottom: 10 }}>
+            Where the money goes · {currency}{fmt(estimate.total)} total
+          </div>
+          {buildup.map((r, i) => (
+            <CostBar key={r.label} idx={i} label={r.label} value={r.value} max={buildMax} total={estimate.total} currency={currency} fill={TOKENS.inkSoft} hovered={hoverA} onHover={setHoverA} />
+          ))}
+        </div>
+        {byCategory.length > 0 && (
+          <div>
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.steel, marginBottom: 10 }}>
+              Materials by category · {currency}{fmt(estimate.materialsTotal)}
+            </div>
+            {byCategory.map((r, i) => (
+              <CostBar key={r.label} idx={i} label={r.label} value={r.value} max={catMax} total={matTotal} currency={currency} fill={TOKENS.steel} hovered={hoverB} onHover={setHoverB} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EstimateTab({ estimate, currency, region, onRatesChanged }) {
   const groupedMaterials = useMemo(() => {
     const groups = {};
     for (const l of estimate.materialLines) {
@@ -5933,8 +4045,20 @@ function EstimateTab({ estimate, currency }) {
     return groups;
   }, [estimate]);
 
+  const [editingRates, setEditingRates] = useState(false);
+  const setRate = (equipmentId, value) => {
+    const n = +value;
+    if (equipmentId && isFinite(n) && n >= 0) setEquipmentRateOverride(equipmentId, region, n);
+    onRatesChanged?.();
+  };
+  const restoreDefaultRates = () => {
+    clearEquipmentRateOverrides();
+    onRatesChanged?.();
+  };
+
   return (
     <div>
+      <CostBreakdown estimate={estimate} currency={currency} />
       <SectionHeader index="A" title="Materials — itemised takeoff" />
       <div style={{ overflowX: "auto" }}>
         {Object.entries(groupedMaterials).map(([cat, lines]) => (
@@ -5959,8 +4083,30 @@ function EstimateTab({ estimate, currency }) {
       </div>
 
       <div style={{ marginTop: 28 }}>
-        <SectionHeader index="C" title="Equipment & plant" />
-        <TakeoffTable rows={estimate.equipmentLines.map((l) => ({ label: l.name, qty: `${l.qty} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <SectionHeader index="C" title="Equipment & plant" />
+          <button onClick={() => setEditingRates((v) => !v)} style={{ border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", fontSize: 12, textDecoration: "underline", whiteSpace: "nowrap" }}>
+            {editingRates ? "Done editing" : "Edit rates"}
+          </button>
+        </div>
+        {editingRates ? (
+          <div className="ec-mono" style={{ fontSize: 12 }}>
+            {estimate.equipmentLines.map((l, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 110px", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "center" }}>
+                <span style={{ color: TOKENS.ink }}>{l.name}</span>
+                <span style={{ textAlign: "right" }}>{l.qty} {l.unit}</span>
+                <input type="number" className="ec-input" style={{ textAlign: "right", padding: "4px 6px" }}
+                  defaultValue={l.rate} onBlur={(e) => setRate(l.equipmentId, e.target.value)} />
+                <span style={{ textAlign: "right" }}>{currency}{fmt(l.total)}</span>
+              </div>
+            ))}
+            <button onClick={restoreDefaultRates} style={{ border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", fontSize: 11, textDecoration: "underline", marginTop: 8 }}>
+              Restore default equipment rates
+            </button>
+          </div>
+        ) : (
+          <TakeoffTable rows={estimate.equipmentLines.map((l) => ({ label: l.name, qty: `${l.qty} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
+        )}
         <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
           <span>EQUIPMENT SUBTOTAL</span><span>{currency}{fmt(estimate.equipmentTotal)}</span>
         </div>
@@ -5971,9 +4117,9 @@ function EstimateTab({ estimate, currency }) {
         <div className="ec-mono" style={{ fontSize: 13 }}>
           {[
             ["Direct costs subtotal", estimate.subtotal],
-            ["Preliminaries (8%)", estimate.prelims],
+            [`Preliminaries (${Math.round(estimate.prelimsPct * 100)}%)`, estimate.prelims],
             ["Builder margin (15%)", estimate.margin],
-            ["Contingency (7%)", estimate.contingency],
+            [`Contingency (${Math.round(estimate.contingencyPct * 100)}%)`, estimate.contingency],
           ].map(([label, val]) => (
             <div key={label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}` }}>
               <span>{label}</span><span>{currency}{fmt(val)}</span>
@@ -6405,7 +4551,29 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
   );
 }
 
-function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
+/* ---- CAD / BIM import: quantity schedules exported from Revit, ArchiCAD,
+   Tekla or an IFC QTO tool (CSV/XLSX) run through the same column-mapping
+   engine as spreadsheet import. Native .rvt/.ifc/.dwg parsing is a future
+   provider — schedules are the lingua franca every BIM tool can export. */
+function CadBimTab(props) {
+  return (
+    <div>
+      <div style={{ border: `1px solid ${TOKENS.rule}`, borderLeft: `4px solid ${TOKENS.hivisDeep}`, background: TOKENS.paperLight, padding: "14px 16px", marginBottom: 18 }}>
+        <div className="ec-eyebrow" style={{ marginBottom: 6 }}>CAD / BIM import</div>
+        <p style={{ fontSize: 13, color: TOKENS.inkSoft, lineHeight: 1.6, margin: 0 }}>
+          Export a <b>material or quantity schedule</b> from your BIM tool and drop it here —
+          Revit (schedule → export CSV), ArchiCAD (interactive schedule), Tekla, or any
+          IFC quantity-takeoff export saved as CSV/XLSX. Columns for material, quantity and
+          rate are auto-detected below, exactly like a spreadsheet takeoff. Native .rvt /
+          .ifc / .dwg geometry parsing is on the roadmap.
+        </p>
+      </div>
+      <SpreadsheetTab {...props} />
+    </div>
+  );
+}
+
+function SketchUpTab({ region, currency, onApply, onApplyTemplate, onApplyMaterials, materialsMode }) {
   const [result, setResult] = useState(null);   // { model, est }
   const [error, setError] = useState("");
   const [fileName, setFileName] = useState("");
@@ -6553,6 +4721,11 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
                       Fixed takeoff
                     </button>
                   )}
+                  {onApplyMaterials && (
+                    <button className="ec-btn" style={{ background: TOKENS.emberDeep }} onClick={() => onApplyMaterials(result.est.lines)}>
+                      Load into quote builder
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -6576,9 +4749,35 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate }) {
   );
 }
 
+function resolveSupplierUrl(s, q) {
+  if (typeof s.url === "function") return s.url(q);
+  if (s.urlTemplate) return s.urlTemplate.includes("{q}") ? s.urlTemplate.replace("{q}", encodeURIComponent(q)) : s.urlTemplate;
+  return "#";
+}
+
 function SuppliersTab({ region, estimate }) {
-  const suppliers = Suppliers[region];
+  const [refreshKey, setRefreshKey] = useState(0);
+  const suppliers = useMemo(() => getSuppliers(region), [region, refreshKey]);
   const [query, setQuery] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [newSupplier, setNewSupplier] = useState({ name: "", tier: "Custom", coverage: "", urlTemplate: "" });
+
+  const addSupplier = () => {
+    if (!newSupplier.name.trim()) return;
+    addSupplierOverride(region, { ...newSupplier });
+    setNewSupplier({ name: "", tier: "Custom", coverage: "", urlTemplate: "" });
+    setAdding(false);
+    setRefreshKey((k) => k + 1);
+  };
+  const removeSupplier = (s) => {
+    if (s.custom) removeSupplierOverride(region, s.name);
+    else hideSampleSupplier(region, s.name);
+    setRefreshKey((k) => k + 1);
+  };
+  const resetToSample = () => {
+    resetSuppliersToSample(region);
+    setRefreshKey((k) => k + 1);
+  };
 
   /* Build a unique list of labels from the takeoff, ordered by total cost desc.
      Residential estimates expose materialLines; high-rise exposes systemLines. */
@@ -6633,30 +4832,53 @@ function SuppliersTab({ region, estimate }) {
             <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.14em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 10 }}>{t.toUpperCase()}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
               {byTier[t].map((s) => (
-                <a key={s.name} href={s.url(q)} target="_blank" rel="noopener noreferrer"
-                  className="ec-card" style={{ padding: 16, textDecoration: "none", color: TOKENS.ink, display: "block", transition: "all 0.15s" }}
-                  onMouseOver={(e) => e.currentTarget.style.borderColor = TOKENS.ink}
-                  onMouseOut={(e) => e.currentTarget.style.borderColor = TOKENS.rule}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                    <div className="ec-display" style={{ fontSize: 17, lineHeight: 1.1 }}>{s.name}</div>
-                    <span style={{ fontSize: 18, color: TOKENS.hivisDeep }}>↗</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{s.coverage}</div>
-                  <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, paddingTop: 8, borderTop: `1px dashed ${TOKENS.rule}` }}>
-                    SEARCH · "{q.length > 34 ? q.slice(0, 34) + "…" : q}"
-                  </div>
-                </a>
+                <div key={s.name} className="ec-card" style={{ padding: 16, position: "relative" }}>
+                  <button onClick={(e) => { e.preventDefault(); removeSupplier(s); }} title={s.custom ? "Remove" : "Hide"}
+                    style={{ position: "absolute", top: 8, right: 8, border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", fontSize: 14 }}>×</button>
+                  <a href={resolveSupplierUrl(s, q)} target="_blank" rel="noopener noreferrer"
+                    style={{ textDecoration: "none", color: TOKENS.ink, display: "block" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, paddingRight: 16 }}>
+                      <div className="ec-display" style={{ fontSize: 17, lineHeight: 1.1 }}>{s.name}{s.custom ? " ✎" : ""}</div>
+                      <span style={{ fontSize: 18, color: TOKENS.hivisDeep }}>↗</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{s.coverage}</div>
+                    <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, paddingTop: 8, borderTop: `1px dashed ${TOKENS.rule}` }}>
+                      SEARCH · "{q.length > 34 ? q.slice(0, 34) + "…" : q}"
+                    </div>
+                  </a>
+                </div>
               ))}
             </div>
           </div>
         ));
       })()}
 
-      <div style={{ marginTop: 4, padding: 12, border: `1px dashed ${TOKENS.rule}`, background: TOKENS.paperLight }}>
+      <div style={{ marginTop: 4, padding: 12, border: `1px dashed ${TOKENS.rule}`, background: TOKENS.paperLight, marginBottom: 16 }}>
         <p className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, margin: 0, lineHeight: 1.6 }}>
           Local FNQ suppliers are listed for the Cairns region. Some local yards quote by phone/account rather than online search — their link opens the supplier so you can request a trade quote. National suppliers deliver to FNQ from down south.
         </p>
       </div>
+
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="ec-btn" onClick={() => setAdding((v) => !v)}>+ Add supplier</button>
+        <button onClick={resetToSample} style={{ border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", fontSize: 12, textDecoration: "underline" }}>
+          ↺ Reset to sample suppliers
+        </button>
+      </div>
+      {adding && (
+        <div className="ec-card" style={{ padding: 16, marginTop: 12, maxWidth: 480 }}>
+          <InputRow>
+            <Field label="Name"><input className="ec-input" value={newSupplier.name} onChange={(e) => setNewSupplier({ ...newSupplier, name: e.target.value })} /></Field>
+            <Field label="Tier"><input className="ec-input" value={newSupplier.tier} onChange={(e) => setNewSupplier({ ...newSupplier, tier: e.target.value })} /></Field>
+          </InputRow>
+          <Field label="Coverage"><input className="ec-input" value={newSupplier.coverage} onChange={(e) => setNewSupplier({ ...newSupplier, coverage: e.target.value })} /></Field>
+          <Field label="Search URL (use {q} where the search term goes)">
+            <input className="ec-input" placeholder="https://example.com/search?q={q}" value={newSupplier.urlTemplate} onChange={(e) => setNewSupplier({ ...newSupplier, urlTemplate: e.target.value })} />
+          </Field>
+          <button className="ec-btn" style={{ marginTop: 8 }} onClick={addSupplier}>Add</button>
+        </div>
+      )}
     </div>
   );
 }
+
