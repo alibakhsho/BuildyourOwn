@@ -41,7 +41,7 @@ const TOOLKIT = [
   { name: "Tower crane", blurb: "Vertical logistics, planned per programme week", tag: "PLANT",
     icon: <path d="M6 44V16h4v28M4 44h8M8 16l2-8h24l-8 8M34 8v10m0 0l-2 6h4l-2-6zm-14-6v6" /> },
   { name: "Excavator", blurb: "Cut, fill & trench — site-condition aware", tag: "PLANT",
-    icon: <path d="M8 38h20l4-8-6-10H14L8 30v8zm24-8l8-14 4 2-6 16M6 42h26M10 42a3 3 0 100 .1M28 42a3 3 0 100 .1" /> },
+    icon: <path d="M6 32h20a3 3 0 0 1 0 6H6a3 3 0 0 1 0-6z M10 20h13v11H10z M20 22L33 16L37 25L31 28L34 32" /> },
   { name: "Ready-mix concrete", blurb: "25–40 MPa, waste-adjusted order quantities", tag: "MATERIAL",
     icon: <path d="M10 20l6-12h16l6 12M8 20h32l-4 22H12L8 20zm12 6l2 8m6-8l-2 8" /> },
   { name: "Structural steel", blurb: "UBs, UCs & purlins from the catalogue", tag: "MATERIAL",
@@ -51,7 +51,7 @@ const TOOLKIT = [
   { name: "Scaffolding", blurb: "Perimeter access priced per m²-week", tag: "ACCESS",
     icon: <path d="M10 4v40M38 4v40M10 12h28M10 26h28M10 40h28M10 12l28 14M38 12L10 26" /> },
   { name: "Power tools", blurb: "Trade kits costed inside labour rates", tag: "TOOLS",
-    icon: <path d="M8 20h18v12H14l-6-6v-6zm18 4h8l6-4v12l-6-4h-8M12 32v8h6" /> },
+    icon: <path d="M6 15h16v10h-6l-3 4v-4H6z M22 17.5h6v5h-6z M28 20h10 M11 25l3 11h8" /> },
   { name: "Site safety", blurb: "PPE, hoarding & establishment lines", tag: "SAFETY",
     icon: <path d="M24 6c8 0 14 5 14 12v4H10v-4c0-7 6-12 14-12zm-14 20h28v6H10zm10-20v8m8-8v8" /> },
 ];
@@ -813,7 +813,7 @@ const BuildingCodes = {
       { topic: "Smoke alarms", detail: "Interconnected photoelectric alarms in every bedroom, every storey, hallway serving bedrooms.",
         ref: "AS 3786 / NCC Vol. 2" },
       { topic: "Energy efficiency", detail: "Minimum 7-star NatHERS thermal rating (up from 6-star) for new Class 1 dwellings, plus a Whole-of-Home Calculator score of 60+ covering fixed appliances (HVAC, hot water, lighting). QLD adopted NCC 2022's residential energy provisions from 1 May 2024.",
-        ref: "NCC Vol. 2 — H6" },
+        ref: "NCC Vol. 2 — H6", refUrl: "https://www.housing.qld.gov.au/initiatives/modern-homes/residential-energy-efficiency-standards" },
       { topic: "Stair geometry", detail: "Riser 115–190 mm, going 240–355 mm, 2R+G between 550 and 700.",
         ref: "NCC Vol. 2 — H5D2" },
       { topic: "Glazing safety", detail: "Grade A safety glass below 700 mm sill height, in doors and adjacent panels.",
@@ -821,11 +821,12 @@ const BuildingCodes = {
       { topic: "Waterproofing wet areas", detail: "Floors and shower walls to full height, junctions sealed.",
         ref: "AS 3740-2021" },
       { topic: "Plumbing", detail: "Licensed plumber required. Backflow prevention at boundary.",
-        ref: "AS/NZS 3500 + QPWC (Queensland Plumbing and Wastewater Code, under the Plumbing and Drainage Regulation 2019)" },
+        ref: "AS/NZS 3500 + QPWC (Queensland Plumbing and Wastewater Code, under the Plumbing and Drainage Regulation 2019)",
+        refUrl: "https://www.business.qld.gov.au/industries/building-property-development/building-construction/laws-codes-standards/plumbing/current" },
       { topic: "Electrical", detail: "Licensed electrician required. RCDs on all final sub-circuits.",
         ref: "AS/NZS 3000:2018" },
       { topic: "Approvals (QLD)", detail: "Development Approval from council, then Building Approval from a private certifier before any work starts.",
-        ref: "Building Act 1975 (QLD)" },
+        ref: "Building Act 1975 (QLD)", refUrl: "https://www.legislation.qld.gov.au/view/html/inforce/current/act-1975-011" },
     ],
   },
   US: {
@@ -1393,7 +1394,7 @@ function UserPathsSection({ onPick }) {
             whileHover={{ y: -8, boxShadow: "0 18px 40px rgba(15,17,20,0.18)" }}
             onClick={() => onPick(p.id)}
             style={{ background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, borderTop: `4px solid ${TOKENS.hivis}`, padding: "26px 22px", cursor: "pointer", ...CARD_SHAPES[i % CARD_SHAPES.length] }}>
-            <div style={{ fontSize: 34, marginBottom: 12 }}>{p.emoji}</div>
+            <div style={{ marginBottom: 12, color: TOKENS.hivisDeep }}><Icon name={`audience.${p.id}`} size={34} strokeWidth={1.9} /></div>
             <div className="ec-display" style={{ fontSize: 20, marginBottom: 8 }}>{p.title}</div>
             <p style={{ fontSize: 13, color: TOKENS.inkSoft, lineHeight: 1.55, marginBottom: 14 }}>{p.blurb}</p>
             <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisDeep }}>{p.flow}</div>
@@ -4246,7 +4247,11 @@ function CodesTab({ region, highrise }) {
           <div key={i} className="ec-card" style={{ padding: 14 }}>
             <div className="ec-display" style={{ fontSize: 14, letterSpacing: "0.02em", marginBottom: 6 }}>{s.topic}</div>
             <p style={{ fontSize: 13, lineHeight: 1.5, color: TOKENS.inkSoft, margin: "0 0 8px" }}>{s.detail}</p>
-            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisDeep, fontWeight: 700 }}>REF · {s.ref}</div>
+            <a href={s.refUrl || code.url} target="_blank" rel="noopener noreferrer" className="ec-mono"
+              title={`Open source for ${s.ref}`}
+              style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisDeep, fontWeight: 700, textDecoration: "none", borderBottom: `1px solid ${TOKENS.hivisDeep}`, paddingBottom: 1 }}>
+              REF · {s.ref} ↗
+            </a>
           </div>
         ))}
       </div>
