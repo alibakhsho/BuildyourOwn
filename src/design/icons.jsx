@@ -347,7 +347,35 @@ const Ui = {
   ),
 };
 
-const REGISTRY = { workflow: Workflow, trade: Trade, equip: Equip, persona: Persona, ui: Ui };
+/* ---- Audience (landing "who are you" paths) ---- */
+const Audience = {
+  homeowner: (p) => ( // house
+    <svg {...base(p.sw)} width={p.size} height={p.size}>
+      <path d="M3 11 L12 4 L21 11" />
+      <path d="M5 10 V20 H19 V10" />
+      <rect x="10" y="14" width="4" height="6" />
+    </svg>
+  ),
+  tradie: (p) => ( // claw hammer
+    <svg {...base(p.sw)} width={p.size} height={p.size}>
+      <path d="M15 3 L21 9 L18 12 L12 6 Z" />
+      <path d="M13.5 7.5 L4.7 16.3 a2 2 0 1 0 3 3 L16.5 10.5" />
+    </svg>
+  ),
+  developer: (p) => ( // twin towers
+    <svg {...base(p.sw)} width={p.size} height={p.size}>
+      <rect x="3" y="9" width="6.5" height="11" rx="0.5" />
+      <rect x="11.5" y="4" width="8" height="16" rx="0.5" />
+      <line x1="13.5" y1="7.5" x2="17.5" y2="7.5" />
+      <line x1="13.5" y1="11" x2="17.5" y2="11" />
+      <line x1="13.5" y1="14.5" x2="17.5" y2="14.5" />
+      <line x1="5" y1="12.5" x2="7.5" y2="12.5" />
+      <line x1="5" y1="16" x2="7.5" y2="16" />
+    </svg>
+  ),
+};
+
+const REGISTRY = { workflow: Workflow, trade: Trade, equip: Equip, persona: Persona, ui: Ui, audience: Audience };
 
 /**
  * <Icon name="electrical" /> or <Icon name="workflow.three_d" />.
@@ -360,7 +388,7 @@ export function Icon({ name, size = 16, strokeWidth = 2, color, style, ...rest }
   else {
     key = name;
     group = Trade[key] ? "trade" : Equip[key] ? "equip" : Workflow[key] ? "workflow"
-          : Persona[key] ? "persona" : Ui[key] ? "ui" : null;
+          : Persona[key] ? "persona" : Audience[key] ? "audience" : Ui[key] ? "ui" : null;
   }
   const render = group && REGISTRY[group] && REGISTRY[group][key];
   if (!render) return null;
@@ -382,4 +410,5 @@ export const ICON_NAMES = {
   equip: Object.keys(Equip),
   persona: Object.keys(Persona),
   ui: Object.keys(Ui),
+  audience: Object.keys(Audience),
 };
