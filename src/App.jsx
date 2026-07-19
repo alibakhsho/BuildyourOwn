@@ -25,6 +25,8 @@ import BackgroundScene from "./engine/BackgroundScene.jsx";
 import { chat as aiChat } from "./ai/client.js";
 import { listProjects, createProject, saveProject, deleteProject, duplicateProject, getProject } from "./state/projects.js";
 import { PERSONAS, buildSystemPrompt, summariseSpec, summariseEstimate, parseActions } from "./ai/personas.js";
+import DesignSystem from "./design/system.js";
+import { Icon } from "./design/icons.jsx";
 
 /* Human-readable message for AI failures, shared by every AI feature */
 const aiErrMsg = (e) => e?.message || "Couldn't reach the AI service — check your connection.";
@@ -360,24 +362,11 @@ function StaggerReveal({ children, stagger = 0.08, baseDelay = 0, ...props }) {
    STYLE TOKENS — drafting-room aesthetic
    Palette: concrete dust + deep ink + hi-vis safety yellow
    ========================================================================= */
-const TOKENS = {
-  paper: "#EDEEF0",        // slightly brighter than v1, more welcoming
-  paperLight: "#F6F7F8",
-  card: "#FFFFFF",
-  ink: "#14171A",
-  inkSoft: "#3B414A",
-  steel: "#6B7279",
-  rule: "#D5D8DC",
-  hivis: "#F5C518",
-  hivisDeep: "#D9AC00",
-  ember: "#F58E1A",        // hero warmth — bridges shader colors to UI
-  emberDeep: "#D96E0A",
-  alert: "#C8480E",
-  ok: "#3A7D44",
-  grid: "rgba(20,23,26,0.045)",
-};
-
-const FONT_URL = "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap";
+/* Colors + font stack now live in one place: design/system.js (Colors §1,
+   Typography §2). TOKENS is kept as the name every existing call site
+   (`TOKENS.ink`, `TOKENS.hivis`, ...) already uses across this file. */
+const TOKENS = DesignSystem.colors;
+const FONT_URL = DesignSystem.typography.fontUrl;
 
 /* =========================================================================
    MODULE: suppliers.js
@@ -823,7 +812,7 @@ const BuildingCodes = {
         ref: "NCC Vol. 2 — H4D7" },
       { topic: "Smoke alarms", detail: "Interconnected photoelectric alarms in every bedroom, every storey, hallway serving bedrooms.",
         ref: "AS 3786 / NCC Vol. 2" },
-      { topic: "Energy efficiency", detail: "Minimum 7-star NatHERS rating for new homes from 2023 (most states).",
+      { topic: "Energy efficiency", detail: "Minimum 7-star NatHERS thermal rating (up from 6-star) for new Class 1 dwellings, plus a Whole-of-Home Calculator score of 60+ covering fixed appliances (HVAC, hot water, lighting). QLD adopted NCC 2022's residential energy provisions from 1 May 2024.",
         ref: "NCC Vol. 2 — H6" },
       { topic: "Stair geometry", detail: "Riser 115–190 mm, going 240–355 mm, 2R+G between 550 and 700.",
         ref: "NCC Vol. 2 — H5D2" },
@@ -832,7 +821,7 @@ const BuildingCodes = {
       { topic: "Waterproofing wet areas", detail: "Floors and shower walls to full height, junctions sealed.",
         ref: "AS 3740-2021" },
       { topic: "Plumbing", detail: "Licensed plumber required. Backflow prevention at boundary.",
-        ref: "AS/NZS 3500 + QPW Code" },
+        ref: "AS/NZS 3500 + QPWC (Queensland Plumbing and Wastewater Code, under the Plumbing and Drainage Regulation 2019)" },
       { topic: "Electrical", detail: "Licensed electrician required. RCDs on all final sub-circuits.",
         ref: "AS/NZS 3000:2018" },
       { topic: "Approvals (QLD)", detail: "Development Approval from council, then Building Approval from a private certifier before any work starts.",
@@ -1290,6 +1279,33 @@ const EMPTY_SPEC = {
   extras: [],
 };
 
+/* Turn Quote-mode line-items into a representative 3D building spec, so the
+   viewport renders a real inferred model (footprint + cladding + roof + openings)
+   sized from what's been quoted — instead of abstract blocks. Returns null when
+   nothing buildable has been quoted yet. */
+function specFromQuoteLines(lines) {
+  const items = (lines || []).filter((l) => (l.kind === "material" || l.kind === "element") && (+l.qty > 0));
+  if (!items.length) return null;
+  const inf = inferSpecFromImport(items.map((l) => ({
+    materialId: l.materialId || null,
+    qty: +l.qty || 0,
+    total: +(l.fixedTotal != null ? l.fixedTotal : l.total || 0) || 0,
+  })));
+  return {
+    ...EMPTY_SPEC,
+    widthM: inf.side, lengthM: inf.side, floors: 1,
+    wallHeightM: 2.7, roofPitch: 18, slabThicknessM: 0.1,
+    claddingType: inf.cladding, roofType: inf.roof, floorFinish: inf.floorFinish,
+    staircaseType: inf.staircaseType, hasGarage: inf.hasGarage,
+    openings: {
+      windowsCount: inf.counts.windows || 0,
+      windowsM2: (inf.counts.windows || 0) * 1.8,
+      doors: inf.counts.doorsExt || 1,
+    },
+    rooms: [], kitchens: [], bathrooms: [],
+  };
+}
+
 const RES_SECTION_CLEAR = {
   dimensions: { widthM: 0, lengthM: 0, floors: 1, wallHeightM: 2.4, roofPitch: 0, slabThicknessM: 0.1 },
   materials: { framingType: "timber", roofType: "colorbond", claddingType: "brick", floorFinish: "timber", staircaseType: "none" },
@@ -1395,7 +1411,7 @@ function ProjectsScreen({ onOpen, onNew }) {
   const [name, setName] = useState("");
   const [type, setType] = useState("homeowner");
   const refresh = () => setProjects(listProjects());
-  const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Quote" };
+  const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Custom Job" };
   return (
     <main style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px 64px", minHeight: "60vh" }}>
       <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Projects</div>
@@ -1450,28 +1466,30 @@ const WORKFLOW = [
 ];
 
 function WorkflowStepper({ stage, onStage, buildMode }) {
+  /* Not a linear stepper — a jump-anywhere tab row. Every section works
+     independently at any point, so there's no numbering, no connector line,
+     and no "completed" state; only the active section is highlighted. */
   const stages = WORKFLOW.filter((s) => !(buildMode === "materials" && ["estimate", "timeline"].includes(s.id)));
-  const idx = stages.findIndex((s) => s.id === stage);
   return (
-    <div style={{ maxWidth: 1480, margin: "0 auto", padding: "20px 24px 0" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 0, overflowX: "auto", paddingBottom: 4 }}>
-        {stages.map((s, i) => (
-          <React.Fragment key={s.id}>
-            {i > 0 && <div style={{ width: 26, height: 2, flexShrink: 0, background: i <= idx ? TOKENS.hivisDeep : TOKENS.rule }} />}
-            <motion.button whileHover={{ y: -2 }} onClick={() => onStage(s.id)}
-              className="ec-mono"
+    <div style={{ maxWidth: 1480, margin: "0 auto", padding: "16px 24px 0" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+        {stages.map((s) => {
+          const active = s.id === stage;
+          return (
+            <motion.button key={s.id} whileHover={{ y: -2 }} onClick={() => onStage(s.id)}
+              className="ec-mono" aria-current={active ? "page" : undefined}
               style={{
-                flexShrink: 0, display: "flex", alignItems: "center", gap: 8, cursor: "pointer",
+                flexShrink: 0, display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
                 padding: "8px 14px", fontSize: 11, letterSpacing: "0.08em", fontWeight: 700,
-                border: `1px solid ${s.id === stage ? TOKENS.ink : TOKENS.rule}`,
-                background: s.id === stage ? TOKENS.ink : i < idx ? "rgba(217,165,20,0.12)" : TOKENS.paperLight,
-                color: s.id === stage ? TOKENS.hivis : TOKENS.ink,
+                border: `1px solid ${active ? TOKENS.ink : TOKENS.rule}`,
+                background: active ? TOKENS.ink : TOKENS.paperLight,
+                color: active ? TOKENS.hivis : TOKENS.ink,
               }}>
-              <span style={{ width: 17, height: 17, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, background: s.id === stage ? TOKENS.hivis : TOKENS.rule, color: TOKENS.ink }}>{i + 1}</span>
+              <Icon name={`workflow.${s.id}`} size={15} strokeWidth={2.2} />
               {s.label}
             </motion.button>
-          </React.Fragment>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1485,6 +1503,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [showPrompts, setShowPrompts] = useState(false);
 
   const switchPersona = (id) => {
     setPersonaId(id);
@@ -1505,7 +1524,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
     try {
       const ctx = {
         name: projectName, buildMode, region,
-        specSummary: summariseSpec(buildMode, spec, hrSpec),
+        specSummary: summariseSpec(buildMode, spec, hrSpec, estimate),
         estimateSummary: summariseEstimate(estimate, currency),
       };
       const reply = await aiChat({
@@ -1546,8 +1565,10 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
               border: `1px solid ${p.id === personaId ? TOKENS.ink : TOKENS.rule}`,
               borderTop: `3px solid ${p.id === personaId ? TOKENS.hivis : TOKENS.rule}`,
             }}>
-            <div style={{ fontSize: 26 }}>{p.emoji}</div>
-            <div className="ec-display" style={{ fontSize: 14, marginTop: 6, color: p.id === personaId ? TOKENS.hivis : TOKENS.ink }}>{p.name}</div>
+            <div style={{ display: "flex", justifyContent: "center", color: p.id === personaId ? TOKENS.hivis : TOKENS.steel }}>
+              <Icon name={`persona.${p.id}`} size={24} strokeWidth={2} />
+            </div>
+            <div className="ec-display" style={{ fontSize: 14, marginTop: 8, color: p.id === personaId ? TOKENS.hivis : TOKENS.ink }}>{p.name}</div>
             <div className="ec-mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", marginTop: 3, color: p.id === personaId ? "rgba(242,244,247,0.7)" : TOKENS.steel }}>{p.role.toUpperCase()}</div>
           </motion.div>
         ))}
@@ -1556,40 +1577,65 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
       {/* chat panel */}
       <div className="ec-card" style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "12px 18px", borderBottom: `1px solid ${TOKENS.rule}`, background: TOKENS.paperLight }}>
-          <span className="ec-display" style={{ fontSize: 16 }}>{persona.emoji} {persona.name} — {persona.role}</span>
+          <span className="ec-display" style={{ fontSize: 16, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon name={`persona.${persona.id}`} size={18} color={TOKENS.hivisDeep} />
+            {persona.name} — {persona.role}
+          </span>
           <div style={{ fontSize: 11.5, color: TOKENS.inkSoft, marginTop: 2 }}>{persona.tone}</div>
         </div>
         <div style={{ padding: 18, maxHeight: 420, overflowY: "auto", display: "flex", flexDirection: "column", gap: 12 }}>
-          {msgs.length === 0 && (
+          {(msgs.length === 0 || showPrompts) && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {persona.starters.map((s) => (
-                <button key={s} className="ec-btn ec-btn-ghost" style={{ fontSize: 11 }} onClick={() => send(s)}>{s}</button>
+                <button key={s} className="ec-btn ec-btn-ghost" style={{ fontSize: 11 }} onClick={() => { setShowPrompts(false); send(s); }}>{s}</button>
               ))}
             </div>
           )}
           {msgs.map((m, i) => (
-            <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "82%" }}>
+            <motion.div key={i}
+              initial={{ opacity: 0, y: 12, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ type: "spring", stiffness: 420, damping: 32 }}
+              style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "82%", display: "flex", flexDirection: "column", alignItems: m.role === "user" ? "flex-end" : "flex-start" }}>
               <div style={{
                 padding: "10px 14px", fontSize: 13.5, lineHeight: 1.55, whiteSpace: "pre-wrap",
-                background: m.role === "user" ? TOKENS.ink : TOKENS.paperLight,
+                background: m.role === "user" ? TOKENS.ink : TOKENS.card,
                 color: m.role === "user" ? TOKENS.paper : TOKENS.ink,
                 border: `1px solid ${m.role === "user" ? TOKENS.ink : TOKENS.rule}`,
+                borderRadius: m.role === "user" ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
+                boxShadow: "0 10px 20px -13px rgba(15,17,20,0.22)",
               }}>{m.content}</div>
               {(m.actions || []).map((a, j) => (
                 <button key={j} className="ec-btn ec-btn-hivis" style={{ marginTop: 6, fontSize: 11 }} onClick={() => applyAction(a)}>
                   ⚡ Apply: {a.label || a.type}
                 </button>
               ))}
-            </div>
+            </motion.div>
           ))}
           {busy && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{persona.name} is thinking…</div>}
           {err && <div style={{ fontSize: 12, color: TOKENS.emberDeep }}>{err}</div>}
         </div>
-        <div style={{ display: "flex", gap: 10, padding: 14, borderTop: `1px solid ${TOKENS.rule}` }}>
-          <input className="ec-input" style={{ flex: 1 }} placeholder={`Ask ${persona.name} about this project…`}
-            value={input} onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
-          <button className="ec-btn ec-btn-hivis" disabled={busy} onClick={() => send()}>Send</button>
+        <div style={{ padding: 14, borderTop: `1px solid ${TOKENS.rule}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderRadius: 26, padding: 6, boxShadow: "0 12px 22px -16px rgba(15,17,20,0.3)" }}>
+            <button type="button" onClick={() => setShowPrompts((v) => !v)} title="Quick prompts" aria-label="Quick prompts"
+              style={{ width: 38, height: 38, flexShrink: 0, borderRadius: 13, border: "none", cursor: "pointer",
+                background: showPrompts ? TOKENS.ink : TOKENS.paperLight, color: showPrompts ? TOKENS.hivis : TOKENS.inkSoft,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
+              <Icon name="ui.plus" size={18} strokeWidth={2.2} />
+            </button>
+            <input placeholder={`Ask ${persona.name} about this project…`}
+              value={input} onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
+              style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", outline: "none",
+                fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: TOKENS.ink, padding: "0 4px" }} />
+            <motion.button type="button" whileTap={{ scale: 0.9 }} disabled={busy} onClick={() => send()} aria-label="Send message"
+              style={{ width: 38, height: 38, flexShrink: 0, borderRadius: 13, border: "none", cursor: busy ? "default" : "pointer",
+                background: input.trim() && !busy ? "linear-gradient(90deg, #F5C518 0%, #F58E1A 100%)" : TOKENS.rule,
+                color: input.trim() && !busy ? TOKENS.ink : TOKENS.steel,
+                display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
+              <Icon name="ui.send" size={16} strokeWidth={2.2} />
+            </motion.button>
+          </div>
         </div>
       </div>
     </main>
@@ -1698,10 +1744,12 @@ export default function App() {
   const [screen, setScreen] = useState("landing");     // landing | projects | workspace
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
+  const [userType, setUserType] = useState(null);      // homeowner | tradie | developer — gates which build modes show
   const [stage, setStage] = useState("estimate");      // workflow stage id
 
   const openProject = useCallback((p) => {
     setProjectId(p.id); setProjectName(p.name);
+    setUserType(p.userType || null);
     setBuildMode(p.buildMode || "residential");
     setRegion(p.region || "AU");
     if (p.spec) setSpec(p.spec);
@@ -1734,32 +1782,49 @@ export default function App() {
   const [walkMode, setWalkMode] = useState(false);
   const [walkRoom, setWalkRoom] = useState("");
   const [walkT, setWalkT] = useState(0);
+  const [engineReady, setEngineReady] = useState(false);
   const viewportRef = useRef(null);
   const engineRef = useRef(null);
+  const ioRef = useRef(null);
   const shaderCanvasRef = useShaderBackground();
 
-  /* Mount Three.js once */
-  useEffect(() => {
-    if (!viewportRef.current) return;
-    const eng = new Engine3D(viewportRef.current);
-    engineRef.current = eng;
-    eng.buildFromSpec(spec);
-    eng.setProgress(progress);
-    eng.onComplete = () => setProgress(1);
-    eng.onWalkProgress = (t, name) => { setWalkT(t); setWalkRoom(name || ""); };
-    eng.onModeChange = (m) => setWalkMode(m === "walk");
-
+  /* Create the Three.js engine the first time the viewport container actually
+     lands in the DOM, via a callback ref — NOT a one-shot mount effect. The
+     container doesn't exist on the landing screen and unmounts on the AI/
+     Proposal stages, so a []-deps effect ran too early and never retried,
+     leaving the 3D blank everywhere. On later remounts the same canvas moves
+     to the new node; the build effect below runs the first build once ready. */
+  const attachViewport = useCallback((node) => {
+    viewportRef.current = node;
+    if (!node) return; // unmounting — keep the engine; its canvas detaches with the old node
+    if (engineRef.current) {
+      engineRef.current.remount(node);
+    } else {
+      const eng = new Engine3D(node);
+      engineRef.current = eng;
+      eng.onComplete = () => setProgress(1);
+      eng.onWalkProgress = (t, name) => { setWalkT(t); setWalkRoom(name || ""); };
+      eng.onModeChange = (m) => setWalkMode(m === "walk");
+      setEngineReady(true);
+    }
     // Pause rendering when the viewport scrolls off-screen — the biggest perf win.
-    const io = new IntersectionObserver(
-      ([e]) => eng.setPaused(!e.isIntersecting),
+    ioRef.current?.disconnect();
+    ioRef.current = new IntersectionObserver(
+      ([e]) => engineRef.current?.setPaused(!e.isIntersecting),
       { threshold: 0.01 }
     );
-    io.observe(viewportRef.current);
-    // Also pause when the browser tab is hidden.
-    const onVis = () => eng.setPaused(document.hidden);
-    document.addEventListener("visibilitychange", onVis);
+    ioRef.current.observe(node);
+  }, []);
 
-    return () => { io.disconnect(); document.removeEventListener("visibilitychange", onVis); eng.dispose(); };
+  /* Pause when the tab is hidden; tidy up if the app ever unmounts. */
+  useEffect(() => {
+    const onVis = () => engineRef.current?.setPaused(document.hidden);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      ioRef.current?.disconnect();
+      engineRef.current?.dispose();
+    };
   }, []);
 
   /* Rebuild on spec or mode change (exit walkthrough first) */
@@ -1773,13 +1838,15 @@ export default function App() {
       setProgress(1);
     } else if (buildMode === "materials") {
       eng.isTower = false;
-      eng.buildMassing(matSpec.lines || []);   // show simple blocks of what's quoted
+      const qSpec = specFromQuoteLines(matSpec.lines);
+      if (qSpec) { eng.buildFromSpec(qSpec); eng.setProgress(1); }  // real inferred building from the quote
+      else eng.buildMassing([]);                                    // nothing quoted yet → empty viewport
     } else {
       eng.isTower = false;
       eng.buildFromSpec(spec);
       eng.setProgress(progress);
     }
-  }, [spec, hrSpec, matSpec, buildMode]);
+  }, [spec, hrSpec, matSpec, buildMode, engineReady]);
 
   useEffect(() => { if (buildMode === "residential") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
@@ -1790,6 +1857,12 @@ export default function App() {
       : buildMode === "materials" ? MaterialsOnly.buildEstimate(matSpec, region)
       : Estimator.buildEstimate(spec, region),
     [spec, hrSpec, matSpec, buildMode, region, ratesVersion]
+  );
+
+  /* Representative building inferred from the quote — drives the Quote-mode viewport label */
+  const quoteMassingSpec = useMemo(
+    () => (buildMode === "materials" ? specFromQuoteLines(matSpec.lines) : null),
+    [buildMode, matSpec]
   );
 
   /* Spec update helper */
@@ -2170,7 +2243,7 @@ export default function App() {
               fontFamily: "'JetBrains Mono', monospace",
             }}>
               <span style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} className="ec-live" />
-              Built for trades · owner-builders · curious homeowners
+              For homeowners · tradies · builders · developers
             </div>
           </div>
 
@@ -2183,7 +2256,7 @@ export default function App() {
             letterSpacing: "-0.01em",
             maxWidth: 1100,
           }}>
-            Build your own.
+            Estimates &amp; quotes.
           </h1>
           <h1 className="ec-display ec-fade-up ec-delay-3" style={{
             fontSize: "clamp(48px, 9vw, 132px)",
@@ -2197,7 +2270,7 @@ export default function App() {
             letterSpacing: "-0.01em",
             maxWidth: 1100,
           }}>
-            Know the cost.
+            In seconds.
           </h1>
 
           <p className="ec-fade-up ec-delay-4" style={{
@@ -2207,7 +2280,7 @@ export default function App() {
             color: "rgba(255, 240, 220, 0.85)",
             fontWeight: 400,
           }}>
-            A live 3D estimator for homes and high-rises. Turn dimensions, materials, and site conditions into itemised costs, a construction programme, and direct supplier searches — before you ever break ground.
+            Instant estimates and quotes — material lists, codes and compliance, project scope, even the management — generated in seconds. Feed it numbers, a design, or a plain-English brief and let AI do the dirty work: from a homeowner&apos;s extension to a developer&apos;s full project.
           </p>
 
           <div className="ec-fade-up ec-delay-4" style={{ marginTop: 36, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
@@ -2275,13 +2348,16 @@ export default function App() {
       </>}
 
       {screen !== "landing" && <>
-      {/* ============== STICKY HEADER (appears after hero) ============== */}
-      <header style={{
+      {/* ====== STICKY TOPBAR: header + workflow stepper pinned together ====== */}
+      <div style={{
         position: "sticky", top: 0, zIndex: 30,
-        borderBottom: `1px solid ${TOKENS.rule}`,
         background: "rgba(246, 247, 248, 0.92)",
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
+        borderBottom: `1px solid ${TOKENS.rule}`,
+      }}>
+      <header style={{
+        borderBottom: screen === "workspace" ? `1px solid ${TOKENS.rule}` : "none",
       }}>
         <div className="hdr-in" style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2300,7 +2376,9 @@ export default function App() {
           </div>
           <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-              {[["residential","Residential"],["highrise","High-rise"],["materials","Quote"]].map(([m, label]) => (
+              {[["residential","Residential"],["highrise","High-rise"],["materials","Custom Job"]]
+                .filter(([m]) => userType !== "homeowner" || m !== "highrise")
+                .map(([m, label]) => (
                 <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
                   className="ec-mono"
                   style={{
@@ -2339,12 +2417,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* ============== PROJECTS SCREEN ============== */}
-      {screen === "projects" && (
-        <ProjectsScreen onOpen={openProject} onNew={newProject} />
-      )}
-
-      {/* ============== WORKFLOW STEPPER (workspace) ============== */}
+      {/* ====== WORKFLOW STEPPER (workspace) — pinned under the header ====== */}
       {screen === "workspace" && (
         <WorkflowStepper stage={stage} onStage={(s) => {
           setStage(s);
@@ -2360,6 +2433,12 @@ export default function App() {
             else window.scrollTo({ top: 0, behavior: "smooth" }); // ai / proposal swap the view
           });
         }} buildMode={buildMode} />
+      )}
+      </div>
+
+      {/* ============== PROJECTS SCREEN ============== */}
+      {screen === "projects" && (
+        <ProjectsScreen onOpen={openProject} onNew={newProject} />
       )}
 
       {/* ============== MAIN GRID (estimator tool) ============== */}
@@ -2537,15 +2616,26 @@ export default function App() {
           </Reveal>
 
           {/* 3D viewport */}
-          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden", scrollMarginTop: 80 }}>
-            <div ref={viewportRef} style={{ position: "absolute", inset: 0 }} />
+          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden", scrollMarginTop: 132 }}>
+            <div ref={attachViewport} style={{ position: "absolute", inset: 0 }} />
             {/* Dimension annotations overlay */}
             <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
               {buildMode === "materials" ? (
-                <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
-                  Quote massing · simple blocks
-                </div>
+                quoteMassingSpec ? (
+                  <>
+                    <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                      {quoteMassingSpec.widthM}m × {quoteMassingSpec.lengthM}m · inferred model
+                    </div>
+                    <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                      Massed from quoted items
+                    </div>
+                  </>
+                ) : (
+                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    Add quote items to see the 3D model
+                  </div>
+                )
               ) : buildMode === "highrise" ? (
                 <>
                   <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
@@ -2623,7 +2713,7 @@ export default function App() {
           </div>
 
           {/* Headline cost cards */}
-          <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16, scrollMarginTop: 80 }}>
+          <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16, scrollMarginTop: 132 }}>
             <StaggerReveal variant="fade-up" stagger={0.06}>
               {buildMode === "materials" ? [
                 <CostCard key="t" label="Quote total" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
@@ -2685,7 +2775,11 @@ export default function App() {
       {screen === "workspace" && stage === "ai" && (
         <AICrewSection projectId={projectId} projectName={projectName} buildMode={buildMode} region={region}
           spec={spec} hrSpec={hrSpec} estimate={estimate} currency={currency}
-          onSpecPatch={(patch) => update(patch)}
+          onSpecPatch={(patch) => {
+            if (buildMode === "highrise") updateHr(patch);
+            else if (buildMode === "materials") return; // no building spec to patch in quote mode
+            else update(patch);
+          }}
           onAddQuoteLines={(lines) => {
             const mk = (l) => ({ id: nextId(), kind: l.kind || "element", label: l.label || "AI line", qty: +l.qty || 1, unit: l.unit || "ea", rate: +l.rate || 0, useCustomRate: true });
             if (buildMode === "materials") setMatSpec((s) => ({ lines: [...(s.lines || []), ...lines.map(mk)] }));
@@ -3847,6 +3941,100 @@ function HighRiseTimelineTab({ estimate }) {
   );
 }
 
+/* ---- Cost breakdown charts (visual summary above the itemised tables) ----
+   Two single-hue horizontal bar charts: each is one measure (cost) across
+   categories, sorted descending, value + % always shown as text so identity is
+   never colour-alone. Fills use the steel palette; the hi-vis cap is the brand
+   accent; hover promotes a bar to full ink. No rainbow, no dual axis. */
+function CostBar({ label, value, max, total, currency, fill, hovered, onHover, idx }) {
+  const widthPct = max > 0 ? Math.max(1.5, (value / max) * 100) : 0;
+  const pct = total > 0 ? (value / total) * 100 : 0;
+  const isHover = hovered === idx;
+  return (
+    <div
+      onMouseEnter={() => onHover(idx)}
+      onMouseLeave={() => onHover(null)}
+      title={`${label}: ${currency}${fmt(value)} (${pct.toFixed(1)}%)`}
+      aria-label={`${label}: ${currency}${fmt(value)}, ${pct.toFixed(1)} percent`}
+      style={{ display: "grid", gridTemplateColumns: "minmax(110px, 168px) 1fr minmax(104px, auto)", alignItems: "center", gap: 12, padding: "3px 0", cursor: "default" }}
+    >
+      <div className="ec-mono" style={{ fontSize: 11, color: isHover ? TOKENS.ink : TOKENS.inkSoft, textTransform: "capitalize", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: isHover ? 600 : 400 }}>
+        {label}
+      </div>
+      <div style={{ position: "relative", height: 20, background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, borderRadius: 3 }}>
+        <div style={{
+          position: "absolute", top: 0, bottom: 0, left: 0,
+          width: `${widthPct}%`,
+          background: isHover ? TOKENS.ink : fill,
+          borderRadius: "3px 4px 4px 3px",
+          borderRight: `2px solid ${TOKENS.hivisDeep}`,
+          transition: `width 260ms ${DesignSystem.motion.ease.swift}, background ${DesignSystem.motion.duration.instant} ${DesignSystem.motion.ease.standard}`,
+        }} />
+      </div>
+      <div className="ec-mono" style={{ fontSize: 12, color: TOKENS.ink, fontWeight: 600, textAlign: "right", whiteSpace: "nowrap" }}>
+        {currency}{fmt(value)}
+        <span style={{ color: TOKENS.steel, fontWeight: 400, marginLeft: 6, fontSize: 10 }}>{pct.toFixed(0)}%</span>
+      </div>
+    </div>
+  );
+}
+
+function CostBreakdown({ estimate, currency }) {
+  const [hoverA, setHoverA] = useState(null);
+  const [hoverB, setHoverB] = useState(null);
+
+  const buildup = useMemo(() => {
+    const rows = [
+      { label: "Materials", value: estimate.materialsTotal },
+      { label: "Labour", value: estimate.labourTotal },
+      { label: "Equipment", value: estimate.equipmentTotal },
+      { label: "Preliminaries", value: estimate.prelims },
+      { label: "Builder margin", value: estimate.margin },
+      { label: "Contingency", value: estimate.contingency },
+    ];
+    if (estimate.extrasTotal > 0) rows.push({ label: "Additional items", value: estimate.extrasTotal });
+    return rows.filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
+  }, [estimate]);
+
+  const byCategory = useMemo(() => {
+    const g = {};
+    for (const l of estimate.materialLines) g[l.category] = (g[l.category] || 0) + (l.total || 0);
+    return Object.entries(g).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
+  }, [estimate]);
+
+  if (!estimate.total || estimate.total <= 0) return null;
+
+  const buildMax = Math.max(...buildup.map((r) => r.value), 1);
+  const catMax = Math.max(...byCategory.map((r) => r.value), 1);
+  const matTotal = estimate.materialsTotal || 1;
+
+  return (
+    <div style={{ marginBottom: 30 }}>
+      <SectionHeader index="∑" title="Cost breakdown — at a glance" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 28 }}>
+        <div>
+          <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.steel, marginBottom: 10 }}>
+            Where the money goes · {currency}{fmt(estimate.total)} total
+          </div>
+          {buildup.map((r, i) => (
+            <CostBar key={r.label} idx={i} label={r.label} value={r.value} max={buildMax} total={estimate.total} currency={currency} fill={TOKENS.inkSoft} hovered={hoverA} onHover={setHoverA} />
+          ))}
+        </div>
+        {byCategory.length > 0 && (
+          <div>
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.steel, marginBottom: 10 }}>
+              Materials by category · {currency}{fmt(estimate.materialsTotal)}
+            </div>
+            {byCategory.map((r, i) => (
+              <CostBar key={r.label} idx={i} label={r.label} value={r.value} max={catMax} total={matTotal} currency={currency} fill={TOKENS.steel} hovered={hoverB} onHover={setHoverB} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function EstimateTab({ estimate, currency, region, onRatesChanged }) {
   const groupedMaterials = useMemo(() => {
     const groups = {};
@@ -3870,6 +4058,7 @@ function EstimateTab({ estimate, currency, region, onRatesChanged }) {
 
   return (
     <div>
+      <CostBreakdown estimate={estimate} currency={currency} />
       <SectionHeader index="A" title="Materials — itemised takeoff" />
       <div style={{ overflowX: "auto" }}>
         {Object.entries(groupedMaterials).map(([cat, lines]) => (

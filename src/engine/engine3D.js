@@ -183,6 +183,20 @@ export class Engine3D {
     this.renderer.setSize(this.width, this.height);
   }
 
+  /* Move the renderer canvas into a new container. The viewport unmounts when
+     the user visits the AI/Proposal stages, so on return the same engine
+     re-attaches to whichever container is on screen instead of being rebuilt. */
+  remount(el) {
+    if (!el || this.mount === el) return;
+    this.mount = el;
+    el.appendChild(this.renderer.domElement);
+    this._resizeObs.disconnect();
+    this._resizeObs.observe(el);
+    this.resize();
+    this.setPaused(false);
+    this._needsRender = true;
+  }
+
   /* Build / rebuild the building meshes from spec */
   buildFromSpec(spec) {
     this.spec = spec;

@@ -58,13 +58,29 @@ quantities vs waste allowances. You reference the supplier directory categories 
   },
 ];
 
-/* Shared action protocol appended to every persona's system prompt. */
-export const ACTION_PROTOCOL = `
+/* Shared action protocol appended to every persona's system prompt. The
+   update_spec field list is mode-specific — residential, high-rise, and quote
+   (materials) each carry a different spec shape, and a patch with fields from
+   the wrong mode silently writes into state nothing on screen reads. */
+const UPDATE_SPEC_FIELDS = {
+  residential: `widthM, lengthM, floors, wallHeightM, roofPitch, claddingType(brick|weatherboard|render), roofType(colorbond|tile|shingle), framingType(timber|steel), siteCondition(flat|sloping|difficult)`,
+  highrise: `floorPlateM2, floors, floorHeightM, basementLevels, structureType(rc|steel|composite), facadeType(curtain_wall|precast|brick|render), occupancy(office|residential|hotel|mixed|retail), passengerLifts, goodsLifts, siteCondition(flat|sloping|difficult)`,
+};
+
+export function actionProtocol(buildMode) {
+  const fields = UPDATE_SPEC_FIELDS[buildMode];
+  const updateSpecLine = fields
+    ? `<action>{"type":"update_spec","patch":{"<field>":<value>},"label":"<short description>"}</action>\nValid update_spec fields (${buildMode}): ${fields}.`
+    : `Do NOT emit update_spec in this mode — a quote/materials project has no building dimensions, only line items.`;
+  return `
 When you recommend a concrete change the app can make, append it at the END of your reply as an action block:
-<action>{"type":"update_spec","patch":{"<field>":<value>},"label":"<short description>"}</action>
+${updateSpecLine}
 <action>{"type":"add_quote_lines","lines":[{"kind":"element","label":"<desc>","qty":<n>,"unit":"<u>","rate":<n>}],"label":"<short description>"}</action>
-Valid update_spec fields (residential): widthM, lengthM, floors, wallHeightM, roofPitch, claddingType(brick|weatherboard|render), roofType(colorbond|tile|shingle), framingType(timber|steel), siteCondition(flat|sloping|difficult).
 Use at most 2 action blocks per reply, only when genuinely helpful. Keep replies under 250 words, specific to THIS project's numbers.`;
+}
+
+/* Back-compat export (residential field list) for any caller not yet passing buildMode. */
+export const ACTION_PROTOCOL = actionProtocol("residential");
 
 export function buildSystemPrompt(persona, ctx) {
   return `${persona.focus}
@@ -75,14 +91,18 @@ ${ctx.specSummary}
 ESTIMATE SNAPSHOT:
 ${ctx.estimateSummary}
 
-${ACTION_PROTOCOL}`;
+${actionProtocol(ctx.buildMode)}`;
 }
 
 /* Compact, token-cheap context builders */
-export function summariseSpec(buildMode, spec, hrSpec) {
+export function summariseSpec(buildMode, spec, hrSpec, est) {
   if (buildMode === "highrise") {
     const s = hrSpec || {};
     return `Tower: ${s.floors} floors × ${s.floorPlateM2}m² plate, ${s.floorHeightM}m floor-to-floor, ${s.basementLevels} basements, ${s.structureType} structure, ${s.facadeType} facade, ${s.occupancy} occupancy, site ${s.siteCondition}.`;
+  }
+  if (buildMode === "materials") {
+    const n = (est && est.lines) ? est.lines.length : 0;
+    return `Quote/materials project — no building dimensions, just a line-item list (${n} line${n === 1 ? "" : "s"}: materials, labour & trade items). Use add_quote_lines to suggest additions.`;
   }
   const s = spec || {};
   return `House: ${s.widthM}×${s.lengthM}m, ${s.floors} floor(s), walls ${s.wallHeightM}m, roof ${s.roofType} @ ${s.roofPitch}°, ${s.claddingType} cladding, ${s.framingType} frame, ${(s.rooms || []).length} rooms, ${(s.kitchens || []).length} kitchen(s), ${(s.bathrooms || []).length} bathroom(s), site ${s.siteCondition}.`;
