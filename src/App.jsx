@@ -1532,6 +1532,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
         system: buildSystemPrompt(persona, ctx),
         messages: next.map(({ role, content }) => ({ role, content })),
         maxTokens: 1200,
+        tier: "smart",
       });
       const { text: cleaned, actions } = parseActions(reply);
       const done = [...next, { role: "assistant", content: cleaned, actions }];
@@ -3195,7 +3196,7 @@ Rules:
 
     try {
       const textOut = (await aiChat({
-        system: sys, maxTokens: 1500,
+        system: sys, maxTokens: 1500, tier: "fast",
         messages: [{ role: "user", content: `Request: "${aiText.trim()}"` }],
       })).trim();
       // Robust JSON extraction: find the outermost {...} block even if prose surrounds it
@@ -3378,7 +3379,7 @@ Respond as ONLY JSON, no markdown:
 {"steps":[{"n":1,"title":"<step>","detail":"<what happens, 1-2 sentences>","uses":"<materials/trades from the list>"}],"summary":"<one line on total sequence>"}`;
     try {
       const textOut = (await aiChat({
-        system: sys, maxTokens: 1500,
+        system: sys, maxTokens: 1500, tier: "fast",
         messages: [{ role: "user", content: `The quote contains:\n${itemList}` }],
       })).trim();
       const st = textOut.indexOf("{"), en = textOut.lastIndexOf("}");
@@ -3746,7 +3747,7 @@ Rules:
 {"spec":{<only the fields you're confident about>},"note":"<anything you couldn't map, or empty>"}`;
     try {
       const textOut = (await aiChat({
-        system: sys, maxTokens: 500,
+        system: sys, maxTokens: 500, tier: "fast",
         messages: [{ role: "user", content: `Description: "${aiText.trim()}"` }],
       })).trim();
       let parsed = null;
