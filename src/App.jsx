@@ -1412,7 +1412,7 @@ function ProjectsScreen({ onOpen, onNew }) {
   const [name, setName] = useState("");
   const [type, setType] = useState("homeowner");
   const refresh = () => setProjects(listProjects());
-  const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Custom Job" };
+  const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Custom Quote" };
   return (
     <main style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px 64px", minHeight: "60vh" }}>
       <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Projects</div>
@@ -2378,7 +2378,7 @@ export default function App() {
           </div>
           <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-              {[["residential","Residential"],["highrise","High-rise"],["materials","Custom Job"]]
+              {[["residential","Residential"],["highrise","High-rise"],["materials","Custom Quote"]]
                 .filter(([m]) => userType !== "homeowner" || m !== "highrise")
                 .map(([m, label]) => (
                 <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
@@ -4017,9 +4017,28 @@ function CostBreakdown({ estimate, currency }) {
   const catMax = Math.max(...byCategory.map((r) => r.value), 1);
   const matTotal = estimate.materialsTotal || 1;
 
+  const gfa = estimate.takeoff?.gfaM2 || 0;
+  const taxAmt = estimate.total * (estimate.taxRate || 0);
+  const perM2 = gfa > 0 ? estimate.total / gfa : 0;
+  const summary = [
+    { label: `Estimate (ex ${estimate.taxLabel ? estimate.taxLabel.split(" ")[0] : "tax"})`, value: `${currency}${fmt(estimate.total)}` },
+    ...(estimate.taxRate > 0 ? [{ label: estimate.taxLabel, value: `${currency}${fmt(taxAmt)}` }] : []),
+    { label: "Total incl. tax", value: `${currency}${fmt(estimate.total + taxAmt)}`, hivis: true },
+    ...(gfa > 0 ? [{ label: `${currency}/m² · ${fmt(gfa)} m²`, value: `${currency}${fmt(perM2)}` }] : []),
+  ];
+
   return (
     <div style={{ marginBottom: 30 }}>
       <SectionHeader index="∑" title="Cost breakdown — at a glance" />
+      {/* Headline numbers a homeowner actually wants: ex-tax, tax, total, and $/m² */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 22 }}>
+        {summary.map((s) => (
+          <div key={s.label} style={{ padding: "12px 14px", background: s.hivis ? TOKENS.hivis : TOKENS.paperLight, border: `1px solid ${s.hivis ? TOKENS.hivisDeep : TOKENS.rule}`, borderRadius: 4 }}>
+            <div className="ec-mono" style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: s.hivis ? TOKENS.ink : TOKENS.steel, marginBottom: 4 }}>{s.label}</div>
+            <div className="ec-display" style={{ fontSize: 20, color: TOKENS.ink, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 28 }}>
         <div>
           <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.steel, marginBottom: 10 }}>
