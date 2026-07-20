@@ -895,6 +895,13 @@ export class Engine3D {
 
   /* ----- Walkthrough ----- */
   startWalk() {
+    // For a house / custom build, use the cinematic dollhouse tour derived from
+    // the current spec (towers keep their level-by-level waypoints).
+    if (!this.isTower && this.spec && this.spec.widthM > 0) {
+      const floorH = this.spec.wallHeightM || 2.7;
+      const totalH = floorH * (this.spec.floors || 1);
+      this.walkWaypoints = this._buildTour(this.spec.widthM, this.spec.lengthM, totalH);
+    }
     if (this.walkWaypoints.length === 0) return false;
     // ensure fully built so interior exists
     this.progress = 1;
@@ -917,13 +924,16 @@ export class Engine3D {
   }
   setWalkT(t) { this.walkT = Math.max(0, Math.min(1, t)); }
 
-  /* Sample camera position + look target along the waypoint path at param t (0..1) */
+  /* Sample camera position + look target along the waypoint path at param t (0..1).
+     Waypoints may carry an explicit `look` target; otherwise the camera looks
+     toward the next waypoint. Look targets are interpolated so the pan is smooth. */
   _sampleWalk(t) {
     const wp = this.walkWaypoints;
     const n = wp.length;
     const ey = (p) => (p.y != null ? p.y : this._eyeY());
+    const lookOf = (p, fb) => (p.look ? p.look : fb);
     if (n === 1) {
-      return { pos: [wp[0].x, ey(wp[0]), wp[0].z], look: [wp[0].x + 1, ey(wp[0]), wp[0].z], name: wp[0].name };
+      return { pos: [wp[0].x, ey(wp[0]), wp[0].z], look: lookOf(wp[0], [wp[0].x + 1, ey(wp[0]), wp[0].z]), name: wp[0].name };
     }
     const segs = n - 1;
     const scaled = t * segs;
@@ -933,11 +943,34 @@ export class Engine3D {
     const px = a.x + (b.x - a.x) * local;
     const pz = a.z + (b.z - a.z) * local;
     const py = ey(a) + (ey(b) - ey(a)) * local;
+    const fb = [b.x, ey(b), b.z];
+    const la = lookOf(a, fb), lb = lookOf(b, fb);
     return {
       pos: [px, py, pz],
-      look: [b.x, ey(b), b.z],
+      look: [la[0] + (lb[0] - la[0]) * local, la[1] + (lb[1] - la[1]) * local, la[2] + (lb[2] - la[2]) * local],
       name: local < 0.5 ? a.name : b.name,
     };
+  }
+
+  /* Cinematic tour path from the building envelope: approach the front, then
+     rise into a roof-off dollhouse orbit that reveals the whole layout — no
+     more staring into an interior partition wall. */
+  _buildTour(w, l, totalH) {
+    const diag = Math.sqrt(w * w + l * l);
+    const R = diag * 0.72 + 6;                    // orbit radius, outside the walls
+    const H = totalH + Math.max(6, diag * 0.3);   // dollhouse height above the roofline
+    const front = l / 2;
+    const c = [0, Math.min(2.2, totalH * 0.45), 0]; // look at the building, low
+    return [
+      { x: 0,          y: 1.9,      z: front + Math.max(9, l * 0.85), look: [0, 1.7, front - 1], name: "Approaching front" },
+      { x: 0,          y: 1.9,      z: front + 1.6,                   look: [0, 1.6, 0],          name: "At the entry" },
+      { x: w * 0.4,    y: H * 0.62, z: front + R * 0.4,               look: c,                    name: "Rising over the layout" },
+      { x: R,          y: H,        z: R * 0.25,                      look: c,                    name: "Layout" },
+      { x: R * 0.25,   y: H,        z: -R,                            look: c,                    name: "Rear" },
+      { x: -R,         y: H,        z: -R * 0.25,                     look: c,                    name: "Side" },
+      { x: -R * 0.25,  y: H,        z: R,                             look: c,                    name: "Layout" },
+      { x: 0,          y: H * 0.8,  z: front + R * 0.55,              look: c,                    name: "Layout" },
+    ];
   }
   _eyeY() {
     const slabH = 0.4;
