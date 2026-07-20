@@ -46,8 +46,20 @@ export class Engine3D {
     this.width = mountEl.clientWidth;
     this.height = mountEl.clientHeight;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xe8eaec);
-    this.scene.fog = new THREE.Fog(0xe8eaec, 50, 140);
+    // Sky — soft vertical gradient (desaturated to sit under the blueprint UI),
+    // not a flat fill. Horizon haze colour drives the fog so distant ground fades.
+    const sky = document.createElement("canvas");
+    sky.width = 2; sky.height = 256;
+    const sctx = sky.getContext("2d");
+    const grad = sctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, "#b6cddf");    // upper sky
+    grad.addColorStop(0.55, "#d7e1e8");
+    grad.addColorStop(1, "#e9eee9");     // hazy horizon
+    sctx.fillStyle = grad; sctx.fillRect(0, 0, 2, 256);
+    const skyTex = new THREE.CanvasTexture(sky);
+    if ("colorSpace" in skyTex) skyTex.colorSpace = THREE.SRGBColorSpace;
+    this.scene.background = skyTex;
+    this.scene.fog = new THREE.Fog(0xdfe6e2, 62, 175);
 
     this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 0.1, 500);
     this.camera.position.set(28, 22, 28);
@@ -87,20 +99,31 @@ export class Engine3D {
     fill.position.set(-18, 14, -12);
     this.scene.add(fill);
 
-    // Ground — subtle two-tone so the model reads against it
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0xc4bfae, roughness: 1.0 });
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.02;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
+    // ---- Natural site: grass plot + cleared building pad, instead of a bare grid ----
+    // Grass — the plot the building sits on
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x8ba368, roughness: 1.0 });
+    const grass = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), grassMat);
+    grass.rotation.x = -Math.PI / 2;
+    grass.position.y = -0.04;
+    grass.receiveShadow = true;
+    this.scene.add(grass);
 
-    // Grid
-    const grid = new THREE.GridHelper(80, 40, 0x6b7279, 0xc9ccd0);
-    grid.position.y = 0.01;
-    grid.material.opacity = 0.25;
+    // Cleared building pad — gravel/dirt the structure is built on (reads as a site)
+    const padMat = new THREE.MeshStandardMaterial({ color: 0xc7bca0, roughness: 1.0 });
+    const pad = new THREE.Mesh(new THREE.CircleGeometry(36, 56), padMat);
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.y = -0.01;
+    pad.receiveShadow = true;
+    this.scene.add(pad);
+
+    // Faded site-setout lines (a hint of survey grid on the pad, not a graph page)
+    const grid = new THREE.GridHelper(64, 32, 0x8f9483, 0xb3b8a8);
+    grid.position.y = 0.012;
+    grid.material.opacity = 0.11;
     grid.material.transparent = true;
     this.scene.add(grid);
+
+    this._addTrees();
 
     // Building group
     this.buildingGroup = new THREE.Group();
@@ -173,6 +196,32 @@ export class Engine3D {
         pinchDist = d;
       }
     }, { passive: true });
+  }
+
+  /* Sparse low-poly trees around the site edge — scale + life, not a forest. */
+  _addTrees() {
+    const spots = [
+      [-32, -20], [30, -26], [-36, 16], [34, 22], [-24, 32],
+      [24, 34], [-42, -2], [40, 8], [-18, -36], [16, -34],
+    ];
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b5236, roughness: 1 });
+    const leafMats = [0x6f8f57, 0x5e8050, 0x7c9a63].map(
+      (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1 })
+    );
+    for (const [x, z] of spots) {
+      const g = new THREE.Group();
+      const h = 3.2 + ((x * z) % 5) * 0.5;                  // deterministic-ish varied height
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, h * 0.5, 6), trunkMat);
+      trunk.position.y = h * 0.25; trunk.castShadow = true; g.add(trunk);
+      const canopy = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(h * 0.5, 0),
+        leafMats[Math.abs((x + z)) % leafMats.length]
+      );
+      canopy.position.y = h * 0.66; canopy.scale.y = 1.15; canopy.castShadow = true; g.add(canopy);
+      g.position.set(x, 0, z);
+      g.rotation.y = (x + z) % 3;
+      this.scene.add(g);
+    }
   }
 
   resize() {
