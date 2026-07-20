@@ -2450,6 +2450,13 @@ export default function App() {
           main.grid-responsive { box-sizing: border-box; }
           main.grid-responsive * { min-width: 0; }
           input, select, textarea, button { max-width: 100%; }
+          /* 3D viewport controls — compact bar under the live view */
+          .ec-viewport-controls .ec-btn { padding: 7px 11px; font-size: 12px; }
+          @media (max-width: 560px) {
+            .ec-viewport-controls { gap: 6px !important; padding: 6px !important; }
+            .ec-viewport-controls .ec-btn { padding: 6px 9px; font-size: 11px; }
+            .ec-viewport-controls > div { min-width: 110px !important; }
+          }
           @media (max-width: 960px) {
             main.grid-responsive { grid-template-columns: 1fr !important; padding: 32px 16px 48px !important; gap: 20px !important; }
           }
@@ -2667,8 +2674,9 @@ export default function App() {
                 </div>
               )}
             </div>
-            {/* Controls */}
-            <div style={{ position: "absolute", bottom: 12, left: 12, right: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "rgba(246,247,248,0.82)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", padding: 8, borderRadius: 4, border: `1px solid ${TOKENS.rule}` }}>
+          </div>{/* end #ws-viewport */}
+            {/* Controls — sit BELOW the live view, never over it (mobile-safe) */}
+            <div className="ec-viewport-controls" style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: TOKENS.paperLight, padding: 8, borderRadius: 4, border: `1px solid ${TOKENS.rule}` }}>
               {buildMode === "materials" ? (
                 <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, background: "rgba(255,255,255,0.9)", padding: "8px 12px", border: `1px solid ${TOKENS.rule}` }}>
                   Quote builder — material, labour & trades in one total
@@ -2677,7 +2685,7 @@ export default function App() {
                 <>
                   <button className="ec-btn ec-btn-hivis" onClick={playConstruction}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                    Play construction
+                    Play demo
                   </button>
                   <div style={{ flex: 1, minWidth: 160, display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.9)", padding: "6px 10px", border: `1px solid ${TOKENS.rule}` }}>
                     <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, letterSpacing: "0.12em" }}>STAGE</span>
@@ -2712,7 +2720,6 @@ export default function App() {
                 </>
               )}
             </div>
-          </div>
 
           {/* Headline cost cards */}
           <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16, scrollMarginTop: 132 }}>
@@ -4016,7 +4023,7 @@ function CostBreakdown({ estimate, currency }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 28 }}>
         <div>
           <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.steel, marginBottom: 10 }}>
-            Where the money goes · {currency}{fmt(estimate.total)} total
+            Total breakdown · {currency}{fmt(estimate.total)}
           </div>
           {buildup.map((r, i) => (
             <CostBar key={r.label} idx={i} label={r.label} value={r.value} max={buildMax} total={estimate.total} currency={currency} fill={TOKENS.inkSoft} hovered={hoverA} onHover={setHoverA} />
