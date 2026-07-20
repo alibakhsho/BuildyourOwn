@@ -1829,6 +1829,27 @@ export default function App() {
     };
   }, []);
 
+  /* Hammer cursor: on across the app, and "taps" (swings down) while a button
+     is pressed. Pointer-fine only, so touch devices are unaffected. */
+  useEffect(() => {
+    if (!window.matchMedia || !window.matchMedia("(pointer: fine)").matches) return;
+    const root = document.documentElement;
+    root.classList.add("byo-hammer");
+    const down = () => root.classList.add("byo-hammer-down");
+    const up = () => root.classList.remove("byo-hammer-down");
+    window.addEventListener("pointerdown", down);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    window.addEventListener("blur", up);
+    return () => {
+      root.classList.remove("byo-hammer", "byo-hammer-down");
+      window.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("blur", up);
+    };
+  }, []);
+
   /* Rebuild on spec or mode change (exit walkthrough first) */
   useEffect(() => {
     const eng = engineRef.current;
@@ -2154,6 +2175,18 @@ export default function App() {
         .ec-tab-active { color: var(--ink); border-bottom-color: var(--hivis); }
         .ec-link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--hivis); text-decoration-thickness: 2px; text-underline-offset: 3px; }
         .ec-link:hover { text-decoration-color: var(--ink); }
+
+        /* ===== Hammer cursor — brand personality; "taps" (swings down) on click ===== */
+        html.byo-hammer, html.byo-hammer * {
+          cursor: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyOCIgaGVpZ2h0PSIyOCIgdmlld0JveD0iMCAwIDI4IDI4Ij48ZyB0cmFuc2Zvcm09InJvdGF0ZSgtNDIgMTQgMTQpIj48cmVjdCB4PSI0IiB5PSI0IiB3aWR0aD0iMTUiIGhlaWdodD0iNiIgcng9IjEuNiIgZmlsbD0iIzNCNDE0QSIgc3Ryb2tlPSIjMTQxNzFBIiBzdHJva2Utd2lkdGg9IjEuMyIvPjxyZWN0IHg9IjEwIiB5PSI5LjUiIHdpZHRoPSI0IiBoZWlnaHQ9IjE0IiByeD0iMS4zIiBmaWxsPSIjRDlBQzAwIiBzdHJva2U9IiMxNDE3MUEiIHN0cm9rZS13aWR0aD0iMS4zIi8+PC9nPjwvc3ZnPg==") 6 5, auto !important;
+        }
+        html.byo-hammer.byo-hammer-down, html.byo-hammer.byo-hammer-down * {
+          cursor: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyOCIgaGVpZ2h0PSIyOCIgdmlld0JveD0iMCAwIDI4IDI4Ij48ZyB0cmFuc2Zvcm09InJvdGF0ZSgtMTYgMTQgMTQpIj48cmVjdCB4PSI0IiB5PSI3IiB3aWR0aD0iMTUiIGhlaWdodD0iNiIgcng9IjEuNiIgZmlsbD0iIzNCNDE0QSIgc3Ryb2tlPSIjMTQxNzFBIiBzdHJva2Utd2lkdGg9IjEuMyIvPjxyZWN0IHg9IjEwIiB5PSIxMi41IiB3aWR0aD0iNCIgaGVpZ2h0PSIxNCIgcng9IjEuMyIgZmlsbD0iI0Q5QUMwMCIgc3Ryb2tlPSIjMTQxNzFBIiBzdHJva2Utd2lkdGg9IjEuMyIvPjwvZz48L3N2Zz4=") 8 9, auto !important;
+        }
+        /* keep text fields usable — real text cursor when typing */
+        html.byo-hammer input:not([type=range]):not([type=checkbox]):not([type=radio]),
+        html.byo-hammer textarea,
+        html.byo-hammer [contenteditable="true"] { cursor: text !important; }
 
         /* ===== HERO ===== */
         .ec-hero-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
