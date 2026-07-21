@@ -1407,49 +1407,215 @@ function UserPathsSection({ onPick }) {
 }
 
 /* ---- Projects screen: every project is one workspace ---- */
+/* ---- Dashboard helpers: cost each project from its stored spec ---- */
+function projectEstimate(p) {
+  const region = p.region || "AU";
+  try {
+    if (p.buildMode === "highrise" && p.hrSpec) {
+      const e = HighRiseEstimator.buildEstimate(p.hrSpec, region);
+      return { total: e.total || 0, gfaM2: e.takeoff?.gfaM2 || 0,
+        comp: { Structure: e.systemsTotal || 0, "Design fees": e.designFees || 0, Prelims: e.prelims || 0, Margin: e.margin || 0, Contingency: e.contingency || 0 } };
+    }
+    if (p.buildMode === "materials" && p.matSpec) {
+      const e = MaterialsOnly.buildEstimate(p.matSpec, region);
+      return { total: e.total || 0, gfaM2: 0,
+        comp: { Materials: e.byKind?.material || 0, Labour: e.byKind?.labour || 0, "Trades & jobs": e.byKind?.element || 0 } };
+    }
+    if (p.spec) {
+      const e = Estimator.buildEstimate(p.spec, region);
+      return { total: e.total || 0, gfaM2: e.takeoff?.gfaM2 || 0,
+        comp: { Materials: e.materialsTotal || 0, Labour: e.labourTotal || 0, Equipment: e.equipmentTotal || 0, Prelims: e.prelims || 0, Margin: e.margin || 0, Contingency: e.contingency || 0 } };
+    }
+  } catch { /* legacy / not-yet-opened project — leave at zero */ }
+  return { total: 0, gfaM2: 0, comp: {} };
+}
+
+/* Construction-toned chart palette: hi-vis, rust, steel-blue, grey, charcoal, concrete */
+const CHART_COLORS = ["#D9A514", "#C25A1C", "#5B7C99", "#8A8F98", "#3A4652", "#B8B2A7"];
+
+function StatTile({ label, value, sub, icon, i }) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.35 }}
+      className="ec-card" style={{ padding: "18px 20px", borderTop: `3px solid ${TOKENS.hivis}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel, textTransform: "uppercase" }}>{label}</span>
+        <span style={{ color: TOKENS.hivisDeep, display: "flex" }}>{icon}</span>
+      </div>
+      <div className="ec-display" style={{ fontSize: 30, lineHeight: 1.1, marginTop: 10 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: TOKENS.inkSoft, marginTop: 4 }}>{sub}</div>}
+    </motion.div>
+  );
+}
+
+function BarChart({ rows, currency }) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {rows.map((r, i) => (
+        <div key={r.label + i}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4, gap: 10 }}>
+            <span style={{ color: TOKENS.ink, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</span>
+            <span className="ec-mono" style={{ color: TOKENS.inkSoft, flexShrink: 0 }}>{currency}{fmt(r.value)}</span>
+          </div>
+          <div style={{ height: 10, background: TOKENS.rule, borderRadius: 5, overflow: "hidden" }}>
+            {/* Plain div + CSS transition: framer-motion doesn't reliably tween
+               percentage width, so drive it directly. */}
+            <div style={{ height: "100%", width: `${Math.max(2, (r.value / max) * 100)}%`, background: `linear-gradient(90deg, ${TOKENS.hivisDeep}, ${TOKENS.emberDeep})`, borderRadius: 5, transition: "width 0.6s ease" }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DonutChart({ segments, size = 180 }) {
+  const total = segments.reduce((a, s) => a + s.value, 0) || 1;
+  const r = size / 2 - 16, C = 2 * Math.PI * r, cx = size / 2, cy = size / 2;
+  let offset = 0;
+  return (
+    <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={TOKENS.rule} strokeWidth="14" />
+        {segments.map((s, i) => {
+          const len = (s.value / total) * C;
+          const el = (
+            <motion.circle key={s.label} cx={cx} cy={cy} r={r} fill="none"
+              stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth="14"
+              strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-offset}
+              transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 + i * 0.08 }} />
+          );
+          offset += len;
+          return el;
+        })}
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7, minWidth: 150, flex: 1 }}>
+        {segments.map((s, i) => (
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0 }} />
+            <span style={{ color: TOKENS.inkSoft, flex: 1 }}>{s.label}</span>
+            <span className="ec-mono" style={{ color: TOKENS.ink }}>{Math.round((s.value / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* Tiny inline stat icons (no icon library — stays on-brand + dependency-free) */
+const DASH_ICONS = {
+  value: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg>,
+  count: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18M6 21V9l6-5 6 5v12M10 21v-6h4v6" /></svg>,
+  rate: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18M7 14l4-4 3 3 5-6" /></svg>,
+  area: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h18v18H3zM3 9h18M9 21V9" /></svg>,
+};
+
 function ProjectsScreen({ onOpen, onNew }) {
   const [projects, setProjects] = useState(listProjects);
   const [name, setName] = useState("");
   const [type, setType] = useState("homeowner");
   const refresh = () => setProjects(listProjects());
   const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Custom Quote" };
+
+  const metrics = useMemo(() => {
+    const est = {};
+    projects.forEach((p) => { est[p.id] = projectEstimate(p); });
+    const pipeline = projects.reduce((a, p) => a + est[p.id].total, 0);
+    const totalGfa = projects.reduce((a, p) => a + est[p.id].gfaM2, 0);
+    const rated = projects.filter((p) => est[p.id].gfaM2 > 0);
+    const avgRate = rated.length ? rated.reduce((a, p) => a + est[p.id].total / est[p.id].gfaM2, 0) / rated.length : 0;
+    const regionCounts = {}, byMode = {};
+    projects.forEach((p) => {
+      const rg = p.region || "AU"; regionCounts[rg] = (regionCounts[rg] || 0) + 1;
+      byMode[p.buildMode] = (byMode[p.buildMode] || 0) + 1;
+    });
+    const regions = Object.keys(regionCounts);
+    const domRegion = regions.sort((a, b) => regionCounts[b] - regionCounts[a])[0] || "AU";
+    const agg = {};
+    projects.forEach((p) => { const c = est[p.id].comp; for (const k in c) agg[k] = (agg[k] || 0) + c[k]; });
+    const composition = Object.entries(agg).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+    const barRows = projects.map((p) => ({ label: p.name, value: est[p.id].total })).sort((a, b) => b.value - a.value).slice(0, 8);
+    return { est, pipeline, totalGfa, avgRate, byMode, currency: currencySymbol(domRegion), mixed: regions.length > 1, composition, barRows };
+  }, [projects]);
+
+  const { est, pipeline, totalGfa, avgRate, byMode, currency, mixed, composition, barRows } = metrics;
+  const modeSub = Object.entries(byMode).map(([m, n]) => `${n} ${modeLabel[m] || m}`).join(" · ");
+
+  const newProjectCard = (
+    <div className="ec-card" style={{ padding: 18, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <input className="ec-input" placeholder="New project name…" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
+      <select className="ec-select" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }}>
+        {USER_PATHS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+      </select>
+      <button className="ec-btn ec-btn-hivis" onClick={() => onNew(type, name.trim() || "Untitled project")}>+ New project</button>
+    </div>
+  );
+
   return (
     <main style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px 64px", minHeight: "60vh" }}>
-      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Projects</div>
-      <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 24 }}>Every project, one workspace.</h2>
-
-      <div className="ec-card" style={{ padding: 18, marginBottom: 28, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <input className="ec-input" placeholder="New project name…" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
-        <select className="ec-select" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }}>
-          {USER_PATHS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-        </select>
-        <button className="ec-btn ec-btn-hivis" onClick={() => onNew(type, name.trim() || "Untitled project")}>+ New project</button>
-      </div>
+      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Portfolio dashboard</div>
+      <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 24 }}>Your build pipeline at a glance.</h2>
 
       {projects.length === 0 ? (
-        <p style={{ color: TOKENS.inkSoft, fontSize: 14 }}>No projects yet — create your first one above.</p>
+        <>
+          {newProjectCard}
+          <p style={{ color: TOKENS.inkSoft, fontSize: 14, marginTop: 20 }}>No projects yet — create your first one above and the dashboard will populate.</p>
+        </>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
-          {projects.map((p, i) => (
-            <motion.div key={p.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-              className="ec-card" style={{ padding: 18, cursor: "pointer", borderTop: `3px solid ${TOKENS.hivis}` }}
-              onClick={() => onOpen(getProject(p.id) || p)}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
-                <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel }}>{modeLabel[p.buildMode] || p.buildMode}</span>
-              </div>
-              <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 6 }}>
-                {p.region} · updated {new Date(p.updatedAt).toLocaleDateString()}
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px" }}
-                  onClick={(e) => { e.stopPropagation(); duplicateProject(p.id); refresh(); }}>Duplicate</button>
-                <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberDeep }}
-                  onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) { deleteProject(p.id); refresh(); } }}>Delete</button>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+        <>
+          {/* KPI tiles */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 20 }}>
+            <StatTile i={0} label="Pipeline value" icon={DASH_ICONS.value} value={`${currency}${fmt(pipeline)}`} sub={mixed ? "Across mixed regions — indicative" : "Total estimated across all projects"} />
+            <StatTile i={1} label="Active projects" icon={DASH_ICONS.count} value={projects.length} sub={modeSub} />
+            <StatTile i={2} label="Avg cost / m²" icon={DASH_ICONS.rate} value={avgRate > 0 ? `${currency}${fmt(avgRate)}` : "—"} sub="Residential & high-rise" />
+            <StatTile i={3} label="Portfolio floor area" icon={DASH_ICONS.area} value={totalGfa > 0 ? `${fmt(totalGfa)} m²` : "—"} sub="Combined GFA" />
+          </div>
+
+          {/* Charts */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14, marginBottom: 28 }}>
+            <div className="ec-card" style={{ padding: 20 }}>
+              <div className="ec-eyebrow" style={{ marginBottom: 14 }}>Estimated value by project</div>
+              {barRows.some((r) => r.value > 0)
+                ? <BarChart rows={barRows} currency={currency} />
+                : <p style={{ fontSize: 13, color: TOKENS.steel }}>Open a project to generate its estimate.</p>}
+            </div>
+            <div className="ec-card" style={{ padding: 20 }}>
+              <div className="ec-eyebrow" style={{ marginBottom: 14 }}>Portfolio cost composition</div>
+              {composition.length
+                ? <DonutChart segments={composition} />
+                : <p style={{ fontSize: 13, color: TOKENS.steel }}>No costed projects yet.</p>}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 22 }}>{newProjectCard}</div>
+
+          {/* Project cards */}
+          <div className="ec-eyebrow" style={{ marginBottom: 12 }}>All projects</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+            {projects.map((p, i) => (
+              <motion.div key={p.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.04 }}
+                className="ec-card" style={{ padding: 18, cursor: "pointer", borderTop: `3px solid ${TOKENS.hivis}` }}
+                onClick={() => onOpen(getProject(p.id) || p)}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                  <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
+                  <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel }}>{modeLabel[p.buildMode] || p.buildMode}</span>
+                </div>
+                <div className="ec-display" style={{ fontSize: 22, color: TOKENS.hivisDeep, marginTop: 8 }}>
+                  {est[p.id]?.total > 0 ? `${currencySymbol(p.region || "AU")}${fmt(est[p.id].total)}` : "—"}
+                </div>
+                <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 4 }}>
+                  {est[p.id]?.gfaM2 > 0 ? `${fmt(est[p.id].gfaM2)} m² · ` : ""}{p.region} · updated {new Date(p.updatedAt).toLocaleDateString()}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px" }}
+                    onClick={(e) => { e.stopPropagation(); duplicateProject(p.id); refresh(); }}>Duplicate</button>
+                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberDeep }}
+                    onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) { deleteProject(p.id); refresh(); } }}>Delete</button>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </>
       )}
     </main>
   );
