@@ -28,6 +28,7 @@ import * as CM from "../state/cm.js";
 import TakeoffCanvas, { TakeoffSheets } from "./TakeoffCanvas.jsx";
 import Integrations from "./Integrations.jsx";
 import { pushClaim, pushPurchaseOrder, claimToLineItems } from "../lib/accounting.js";
+import { Dashboard } from "@/components/dashboard.jsx";
 
 const NAV = [
   { id: "dashboard", label: "Dashboard" },
@@ -125,65 +126,6 @@ function RailButton({ active, label, onClick }) {
 /* ========================================================================
    Dashboard
    ======================================================================== */
-
-function Dashboard({ onOpenJob, onSeeAll }) {
-  const p = CM.pipelineSummary();
-  const jobs = CM.listJobs();
-  const active = jobs.filter((j) => ["in_progress", "practical_completion"].includes(j.status));
-  const cur = currencySymbol("AU");
-
-  // The whole point of the dashboard: surface trades tracking over budget
-  // while there is still time to do something about them.
-  const atRisk = active.flatMap((j) => {
-    const f = CM.jobFinancials(j.id);
-    return f.rows.filter((r) => r.atRisk).map((r) => ({ job: j, row: r }));
-  });
-
-  return (
-    <>
-      <PageHead title="Dashboard" sub="Where the business is right now" />
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12, marginBottom: 24 }}>
-        <Stat label="Pipeline" value={`${cur}${fmt(p.pipelineValue)}`} sub="Leads, estimating, quoted" />
-        <Stat label="Contracted" value={`${cur}${fmt(p.contractedValue)}`} sub="Won and under way" hivis />
-        <Stat label="On site" value={p.activeJobs} sub={`of ${p.totalJobs} job${p.totalJobs === 1 ? "" : "s"}`} />
-        <Stat label="Unclaimed" value={`${cur}${fmt(p.unclaimedTotal)}`} sub="Earned, not yet invoiced" alert={p.unclaimedTotal > 0} />
-      </div>
-
-      {atRisk.length > 0 && (
-        <Panel title={`${atRisk.length} trade${atRisk.length === 1 ? "" : "s"} over budget`} tone="alert">
-          <div style={{ display: "grid", gap: 4 }}>
-            {atRisk.slice(0, 6).map(({ job, row }) => (
-              <div key={`${job.id}-${row.id}`} onClick={() => onOpenJob(job.id)}
-                style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "7px 10px", background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, cursor: "pointer", fontSize: 12 }}>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  <strong>{job.jobNo}</strong> · {row.name}
-                </span>
-                <span className="ec-mono" style={{ color: TOKENS.alert, fontWeight: 700, whiteSpace: "nowrap" }}>
-                  {cur}{fmt(Math.abs(row.variance))} over
-                </span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
-
-      <Panel title="Jobs on site">
-        {!active.length ? (
-          <Empty>No jobs are on site. Move a won job to <em>On site</em> to start tracking it.</Empty>
-        ) : (
-          <div style={{ display: "grid", gap: 8 }}>
-            {active.map((j) => <JobRow key={j.id} job={j} onOpen={() => onOpenJob(j.id)} />)}
-          </div>
-        )}
-        <button className="ec-mono" onClick={onSeeAll}
-          style={{ marginTop: 12, border: "none", background: "none", color: TOKENS.inkSoft, fontSize: 11, cursor: "pointer", padding: 0 }}>
-          See all jobs →
-        </button>
-      </Panel>
-    </>
-  );
-}
 
 /* ========================================================================
    Jobs

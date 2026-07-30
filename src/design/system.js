@@ -39,13 +39,15 @@ export const lightPalette = {
   card: "#FFFFFF",
   ink: "#14171A",
   inkSoft: "#3B414A",
-  steel: "#6B7279",
+  // Measured on --paper: #6B7279 gives 4.2:1, under the 4.5 AA floor for the
+  // 10–12px captions this carries most often.
+  steel: "#616870",
   rule: "#D5D8DC",
   hivis: "#F5C518",
   hivisDeep: "#D9AC00",
   ember: "#F58E1A",
   emberDeep: "#D96E0A",
-  alert: "#C8480E",
+  alert: "#B8420C", // was #C8480E — 4.46:1 on --paper-light, a hair under AA
   ok: "#3A7D44",
   onHivis: "#14171A",
   onEmber: "#14171A",
@@ -77,7 +79,9 @@ export const darkPalette = {
   card: "#1E242B",
   ink: "#ECEFF2",
   inkSoft: "#B4BCC5",
-  steel: "#7E8892",
+  // Measured against --card (#1E242B): #7E8892 lands at 4.34:1, just under
+  // the 4.5 AA floor for the 12px card descriptions this is used on.
+  steel: "#8C959F",
   rule: "#2E353D",
   hivis: "#F5C518",
   hivisDeep: "#FFD84D",

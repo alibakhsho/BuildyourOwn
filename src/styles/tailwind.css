@@ -1,0 +1,59 @@
+/* =========================================================================
+   Tailwind entry point.
+
+   The important bit is `@theme inline`. It maps Tailwind's colour scale onto
+   the CSS custom properties that design/system.js already emits, by
+   REFERENCE rather than by value. That means `bg-card` resolves to
+   `var(--card)` at runtime, so a Tailwind-styled component follows the light
+   /dark switch through exactly the same mechanism as the 650 existing inline
+   styles — one token system, not two competing ones.
+
+   Without `inline`, Tailwind would snapshot the light values at build time
+   and every Tailwind surface would stay stubbornly light in dark mode.
+   ========================================================================= */
+
+@import "tailwindcss";
+
+/* The app themes via a `data-theme` attribute, not Tailwind's default `.dark`
+   class. This teaches `dark:` utilities where to look, for the rare case
+   where a token swap isn't enough (e.g. changing a shadow or a border width
+   rather than a colour). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-paper-light: var(--paper-light);
+  --color-card: var(--card);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-steel: var(--steel);
+  --color-rule: var(--rule);
+  --color-hivis: var(--hivis);
+  --color-hivis-deep: var(--hivis-deep);
+  --color-ember: var(--ember);
+  --color-ember-deep: var(--ember-deep);
+  --color-alert: var(--alert);
+  --color-ok: var(--ok);
+  --color-on-hivis: var(--on-hivis);
+  --color-on-ember: var(--on-ember);
+  --color-emphasis: var(--emphasis);
+  --color-on-emphasis: var(--on-emphasis);
+  --color-on-emphasis-soft: var(--on-emphasis-soft);
+  --color-warn-wash: var(--warn-wash);
+  --color-error-wash: var(--error-wash);
+  --color-ok-wash: var(--ok-wash);
+
+  /* Matches the three type roles already in the design system, so Tailwind
+     components and legacy .ec-* markup share one typographic voice. */
+  --font-display: "Barlow Condensed", sans-serif;
+  --font-sans: Inter, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+}
+
+@layer base {
+  /* Tabular figures everywhere numbers appear — a money column that shifts
+     width as digits change is the fastest way to look unfinished. */
+  .font-mono {
+    font-feature-settings: "tnum";
+  }
+}
