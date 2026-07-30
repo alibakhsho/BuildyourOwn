@@ -27,6 +27,7 @@ import { listProjects, createProject, saveProject, deleteProject, duplicateProje
 import { PERSONAS, buildSystemPrompt, summariseSpec, summariseEstimate, parseActions } from "./ai/personas.js";
 import DesignSystem, { cssVariables } from "./design/system.js";
 import { useTheme } from "./design/theme.js";
+import { Badge } from "@/components/ui/badge";
 import { Icon } from "./design/icons.jsx";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import { updateJob as updateCmJob } from "./state/cm.js";
@@ -1624,6 +1625,15 @@ function ProjectsScreen({ onOpen, onNew }) {
   );
 }
 
+/* Build modes, defined once. The Projects picker and the read-only badge
+   shown inside a project both read from here, so they cannot drift apart. */
+const BUILD_MODES = [
+  ["residential", "Residential"],
+  ["highrise", "High-rise"],
+  ["materials", "Custom Quote"],
+];
+const buildModeLabel = (m) => (BUILD_MODES.find(([id]) => id === m) || [, m])[1];
+
 /* ---- Workflow stepper: the workspace's linear flow ---- */
 const WORKFLOW = [
   { id: "estimate", label: "Estimate" },
@@ -2577,57 +2587,76 @@ export default function App() {
                 "what will this cost" but "how is this job actually going". */}
             <button className="ec-btn ec-btn-ghost" onClick={() => setScreen("manage")}
               style={{ background: screen === "manage" ? TOKENS.ink : "transparent", color: screen === "manage" ? TOKENS.paper : TOKENS.ink }}>
-              Manage
+              Site Office
             </button>
             {screen === "workspace" && (
               <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
                 title="Project name" style={{ width: 170, fontWeight: 600, fontSize: 13 }} />
             )}
           </div>
-          {/* Estimator-only controls. The management screen has its own
-              per-job context, so build mode / region / report export would
-              be meaningless noise there. */}
-          <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-            {screen !== "manage" && <>
-            <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-              {[["residential","Residential"],["highrise","High-rise"],["materials","Custom Quote"]]
-                .filter(([m]) => userType !== "homeowner" || m !== "highrise")
-                .map(([m, label]) => (
-                <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
-                  className="ec-mono"
-                  style={{
-                    padding: "6px 12px",
-                    background: buildMode === m ? TOKENS.emberDeep : "transparent",
-                    color: buildMode === m ? "#fff" : TOKENS.emberDeep,
-                    border: "none", cursor: "pointer",
-                    fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
-                  }}>{label}</button>
-              ))}
-            </div>
-            <div className="ec-mono hdr-proj" style={{ fontSize: 10, color: TOKENS.inkSoft }}>
-              <span style={{ color: TOKENS.steel, marginRight: 5 }}>PROJ</span>{projectNo}
-            </div>
-            <div style={{ display: "flex", border: `1px solid ${TOKENS.ink}` }}>
-              {["AU","US","UK"].map((r) => (
-                <button key={r} onClick={() => setRegion(r)}
-                  className="ec-mono"
-                  style={{
-                    padding: "5px 10px",
-                    background: region === r ? TOKENS.ink : "transparent",
-                    color: region === r ? TOKENS.paper : TOKENS.ink,
-                    border: "none", cursor: "pointer",
-                    fontSize: 10, letterSpacing: "0.12em",
-                  }}>{r}</button>
-              ))}
-            </div>
-            <button className="ec-btn ec-btn-hivis" onClick={downloadReport}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" /></svg>
-              Save / share
-            </button>
-            <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
-              {copied ? "Copied ✓" : "Copy"}
-            </button>
-            </>}
+          {/* Build mode and region are DECISIONS made when a project is set
+              up, so they are only editable on the Projects screen. Once
+              you're inside a project they become read-only labels: changing
+              a job's build mode halfway through would silently invalidate
+              every quantity already measured against it. */}
+          <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {screen === "projects" && (
+              <>
+                <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
+                  {BUILD_MODES
+                    .filter(([m]) => userType !== "homeowner" || m !== "highrise")
+                    .map(([m, label]) => (
+                    <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
+                      className="ec-mono"
+                      style={{
+                        padding: "6px 12px",
+                        background: buildMode === m ? TOKENS.emberDeep : "transparent",
+                        color: buildMode === m ? TOKENS.onEmber : TOKENS.emberDeep,
+                        border: "none", cursor: "pointer",
+                        fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
+                      }}>{label}</button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", border: `1px solid ${TOKENS.ink}` }}>
+                  {["AU","US","UK"].map((r) => (
+                    <button key={r} onClick={() => setRegion(r)}
+                      className="ec-mono"
+                      style={{
+                        padding: "5px 10px",
+                        background: region === r ? TOKENS.ink : "transparent",
+                        color: region === r ? TOKENS.paper : TOKENS.ink,
+                        border: "none", cursor: "pointer",
+                        fontSize: 10, letterSpacing: "0.12em",
+                      }}>{r}</button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {screen === "workspace" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <Badge variant="outline" className="border-ember-deep text-ember-deep">
+                  {buildModeLabel(buildMode)}
+                </Badge>
+                <Badge variant="outline">{region}</Badge>
+              </div>
+            )}
+
+            {/* Export only once there is a real priced quote behind it — an
+                empty estimate produces a document that makes the app look
+                broken to whoever it gets sent to. */}
+            {screen === "workspace" && estimate?.total > 0 && (
+              <>
+                <button className="ec-btn ec-btn-hivis" onClick={downloadReport}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" /></svg>
+                  Save / share
+                </button>
+                <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
+                  {copied ? "Copied ✓" : "Copy"}
+                </button>
+              </>
+            )}
+
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </div>

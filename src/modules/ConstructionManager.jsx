@@ -29,13 +29,9 @@ import TakeoffCanvas, { TakeoffSheets } from "./TakeoffCanvas.jsx";
 import Integrations from "./Integrations.jsx";
 import { pushClaim, pushPurchaseOrder, claimToLineItems } from "../lib/accounting.js";
 import { Dashboard } from "@/components/dashboard.jsx";
-
-const NAV = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "jobs", label: "Jobs" },
-  { id: "clients", label: "Clients" },
-  { id: "settings", label: "Settings" },
-];
+import { AppShell, SITE_OFFICE_NAV } from "@/components/app-shell.jsx";
+import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
 
 const JOB_MODULES = [
   { id: "overview", label: "Overview" },
@@ -52,6 +48,8 @@ const JOB_MODULES = [
 export default function ConstructionManager({ onOpenEstimator }) {
   const [view, setView] = useState("dashboard");
   const [jobId, setJobId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [creating, setCreating] = useState(false);
   const [, force] = useState(0);
   const refresh = useCallback(() => force((n) => n + 1), []);
 
@@ -67,59 +65,44 @@ export default function ConstructionManager({ onOpenEstimator }) {
   }, []);
 
   const job = jobId ? CM.getJob(jobId) : null;
+  const goto = (v) => { setView(v); setJobId(null); };
+
+  const crumbs = [{ label: "Site Office", onClick: job ? () => goto("dashboard") : undefined }];
+  if (job) {
+    crumbs.push({ label: "Jobs", onClick: () => goto("jobs") }, { label: job.jobNo });
+  } else {
+    crumbs.push({ label: SITE_OFFICE_NAV.find((n) => n.id === view)?.label || view });
+  }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "196px 1fr", minHeight: "calc(100vh - 66px)", background: TOKENS.paper }} className="cm-shell">
-      <style>{`
-        .cm-shell { box-sizing: border-box; }
-        .cm-shell * { min-width: 0; }
-        @media (max-width: 900px) {
-          .cm-shell { grid-template-columns: 1fr !important; }
-          .cm-rail { position: static !important; height: auto !important;
-                     display: flex !important; overflow-x: auto; border-right: none !important;
-                     border-bottom: 1px solid ${TOKENS.rule}; }
-          .cm-rail .cm-rail-group { display: none; }
-          .cm-rail button { white-space: nowrap; }
-        }
-      `}</style>
+    <AppShell
+      view={jobId ? "jobs" : view}
+      onView={goto}
+      breadcrumb={crumbs}
+      search={search}
+      onSearch={setSearch}
+      actions={
+        <Button variant="hivis" size="sm" onClick={() => setCreating(true)}>
+          <Plus className="size-3.5" /> New job
+        </Button>
+      }
+    >
+      {job ? (
+        <JobDetail job={job} onBack={() => setJobId(null)} onOpenEstimator={onOpenEstimator} />
+      ) : view === "dashboard" ? (
+        <Dashboard onOpenJob={setJobId} onSeeAll={() => goto("jobs")} onNewJob={() => setCreating(true)} />
+      ) : view === "jobs" ? (
+        <JobsScreen onOpenJob={setJobId} search={search} onNew={() => setCreating(true)} />
+      ) : view === "clients" ? (
+        <ClientsScreen search={search} />
+      ) : (
+        <SettingsScreen />
+      )}
 
-      <nav className="cm-rail" style={{ borderRight: `1px solid ${TOKENS.rule}`, background: TOKENS.card, position: "sticky", top: 66, height: "calc(100vh - 66px)", padding: "16px 0" }}>
-        <div className="cm-rail-group ec-label" style={{ padding: "0 16px 8px" }}>Manage</div>
-        {NAV.map((n) => (
-          <RailButton key={n.id} active={view === n.id && !jobId} label={n.label}
-            onClick={() => { setView(n.id); setJobId(null); }} />
-        ))}
-      </nav>
-
-      <main style={{ padding: "24px 28px 64px", minWidth: 0 }}>
-        {job ? (
-          <JobDetail job={job} onBack={() => setJobId(null)} onOpenEstimator={onOpenEstimator} />
-        ) : view === "dashboard" ? (
-          <Dashboard onOpenJob={setJobId} onSeeAll={() => setView("jobs")} />
-        ) : view === "jobs" ? (
-          <JobsScreen onOpenJob={setJobId} />
-        ) : view === "clients" ? (
-          <ClientsScreen />
-        ) : (
-          <SettingsScreen />
-        )}
-      </main>
-    </div>
-  );
-}
-
-function RailButton({ active, label, onClick }) {
-  return (
-    <button onClick={onClick} className="ec-mono"
-      style={{
-        display: "block", width: "100%", textAlign: "left", padding: "9px 16px", fontSize: 11,
-        letterSpacing: "0.06em", fontWeight: active ? 700 : 500, cursor: "pointer",
-        border: "none", borderLeft: `3px solid ${active ? TOKENS.hivisDeep : "transparent"}`,
-        background: active ? TOKENS.paperLight : "transparent",
-        color: active ? TOKENS.ink : TOKENS.inkSoft,
-      }}>
-      {label}
-    </button>
+      {creating && (
+        <NewJobDialog onClose={() => setCreating(false)} onCreated={(j) => { setCreating(false); setJobId(j.id); }} />
+      )}
+    </AppShell>
   );
 }
 
@@ -131,17 +114,20 @@ function RailButton({ active, label, onClick }) {
    Jobs
    ======================================================================== */
 
-function JobsScreen({ onOpenJob }) {
+function JobsScreen({ onOpenJob, search = "", onNew }) {
   const jobs = CM.listJobs();
   const [filter, setFilter] = useState("all");
-  const [creating, setCreating] = useState(false);
 
-  const shown = filter === "all" ? jobs : jobs.filter((j) => j.status === filter);
+  const q = search.trim().toLowerCase();
+  const shown = jobs
+    .filter((j) => filter === "all" || j.status === filter)
+    // Matches job name, number and site address — the three things a builder
+    // actually remembers about a job they are hunting for.
+    .filter((j) => !q || [j.name, j.jobNo, j.siteAddress].some((v) => (v || "").toLowerCase().includes(q)));
 
   return (
     <>
-      <PageHead title="Jobs" sub={`${jobs.length} job${jobs.length === 1 ? "" : "s"}`}
-        action={<button className="ec-btn ec-btn-hivis" onClick={() => setCreating(true)}>New job</button>} />
+      <PageHead title="Jobs" sub={q ? `${shown.length} of ${jobs.length} matching “${search.trim()}”` : `${jobs.length} job${jobs.length === 1 ? "" : "s"}`} />
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
         <Chip active={filter === "all"} onClick={() => setFilter("all")} label={`All (${jobs.length})`} />
@@ -154,15 +140,13 @@ function JobsScreen({ onOpenJob }) {
 
       {!shown.length ? (
         <Empty>
-          {jobs.length ? "No jobs at that stage." : "No jobs yet. Create one to start a takeoff, or open the estimator and price something first."}
+          {q ? "Nothing matches that search." : jobs.length ? "No jobs at that stage." : "No jobs yet. Create one to start a takeoff, or open the estimator and price something first."}
         </Empty>
       ) : (
         <div style={{ display: "grid", gap: 8 }}>
           {shown.map((j) => <JobRow key={j.id} job={j} onOpen={() => onOpenJob(j.id)} />)}
         </div>
       )}
-
-      {creating && <NewJobDialog onClose={() => setCreating(false)} onCreated={(j) => { setCreating(false); onOpenJob(j.id); }} />}
     </>
   );
 }
@@ -842,8 +826,10 @@ function Documents({ job }) {
    Clients & Settings
    ======================================================================== */
 
-function ClientsScreen() {
-  const clients = CM.listClients();
+function ClientsScreen({ search = "" }) {
+  const q = search.trim().toLowerCase();
+  const clients = CM.listClients()
+    .filter((c) => !q || [c.name, c.company, c.email].some((v) => (v || "").toLowerCase().includes(q)));
   return (
     <>
       <PageHead title="Clients" sub="These are the contacts pushed to Xero and MYOB."
