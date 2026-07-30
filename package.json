@@ -26,9 +26,10 @@
     "framer-motion": "^12.42.2",
     "heic-to": "^1.5.2",
     "lucide-react": "^1.28.0",
+    "radix-ui": "^1.6.7",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "recharts": "^3.10.1",
+    "recharts": "^3.8.0",
     "tailwind-merge": "^3.6.0",
     "three": "^0.160.0",
     "xlsx": "^0.18.5"
