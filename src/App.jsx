@@ -25,8 +25,11 @@ import BackgroundScene from "./engine/BackgroundScene.jsx";
 import { chat as aiChat } from "./ai/client.js";
 import { listProjects, createProject, saveProject, deleteProject, duplicateProject, getProject } from "./state/projects.js";
 import { PERSONAS, buildSystemPrompt, summariseSpec, summariseEstimate, parseActions } from "./ai/personas.js";
-import DesignSystem from "./design/system.js";
+import DesignSystem, { cssVariables } from "./design/system.js";
+import { useTheme } from "./design/theme.js";
 import { Icon } from "./design/icons.jsx";
+import ConstructionManager from "./modules/ConstructionManager.jsx";
+import { updateJob as updateCmJob } from "./state/cm.js";
 
 /* Human-readable message for AI failures, shared by every AI feature */
 const aiErrMsg = (e) => e?.message || "Couldn't reach the AI service — check your connection.";
@@ -1648,9 +1651,9 @@ function WorkflowStepper({ stage, onStage, buildMode }) {
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
                 padding: "8px 14px", fontSize: 11, letterSpacing: "0.08em", fontWeight: 700,
-                border: `1px solid ${active ? TOKENS.ink : TOKENS.rule}`,
-                background: active ? TOKENS.ink : TOKENS.paperLight,
-                color: active ? TOKENS.hivis : TOKENS.ink,
+                border: `1px solid ${active ? TOKENS.emphasis : TOKENS.rule}`,
+                background: active ? TOKENS.emphasis : TOKENS.paperLight,
+                color: active ? TOKENS.onEmphasis : TOKENS.ink,
               }}>
               <Icon name={`workflow.${s.id}`} size={15} strokeWidth={2.2} />
               {s.label}
@@ -1729,14 +1732,14 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
           <motion.div key={p.id} whileHover={{ y: -4 }} onClick={() => switchPersona(p.id)}
             style={{
               padding: "14px 12px", cursor: "pointer", textAlign: "center",
-              background: p.id === personaId ? TOKENS.ink : TOKENS.paperLight,
-              border: `1px solid ${p.id === personaId ? TOKENS.ink : TOKENS.rule}`,
+              background: p.id === personaId ? TOKENS.emphasis : TOKENS.paperLight,
+              border: `1px solid ${p.id === personaId ? TOKENS.emphasis : TOKENS.rule}`,
               borderTop: `3px solid ${p.id === personaId ? TOKENS.hivis : TOKENS.rule}`,
             }}>
             <div style={{ display: "flex", justifyContent: "center", color: p.id === personaId ? TOKENS.hivis : TOKENS.steel }}>
               <Icon name={`persona.${p.id}`} size={24} strokeWidth={2} />
             </div>
-            <div className="ec-display" style={{ fontSize: 14, marginTop: 8, color: p.id === personaId ? TOKENS.hivis : TOKENS.ink }}>{p.name}</div>
+            <div className="ec-display" style={{ fontSize: 14, marginTop: 8, color: p.id === personaId ? TOKENS.onEmphasis : TOKENS.ink }}>{p.name}</div>
             <div className="ec-mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", marginTop: 3, color: p.id === personaId ? "rgba(242,244,247,0.7)" : TOKENS.steel }}>{p.role.toUpperCase()}</div>
           </motion.div>
         ))}
@@ -1787,7 +1790,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderRadius: 26, padding: 6, boxShadow: "0 12px 22px -16px rgba(15,17,20,0.3)" }}>
             <button type="button" onClick={() => setShowPrompts((v) => !v)} title="Quick prompts" aria-label="Quick prompts"
               style={{ width: 38, height: 38, flexShrink: 0, borderRadius: 13, border: "none", cursor: "pointer",
-                background: showPrompts ? TOKENS.ink : TOKENS.paperLight, color: showPrompts ? TOKENS.hivis : TOKENS.inkSoft,
+                background: showPrompts ? TOKENS.emphasis : TOKENS.paperLight, color: showPrompts ? TOKENS.onEmphasis : TOKENS.inkSoft,
                 display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
               <Icon name="ui.plus" size={18} strokeWidth={2.2} />
             </button>
@@ -1899,6 +1902,7 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
 }
 
 export default function App() {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [region, setRegion] = useState("AU");
   const [buildMode, setBuildMode] = useState("residential"); // residential | highrise
   const [spec, setSpec] = useState(DEFAULT_SPEC);
@@ -2251,21 +2255,16 @@ export default function App() {
       {/* Inline style block for fonts + custom colors (Tailwind core only supports utility classes) */}
       <style>{`
         @import url('${FONT_URL}');
+        /* The single source of colour for the whole app. TOKENS.* are var()
+           references (design/system.js), so flipping data-theme on <html>
+           re-colours every inline style and .ec-* class at once. */
         :root {
-          --paper: ${TOKENS.paper};
-          --paper-light: ${TOKENS.paperLight};
-          --card: ${TOKENS.card};
-          --ink: ${TOKENS.ink};
-          --ink-soft: ${TOKENS.inkSoft};
-          --steel: ${TOKENS.steel};
-          --rule: ${TOKENS.rule};
-          --hivis: ${TOKENS.hivis};
-          --hivis-deep: ${TOKENS.hivisDeep};
-          --ember: ${TOKENS.ember};
-          --ember-deep: ${TOKENS.emberDeep};
-          --alert: ${TOKENS.alert};
-          --ok: ${TOKENS.ok};
-          --grid: ${TOKENS.grid};
+          ${cssVariables("light")}
+          color-scheme: light;
+        }
+        :root[data-theme="dark"] {
+          ${cssVariables("dark")}
+          color-scheme: dark;
         }
         html { scroll-behavior: smooth; }
         body { background: var(--paper); overflow-x: hidden; }
@@ -2294,7 +2293,10 @@ export default function App() {
           font-family: 'JetBrains Mono', monospace; font-size: 10px;
           letter-spacing: 0.12em; text-transform: uppercase;
         }
-        .ec-tag-hivis { background: var(--hivis); color: var(--ink); }
+        /* --on-hivis, not --ink: safety yellow is a light colour in BOTH
+           themes, so its text stays near-black. Using --ink here would flip
+           to near-white on dark and give yellow-on-white. */
+        .ec-tag-hivis { background: var(--hivis); color: var(--on-hivis); }
         .ec-input, .ec-select {
           width: 100%;
           background: var(--paper-light);
@@ -2332,7 +2334,7 @@ export default function App() {
         }
         .ec-btn:hover { background: #000; }
         .ec-btn:active { transform: translateY(1px); }
-        .ec-btn-hivis { background: var(--hivis); color: var(--ink); }
+        .ec-btn-hivis { background: var(--hivis); color: var(--on-hivis); }
         .ec-btn-hivis:hover { background: var(--hivis-deep); }
         .ec-btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
         .ec-btn-ghost:hover { background: var(--ink); color: var(--paper); }
@@ -2570,12 +2572,23 @@ export default function App() {
               style={{ marginLeft: 6, background: screen === "projects" ? TOKENS.ink : "transparent", color: screen === "projects" ? TOKENS.paper : TOKENS.ink }}>
               Projects
             </button>
+            {/* The management side: jobs, takeoffs, budgets, claims. Separate
+                from Projects because it answers a different question — not
+                "what will this cost" but "how is this job actually going". */}
+            <button className="ec-btn ec-btn-ghost" onClick={() => setScreen("manage")}
+              style={{ background: screen === "manage" ? TOKENS.ink : "transparent", color: screen === "manage" ? TOKENS.paper : TOKENS.ink }}>
+              Manage
+            </button>
             {screen === "workspace" && (
               <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
                 title="Project name" style={{ width: 170, fontWeight: 600, fontSize: 13 }} />
             )}
           </div>
+          {/* Estimator-only controls. The management screen has its own
+              per-job context, so build mode / region / report export would
+              be meaningless noise there. */}
           <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+            {screen !== "manage" && <>
             <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
               {[["residential","Residential"],["highrise","High-rise"],["materials","Custom Quote"]]
                 .filter(([m]) => userType !== "homeowner" || m !== "highrise")
@@ -2614,6 +2627,8 @@ export default function App() {
             <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
               {copied ? "Copied ✓" : "Copy"}
             </button>
+            </>}
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </div>
       </header>
@@ -2640,6 +2655,25 @@ export default function App() {
       {/* ============== PROJECTS SCREEN ============== */}
       {screen === "projects" && (
         <ProjectsScreen onOpen={openProject} onNew={newProject} />
+      )}
+
+      {/* ============== CONSTRUCTION MANAGEMENT ============== */}
+      {screen === "manage" && (
+        <ConstructionManager
+          onOpenEstimator={(job) => {
+            // A job either already points at an estimator project or gets a
+            // fresh one created and linked, so the two sides stay joined
+            // rather than drifting into duplicate records.
+            let project = job.estimateProjectId ? getProject(job.estimateProjectId) : null;
+            if (!project) {
+              project = createProject({ name: job.name, buildMode: job.buildMode, region: job.region });
+              updateCmJob(job.id, { estimateProjectId: project.id });
+            }
+            openProject(project);
+            setScreen("workspace");
+            window.scrollTo({ top: 0 });
+          }}
+        />
       )}
 
       {/* ============== MAIN GRID (estimator tool) ============== */}
@@ -2868,7 +2902,7 @@ export default function App() {
             <div style={{ position: "absolute", top: 16, right: 16, maxWidth: "42%", pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
               <span className="ec-tag"><span className="ec-live" style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} />{walkMode ? "WALKTHROUGH" : "LIVE"}</span>
               {walkMode && walkRoom && (
-                <div className="ec-mono" style={{ fontSize: 12, background: TOKENS.ink, color: TOKENS.hivis, padding: "5px 10px", letterSpacing: "0.04em" }}>
+                <div className="ec-mono" style={{ fontSize: 12, background: TOKENS.emphasis, color: TOKENS.onEmphasis, padding: "5px 10px", letterSpacing: "0.04em" }}>
                   ▸ {walkRoom}
                 </div>
               )}
@@ -3183,6 +3217,39 @@ function BathroomCard({ spec, setSpec }) {
       </div>
       <button className="ec-btn ec-btn-ghost" style={{ marginTop: 12, width: "100%", justifyContent: "center" }} onClick={addBath}>+ Add bathroom</button>
     </InputCard>
+  );
+}
+
+/* Light / dark switch. Labelled with the mode you'd be switching TO, which is
+   what people reach for — a sun icon while already in light mode reads as
+   "you are here" and gets clicked by mistake. */
+function ThemeToggle({ theme, onToggle }) {
+  const goingDark = theme !== "dark";
+  return (
+    <button
+      onClick={onToggle}
+      className="ec-mono"
+      title={`Switch to ${goingDark ? "dark" : "light"} mode`}
+      aria-label={`Switch to ${goingDark ? "dark" : "light"} mode`}
+      style={{
+        display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+        padding: "5px 10px", fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
+        border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.inkSoft,
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {goingDark ? (
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        ) : (
+          <>
+            <circle cx="12" cy="12" r="4.2" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </>
+        )}
+      </svg>
+      {goingDark ? "DARK" : "LIGHT"}
+    </button>
   );
 }
 
@@ -3623,7 +3690,7 @@ Respond as ONLY JSON, no markdown:
         {/* ---- AI: describe the job in plain words ---- */}
         <div style={{ marginTop: 12, padding: 12, border: `1px solid ${TOKENS.ink}`, background: TOKENS.card }}>
           <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.ink, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ background: TOKENS.hivis, color: TOKENS.ink, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
+            <span style={{ background: TOKENS.hivis, color: TOKENS.onHivis, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
             DESCRIBE YOUR JOB
           </div>
           <p style={{ fontSize: 11, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
@@ -3997,7 +4064,7 @@ Rules:
       {/* AI: describe the tower → fills the fields below */}
       <div style={{ marginBottom: 12, padding: 12, border: `1px solid ${TOKENS.ink}`, background: TOKENS.card }}>
         <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.ink, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ background: TOKENS.hivis, color: TOKENS.ink, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
+          <span style={{ background: TOKENS.hivis, color: TOKENS.onHivis, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
           DESCRIBE THE TOWER
         </div>
         <p style={{ fontSize: 11, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
@@ -4368,7 +4435,7 @@ function EstimateTab({ estimate, currency, region, onRatesChanged }) {
               </div>
             </>
           )}
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", marginTop: 4, fontSize: 18, fontWeight: 700, color: TOKENS.ink, background: TOKENS.hivis, marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16, marginBottom: -16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", marginTop: 4, fontSize: 18, fontWeight: 700, color: TOKENS.onHivis, background: TOKENS.hivis, marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16, marginBottom: -16 }}>
             <span>TOTAL ESTIMATE</span><span>{currency}{fmt(estimate.total)}</span>
           </div>
         </div>

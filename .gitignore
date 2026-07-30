@@ -6,3 +6,6 @@ dist/
 !server/.env.example
 .DS_Store
 *.log
+
+# Accounting OAuth tokens (Xero/MYOB refresh tokens — never commit these)
+server/.tokens.json
