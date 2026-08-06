@@ -114,7 +114,9 @@ function HowItWorksSection() {
                 {s.icon}
               </motion.svg>
               <h3 className="ec-display" style={{ fontSize: 21, margin: "0 0 6px", color: "#f2f4f7", letterSpacing: "0.01em" }}>{s.title}</h3>
-              <p style={{ fontSize: 13, lineHeight: 1.55, color: "rgba(242,244,247,0.62)", margin: 0 }}>{s.body}</p>
+              {/* 0.62 alpha measured 4.31:1 on this band — just under the 4.5
+                  AA floor for 13px body copy. 0.72 clears it at 5.2:1. */}
+              <p style={{ fontSize: 13, lineHeight: 1.55, color: "rgba(242,244,247,0.72)", margin: 0 }}>{s.body}</p>
             </motion.div>
           ))}
         </div>
@@ -129,7 +131,7 @@ function ToolkitSection() {
       <Reveal variant="fade-up">
         <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Site toolkit</div>
         <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 8 }}>
-          Tools &amp; materials, <span style={{ color: TOKENS.hivisDeep }}>priced like they're on site</span>
+          Tools &amp; materials, <span style={{ color: TOKENS.hivisInk }}>priced like they're on site</span>
         </h2>
         <p style={{ color: TOKENS.inkSoft, fontSize: 14, maxWidth: 640, marginBottom: 28 }}>
           Every card maps to live catalogue lines — plant, materials, access and safety —
@@ -1388,7 +1390,7 @@ function UserPathsSection({ onPick }) {
       <Reveal variant="fade-up">
         <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Your workflow</div>
         <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 28 }}>
-          One workspace per project. <span style={{ color: TOKENS.hivisDeep }}>No bouncing between pages.</span>
+          One workspace per project. <span style={{ color: TOKENS.hivisInk }}>No bouncing between pages.</span>
         </h2>
       </Reveal>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
@@ -1399,10 +1401,10 @@ function UserPathsSection({ onPick }) {
             whileHover={{ y: -8, boxShadow: "0 18px 40px rgba(15,17,20,0.18)" }}
             onClick={() => onPick(p.id)}
             style={{ background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, borderTop: `4px solid ${TOKENS.hivis}`, padding: "26px 22px", cursor: "pointer", ...CARD_SHAPES[i % CARD_SHAPES.length] }}>
-            <div style={{ marginBottom: 12, color: TOKENS.hivisDeep }}><Icon name={`audience.${p.id}`} size={34} strokeWidth={1.9} /></div>
+            <div style={{ marginBottom: 12, color: TOKENS.hivisInk }}><Icon name={`audience.${p.id}`} size={34} strokeWidth={1.9} /></div>
             <div className="ec-display" style={{ fontSize: 20, marginBottom: 8 }}>{p.title}</div>
             <p style={{ fontSize: 13, color: TOKENS.inkSoft, lineHeight: 1.55, marginBottom: 14 }}>{p.blurb}</p>
-            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisDeep }}>{p.flow}</div>
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisInk }}>{p.flow}</div>
             <div className="ec-mono" style={{ marginTop: 14, fontSize: 11, fontWeight: 700, color: TOKENS.ink }}>START A PROJECT →</div>
           </motion.div>
         ))}
@@ -1444,7 +1446,7 @@ function StatTile({ label, value, sub, icon, i }) {
       className="ec-card" style={{ padding: "18px 20px", borderTop: `3px solid ${TOKENS.hivis}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel, textTransform: "uppercase" }}>{label}</span>
-        <span style={{ color: TOKENS.hivisDeep, display: "flex" }}>{icon}</span>
+        <span style={{ color: TOKENS.hivisInk, display: "flex" }}>{icon}</span>
       </div>
       <div className="ec-display" style={{ fontSize: 30, lineHeight: 1.1, marginTop: 10 }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: TOKENS.inkSoft, marginTop: 4 }}>{sub}</div>}
@@ -1605,7 +1607,7 @@ function ProjectsScreen({ onOpen, onNew }) {
                   <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
                   <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel }}>{modeLabel[p.buildMode] || p.buildMode}</span>
                 </div>
-                <div className="ec-display" style={{ fontSize: 22, color: TOKENS.hivisDeep, marginTop: 8 }}>
+                <div className="ec-display" style={{ fontSize: 22, color: TOKENS.hivisInk, marginTop: 8 }}>
                   {est[p.id]?.total > 0 ? `${currencySymbol(p.region || "AU")}${fmt(est[p.id].total)}` : "—"}
                 </div>
                 <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 4 }}>
@@ -1614,7 +1616,7 @@ function ProjectsScreen({ onOpen, onNew }) {
                 <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                   <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px" }}
                     onClick={(e) => { e.stopPropagation(); duplicateProject(p.id); refresh(); }}>Duplicate</button>
-                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberDeep }}
+                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberInk }}
                     onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) { deleteProject(p.id); refresh(); } }}>Delete</button>
                 </div>
               </motion.div>
@@ -1731,7 +1733,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
     <main style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", minHeight: "60vh" }}>
       <div className="ec-eyebrow" style={{ marginBottom: 8 }}>AI crew</div>
       <h2 className="ec-display" style={{ fontSize: 30, lineHeight: 1, marginBottom: 6 }}>
-        Six specialists. <span style={{ color: TOKENS.hivisDeep }}>One project.</span>
+        Six specialists. <span style={{ color: TOKENS.hivisInk }}>One project.</span>
       </h2>
       <p style={{ fontSize: 13, color: TOKENS.inkSoft, maxWidth: 620, marginBottom: 22 }}>
         Not a chatbot — each specialist reads this project's live spec and estimate, and can propose
@@ -1761,7 +1763,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
       <div className="ec-card" style={{ padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "12px 18px", borderBottom: `1px solid ${TOKENS.rule}`, background: TOKENS.paperLight }}>
           <span className="ec-display" style={{ fontSize: 16, display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <Icon name={`persona.${persona.id}`} size={18} color={TOKENS.hivisDeep} />
+            <Icon name={`persona.${persona.id}`} size={18} color={TOKENS.hivisInk} />
             {persona.name} — {persona.role}
           </span>
           <div style={{ fontSize: 11.5, color: TOKENS.inkSoft, marginTop: 2 }}>{persona.tone}</div>
@@ -1796,7 +1798,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
             </motion.div>
           ))}
           {busy && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{persona.name} is thinking…</div>}
-          {err && <div style={{ fontSize: 12, color: TOKENS.emberDeep }}>{err}</div>}
+          {err && <div style={{ fontSize: 12, color: TOKENS.emberInk }}>{err}</div>}
         </div>
         <div style={{ padding: 14, borderTop: `1px solid ${TOKENS.rule}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderRadius: 26, padding: 6, boxShadow: "0 12px 22px -16px rgba(15,17,20,0.3)" }}>
@@ -1849,7 +1851,9 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
         <button className="ec-btn ec-btn-hivis" onClick={doPrint}>Print / save as PDF</button>
       </div>
       <style>{`@media print { .no-print, header, footer { display: none !important; } body { background: #fff !important; } }`}</style>
-      <div className="ec-card" style={{ padding: "48px 52px", background: "#fff" }}>
+      {/* Fixed shadow, not var(--shadow-lift): the token would resolve inside
+          this element's own light palette and vanish against a dark app. */}
+      <div className="ec-card byo-doc-light" style={{ padding: "48px 52px", background: "#fff", boxShadow: "0 18px 44px rgba(0,0,0,0.30)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: `3px solid ${TOKENS.hivis}`, paddingBottom: 22, marginBottom: 26 }}>
           <div>
             <BYOLogo size={44} />
@@ -1860,7 +1864,7 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
           </div>
           <div style={{ textAlign: "right" }}>
             <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel }}>PROPOSED TOTAL</div>
-            <div className="ec-display" style={{ fontSize: 34, color: TOKENS.hivisDeep }}>{money(est.total)}</div>
+            <div className="ec-display" style={{ fontSize: 34, color: TOKENS.hivisInk }}>{money(est.total)}</div>
             {est.taxRate > 0 && <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>+ {money(est.total * est.taxRate)} {est.taxLabel}</div>}
           </div>
         </div>
@@ -1887,7 +1891,7 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
             <tr>
               <td className="ec-display" style={{ padding: "12px 0", fontSize: 15 }}>TOTAL {est.taxRate > 0 ? "(excl. tax)" : ""}</td>
               <td />
-              <td className="ec-mono" style={{ padding: "12px 0", textAlign: "right", fontWeight: 700, fontSize: 16, color: TOKENS.hivisDeep }}>{money(est.total)}</td>
+              <td className="ec-mono" style={{ padding: "12px 0", textAlign: "right", fontWeight: 700, fontSize: 16, color: TOKENS.hivisInk }}>{money(est.total)}</td>
             </tr>
           </tbody>
         </table>
@@ -2271,7 +2275,7 @@ export default function App() {
       {/* Ambient 3D: structure endlessly assembling & breaking apart behind the app */}
       <BackgroundScene opacity={0.45} />
       {/* Content layer — translucent paper so the scene ghosts through between cards */}
-      <div style={{ position: "relative", zIndex: 1, background: "rgba(246,247,248,0.90)" }}>
+      <div style={{ position: "relative", zIndex: 1, background: TOKENS.contentVeil }}>
       {/* Inline style block for fonts + custom colors (Tailwind core only supports utility classes) */}
       <style>{`
         @import url('${FONT_URL}');
@@ -2285,6 +2289,18 @@ export default function App() {
         :root[data-theme="dark"] {
           ${cssVariables("dark")}
           color-scheme: dark;
+        }
+        /* A client-facing document is a sheet of white paper. It gets printed
+           and PDF'd, so its surface cannot follow the app theme — but its text
+           uses the same --ink/--steel/--hivis-deep tokens as everything else,
+           and in dark mode those flip to near-white and land invisibly on the
+           white page. Re-declaring the LIGHT palette on the sheet itself makes
+           every token inside resolve against white again, so one class fixes
+           the whole document rather than 40 hand-patched call sites. */
+        .byo-doc-light {
+          ${cssVariables("light")}
+          color-scheme: light;
+          color: var(--ink);
         }
         html { scroll-behavior: smooth; }
         body { background: var(--paper); overflow-x: hidden; }
@@ -2358,6 +2374,12 @@ export default function App() {
         .ec-btn-hivis:hover { background: var(--hivis-deep); }
         .ec-btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
         .ec-btn-ghost:hover { background: var(--ink); color: var(--paper); }
+        /* Pressed/selected ghost button. This exists as a class because doing
+           it with an inline colour beat the :hover rule above on specificity
+           — hovering an unselected nav button gave it an ink background while
+           the inline colour kept the label ink too, i.e. invisible. */
+        .ec-btn-ghost-on,
+        .ec-btn-ghost-on:hover { background: var(--ink); color: var(--paper); }
         /* The strip scrolls sideways rather than wrapping. Each tab must keep
            its natural width — flex items shrink by default, and combined with
            white-space:nowrap that squeezed every box to ~50px while the text
@@ -2454,7 +2476,7 @@ export default function App() {
                   style={{
                     padding: "6px 11px",
                     background: region === r ? TOKENS.hivis : "transparent",
-                    color: region === r ? TOKENS.ink : "rgba(255,255,255,0.9)",
+                    color: region === r ? TOKENS.onHivis : "rgba(255,255,255,0.9)",
                     border: "none", cursor: "pointer",
                     fontSize: 11, letterSpacing: "0.12em", fontWeight: 500,
                   }}>{r}</button>
@@ -2594,7 +2616,7 @@ export default function App() {
       {/* ====== STICKY TOPBAR: header + workflow stepper pinned together ====== */}
       <div style={{
         position: "sticky", top: 0, zIndex: 30,
-        background: "rgba(246, 247, 248, 0.92)",
+        background: TOKENS.contentVeil,
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
         borderBottom: `1px solid ${TOKENS.rule}`,
@@ -2614,15 +2636,15 @@ export default function App() {
               <BYOLogo size={28} />
               <div className="ec-display hdr-word" style={{ fontSize: 16, color: TOKENS.ink, letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
             </span>
-            <button className="ec-btn ec-btn-ghost" onClick={() => setScreen("projects")}
-              style={{ marginLeft: 6, background: screen === "projects" ? TOKENS.ink : "transparent", color: screen === "projects" ? TOKENS.paper : TOKENS.ink }}>
+            <button className={"ec-btn ec-btn-ghost" + (screen === "projects" ? " ec-btn-ghost-on" : "")}
+              onClick={() => setScreen("projects")} style={{ marginLeft: 6 }}>
               Projects
             </button>
             {/* The management side: jobs, takeoffs, budgets, claims. Separate
                 from Projects because it answers a different question — not
                 "what will this cost" but "how is this job actually going". */}
-            <button className="ec-btn ec-btn-ghost" onClick={() => setScreen("manage")}
-              style={{ background: screen === "manage" ? TOKENS.ink : "transparent", color: screen === "manage" ? TOKENS.paper : TOKENS.ink }}>
+            <button className={"ec-btn ec-btn-ghost" + (screen === "manage" ? " ec-btn-ghost-on" : "")}
+              onClick={() => setScreen("manage")}>
               Site Office
             </button>
             {screen === "workspace" && (
@@ -2647,7 +2669,7 @@ export default function App() {
                       style={{
                         padding: "6px 12px",
                         background: buildMode === m ? TOKENS.emberDeep : "transparent",
-                        color: buildMode === m ? TOKENS.onEmber : TOKENS.emberDeep,
+                        color: buildMode === m ? TOKENS.onEmber : TOKENS.emberInk,
                         border: "none", cursor: "pointer",
                         fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
                       }}>{label}</button>
@@ -2671,7 +2693,7 @@ export default function App() {
 
             {screen === "workspace" && (
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                <Badge variant="outline" className="border-ember-deep text-ember-deep">
+                <Badge variant="outline" className="border-ember-deep text-ember-ink">
                   {buildModeLabel(buildMode)}
                 </Badge>
                 <Badge variant="outline">{region}</Badge>
@@ -2931,33 +2953,33 @@ export default function App() {
               {buildMode === "materials" ? (
                 quoteMassingSpec ? (
                   <>
-                    <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
                       {quoteMassingSpec.widthM}m × {quoteMassingSpec.lengthM}m · inferred model
                     </div>
-                    <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                    <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
                       Massed from quoted items
                     </div>
                   </>
                 ) : (
-                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                  <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
                     Add quote items to see the 3D model
                   </div>
                 )
               ) : buildMode === "highrise" ? (
                 <>
-                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                  <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
                     {hrSpec.floors} floors · {(estimate.takeoff?.totalHeightM || 0).toFixed(0)}m
                   </div>
-                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                  <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
                     GFA · {fmt(estimate.takeoff?.gfaM2 || 0)} m²
                   </div>
                 </>
               ) : (
                 <>
-                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                  <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
                     {spec.widthM}m × {spec.lengthM}m × {(spec.wallHeightM * spec.floors).toFixed(1)}m
                   </div>
-                  <div className="ec-mono" style={{ fontSize: 11, background: "rgba(255,255,255,0.85)", padding: "4px 8px", color: TOKENS.ink }}>
+                  <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
                     GFA · {(estimate.takeoff?.gfaM2 || 0).toFixed(0)} m²
                   </div>
                 </>
@@ -2976,7 +2998,7 @@ export default function App() {
             {/* Controls — sit BELOW the live view, never over it (mobile-safe) */}
             <div className="ec-viewport-controls" style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: TOKENS.paperLight, padding: 8, borderRadius: 4, border: `1px solid ${TOKENS.rule}` }}>
               {buildMode === "materials" ? (
-                <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, background: "rgba(255,255,255,0.9)", padding: "8px 12px", border: `1px solid ${TOKENS.rule}` }}>
+                <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, background: TOKENS.cardVeil, padding: "8px 12px", border: `1px solid ${TOKENS.rule}` }}>
                   Quote builder — material, labour & trades in one total
                 </div>
               ) : !walkMode ? (
@@ -2985,7 +3007,7 @@ export default function App() {
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                     Play demo
                   </button>
-                  <div style={{ flex: 1, minWidth: 160, display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.9)", padding: "6px 10px", border: `1px solid ${TOKENS.rule}` }}>
+                  <div style={{ flex: 1, minWidth: 160, display: "flex", alignItems: "center", gap: 8, background: TOKENS.cardVeil, padding: "6px 10px", border: `1px solid ${TOKENS.rule}` }}>
                     <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, letterSpacing: "0.12em" }}>STAGE</span>
                     <input type="range" min="0" max="1" step="0.01" value={progress}
                       onChange={(e) => { setProgress(+e.target.value); engineRef.current?.setPlaying(false); }}
@@ -2994,11 +3016,11 @@ export default function App() {
                       {stageLabel(progress)}
                     </span>
                   </div>
-                  <button className="ec-btn" onClick={toggleWalk} style={{ background: TOKENS.emberDeep }}>
+                  <button className="ec-btn" onClick={toggleWalk} style={{ background: TOKENS.emberDeep, color: TOKENS.onEmber }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/><path d="M12 7v6m0 0l-3 7m3-7l3 7M8 9h8" strokeLinecap="round"/></svg>
                     Walk through
                   </button>
-                  <button className="ec-btn ec-btn-ghost" onClick={() => setAutoRotate((v) => !v)} style={{ background: autoRotate ? TOKENS.ink : "transparent", color: autoRotate ? TOKENS.paper : TOKENS.ink }}>
+                  <button className={"ec-btn ec-btn-ghost" + (autoRotate ? " ec-btn-ghost-on" : "")} onClick={() => setAutoRotate((v) => !v)}>
                     {autoRotate ? "Auto-rotate ON" : "Auto-rotate OFF"}
                   </button>
                 </>
@@ -3008,7 +3030,7 @@ export default function App() {
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 6l12 12M6 18L18 6" strokeLinecap="round"/></svg>
                     Exit walkthrough
                   </button>
-                  <div style={{ flex: 1, minWidth: 160, display: "flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.9)", padding: "6px 10px", border: `1px solid ${TOKENS.rule}` }}>
+                  <div style={{ flex: 1, minWidth: 160, display: "flex", alignItems: "center", gap: 8, background: TOKENS.cardVeil, padding: "6px 10px", border: `1px solid ${TOKENS.rule}` }}>
                     <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, letterSpacing: "0.12em" }}>TOUR</span>
                     <input type="range" min="0" max="1" step="0.005" value={walkT}
                       onChange={(e) => { engineRef.current?.setWalkT(+e.target.value); setWalkT(+e.target.value); }}
@@ -3202,7 +3224,7 @@ function KitchenCard({ spec, setSpec }) {
         {kitchens.map((k, i) => (
           <div key={k.id} style={{ border: `1px solid ${TOKENS.rule}`, padding: 10, background: TOKENS.paperLight }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.1em", color: TOKENS.emberDeep, fontWeight: 700 }}>KITCHEN {i + 1}</span>
+              <span className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.1em", color: TOKENS.emberInk, fontWeight: 700 }}>KITCHEN {i + 1}</span>
               {kitchens.length > 0 && <button onClick={() => removeKit(k.id)} style={{ width: 28, height: 24, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontSize: 15 }}>×</button>}
             </div>
             <label style={{ display: "block", marginBottom: 8 }}><span className="ec-label">Bench run total (lin.m)</span>
@@ -3409,9 +3431,12 @@ function CostCard({ label, value, sub, hivis }) {
       padding: "14px 16px",
       position: "relative",
     }}>
-      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>{label}</div>
-      <div className="ec-display" style={{ fontSize: 26, lineHeight: 1, color: TOKENS.ink }}>{value}</div>
-      {sub && <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.inkSoft, marginTop: 6 }}>{sub}</div>}
+      {/* On a hivis card the text sits on safety yellow, which does NOT flip
+          between themes — so its foreground must not either. Using `ink` here
+          put the headline total in near-white on yellow in dark mode. */}
+      <div className="ec-eyebrow" style={{ marginBottom: 8, ...(hivis && { color: TOKENS.onHivisSoft }) }}>{label}</div>
+      <div className="ec-display" style={{ fontSize: 26, lineHeight: 1, color: hivis ? TOKENS.onHivis : TOKENS.ink }}>{value}</div>
+      {sub && <div className="ec-mono" style={{ fontSize: 10, color: hivis ? TOKENS.onHivisSoft : TOKENS.inkSoft, marginTop: 6 }}>{sub}</div>}
     </div>
   );
 }
@@ -3594,8 +3619,8 @@ Rules:
   const unitHint = (u) => ({ "lin.m": "metres of length", "m²": "square metres (area)", "m³": "cubic metres (volume)", "ea": "each (count)", "hr": "hours", "item": "per item" }[u] || u);
 
   const kindMeta = {
-    material: { tag: "MAT", color: TOKENS.hivisDeep },
-    labour: { tag: "LAB", color: TOKENS.emberDeep },
+    material: { tag: "MAT", color: TOKENS.hivisInk },
+    labour: { tag: "LAB", color: TOKENS.emberInk },
     element: { tag: "JOB", color: TOKENS.steel },
   };
 
@@ -3731,7 +3756,7 @@ Respond as ONLY JSON, no markdown:
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
-        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>
+        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberInk, fontWeight: 700, marginBottom: 4 }}>
           {embed ? "ADD TO YOUR BUILD — MATERIAL · LABOUR · ELEMENTS" : "QUOTE BUILDER — MATERIAL · LABOUR · TRADES"}
         </div>
         <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
@@ -3749,7 +3774,7 @@ Respond as ONLY JSON, no markdown:
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginTop: 12 }}>
           <button className="ec-btn ec-btn-ghost" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11 }} onClick={addMaterial}>+ Material</button>
           <button className="ec-btn ec-btn-ghost" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11 }} onClick={addLabour}>+ Labour</button>
-          <button className="ec-btn" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11, background: TOKENS.emberDeep }} onClick={addElement}>+ Job/Trade</button>
+          <button className="ec-btn" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11, background: TOKENS.emberDeep, color: TOKENS.onEmber }} onClick={addElement}>+ Job/Trade</button>
         </div>
 
         {/* ---- AI: describe the job in plain words ---- */}
@@ -3769,7 +3794,7 @@ Respond as ONLY JSON, no markdown:
             {aiBusy ? "Working it out…" : "✦ Generate estimate"}
           </button>
           {aiError && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8, lineHeight: 1.45 }}>{aiError}</div>}
-          {aiNote && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.emberDeep, marginTop: 8, lineHeight: 1.45 }}>Note: {aiNote}</div>}
+          {aiNote && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.emberInk, marginTop: 8, lineHeight: 1.45 }}>Note: {aiNote}</div>}
         </div>
 
         <div className="ec-mono" style={{ textAlign: "center", fontSize: 9, color: TOKENS.steel, letterSpacing: "0.1em", margin: "12px 0 0" }}>— OR BUILD IT MANUALLY —</div>
@@ -3883,7 +3908,7 @@ Respond as ONLY JSON, no markdown:
               <input type="checkbox" checked={bLabour} onChange={(e) => setBLabour(e.target.checked)} />
               <span className="ec-mono" style={{ fontSize: 11 }}>{isCustom ? "Add a labour line too" : "Add labour estimate (trade days)"}</span>
             </label>
-            <button className="ec-btn" style={{ width: "100%", justifyContent: "center", background: TOKENS.emberDeep }} onClick={doBuild} disabled={isCustom ? !cLabel.trim() : buildPreview <= 0}>
+            <button className="ec-btn" style={{ width: "100%", justifyContent: "center", background: TOKENS.emberDeep, color: TOKENS.onEmber }} onClick={doBuild} disabled={isCustom ? !cLabel.trim() : buildPreview <= 0}>
               + Add to quote
             </button>
           </div>
@@ -3898,7 +3923,7 @@ Respond as ONLY JSON, no markdown:
           {stepsErr && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8 }}>{stepsErr}</div>}
           {steps && (
             <div style={{ marginTop: 10, border: `1px solid ${TOKENS.rule}`, background: TOKENS.paperLight, padding: 12 }}>
-              <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>HOW THIS GETS BUILT</div>
+              <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.emberInk, fontWeight: 700, marginBottom: 4 }}>HOW THIS GETS BUILT</div>
               {steps.summary && <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 10px", lineHeight: 1.5 }}>{steps.summary}</p>}
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {steps.steps.map((s, i) => (
@@ -3961,7 +3986,7 @@ function MaterialsEstimateTab({ estimate, currency }) {
       <SectionHeader index="M" title="Quote breakdown — material, labour & trades" />
       {Object.entries(grouped).map(([cat, lines]) => (
         <div key={cat} style={{ marginBottom: 16 }}>
-          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisDeep, marginBottom: 6, fontWeight: 700 }}>{cat}</div>
+          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisInk, marginBottom: 6, fontWeight: 700 }}>{cat}</div>
           <div className="ec-mono" style={{ fontSize: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 1.1fr 0.9fr", padding: "6px 0", fontSize: 10, letterSpacing: "0.12em", color: TOKENS.steel, borderBottom: `1px solid ${TOKENS.rule}` }}>
               <span>MATERIAL</span><span style={{ textAlign: "right" }}>QTY</span><span style={{ textAlign: "right" }}>ORDER (waste)</span><span style={{ textAlign: "right" }}>COST</span>
@@ -3974,7 +3999,7 @@ function MaterialsEstimateTab({ estimate, currency }) {
                 </span>
                 <span style={{ textAlign: "right", color: TOKENS.ink }}>
                   {l.kind === "labour" ? <span style={{ color: TOKENS.steel }}>@{currency}{fmt(l.rate)}/hr</span>
-                    : l.alloc ? <>{fmt(l.alloc.orderQty)} {l.alloc.buyUnit}<span style={{ color: TOKENS.hivisDeep, fontSize: 10 }}> +{Math.round(l.alloc.wastePct * 100)}%</span></>
+                    : l.alloc ? <>{fmt(l.alloc.orderQty)} {l.alloc.buyUnit}<span style={{ color: TOKENS.hivisInk, fontSize: 10 }}> +{Math.round(l.alloc.wastePct * 100)}%</span></>
                     : <span style={{ color: TOKENS.steel }}>—</span>}
                 </span>
                 <span style={{ textAlign: "right", color: TOKENS.ink, fontWeight: 500 }}>{currency}{fmt(l.total)}</span>
@@ -4005,7 +4030,7 @@ function ImportedPanel({ spec, estimate, currency, onClear, onUnlock }) {
   return (
     <>
       <div style={{ padding: 14, border: `2px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
-        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 6 }}>IMPORTED TAKEOFF — DRIVING ESTIMATE</div>
+        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberInk, fontWeight: 700, marginBottom: 6 }}>IMPORTED TAKEOFF — DRIVING ESTIMATE</div>
         <div className="ec-display" style={{ fontSize: 18, lineHeight: 1.1, marginBottom: 6 }}>{meta.source || "Imported data"}</div>
         <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.inkSoft, lineHeight: 1.6 }}>
           {meta.lineCount} line items · materials {currency}{fmt(estimate.materialsTotal)}<br />
@@ -4037,7 +4062,7 @@ function ImportedPanel({ spec, estimate, currency, onClear, onUnlock }) {
         <div className="ec-mono" style={{ fontSize: 11 }}>
           {Object.entries(grouped).map(([cat, lines]) => (
             <div key={cat} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 4 }}>{cat}</div>
+              <div style={{ fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: TOKENS.hivisInk, fontWeight: 700, marginBottom: 4 }}>{cat}</div>
               {lines.map((l, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", color: TOKENS.inkSoft }}>
                   <span>{l.label}</span><span>{currency}{fmt(l.total)}</span>
@@ -4120,7 +4145,7 @@ Rules:
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
-        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberDeep, fontWeight: 700, marginBottom: 4 }}>HIGH-RISE / COMMERCIAL ENGINE</div>
+        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberInk, fontWeight: 700, marginBottom: 4 }}>HIGH-RISE / COMMERCIAL ENGINE</div>
         <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
           Costed by structural & façade systems per m² GFA, with a per-floor structural cycle. Feasibility-grade — not a tender figure.
         </p>
@@ -4143,7 +4168,7 @@ Rules:
           {aiBusy ? "Working it out…" : "✦ Fill the fields"}
         </button>
         {aiError && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8, lineHeight: 1.45 }}>{aiError}</div>}
-        {aiNote && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.emberDeep, marginTop: 8, lineHeight: 1.45 }}>Note: {aiNote}</div>}
+        {aiNote && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.emberInk, marginTop: 8, lineHeight: 1.45 }}>Note: {aiNote}</div>}
       </div>
 
       <InputCard title="Massing" badge={`${fmt(t.gfaM2)} m² GFA`} onClear={() => clearSection("massing")}>
@@ -4220,7 +4245,7 @@ function HighRiseEstimateTab({ estimate, currency }) {
       <SectionHeader index="A" title="Elemental cost plan" />
       {Object.entries(grouped).map(([cat, lines]) => (
         <div key={cat} style={{ marginBottom: 18 }}>
-          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisDeep, marginBottom: 6, fontWeight: 700 }}>{catLabels[cat] || cat}</div>
+          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisInk, marginBottom: 6, fontWeight: 700 }}>{catLabels[cat] || cat}</div>
           <TakeoffTable rows={lines.map((l) => ({ label: l.label, qty: `${fmt(l.qty)} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
         </div>
       ))}
@@ -4365,8 +4390,8 @@ function CostBreakdown({ estimate, currency }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 22 }}>
         {summary.map((s) => (
           <div key={s.label} style={{ padding: "12px 14px", background: s.hivis ? TOKENS.hivis : TOKENS.paperLight, border: `1px solid ${s.hivis ? TOKENS.hivisDeep : TOKENS.rule}`, borderRadius: 4 }}>
-            <div className="ec-mono" style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: s.hivis ? TOKENS.ink : TOKENS.steel, marginBottom: 4 }}>{s.label}</div>
-            <div className="ec-display" style={{ fontSize: 20, color: TOKENS.ink, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+            <div className="ec-mono" style={{ fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: s.hivis ? TOKENS.onHivisSoft : TOKENS.steel, marginBottom: 4 }}>{s.label}</div>
+            <div className="ec-display" style={{ fontSize: 20, color: s.hivis ? TOKENS.onHivis : TOKENS.ink, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
           </div>
         ))}
       </div>
@@ -4422,7 +4447,7 @@ function EstimateTab({ estimate, currency, region, onRatesChanged }) {
       <div style={{ overflowX: "auto" }}>
         {Object.entries(groupedMaterials).map(([cat, lines]) => (
           <div key={cat} style={{ marginBottom: 18 }}>
-            <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisDeep, marginBottom: 6, fontWeight: 700 }}>
+            <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisInk, marginBottom: 6, fontWeight: 700 }}>
               {cat}
             </div>
             <TakeoffTable rows={lines.map((l) => ({ label: l.label, qty: `${l.qty} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
@@ -4607,7 +4632,7 @@ function CodesTab({ region, highrise }) {
             <p style={{ fontSize: 13, lineHeight: 1.5, color: TOKENS.inkSoft, margin: "0 0 8px" }}>{s.detail}</p>
             <a href={s.refUrl || code.url} target="_blank" rel="noopener noreferrer" className="ec-mono"
               title={`Open source for ${s.ref}`}
-              style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisDeep, fontWeight: 700, textDecoration: "none", borderBottom: `1px solid ${TOKENS.hivisDeep}`, paddingBottom: 1 }}>
+              style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisInk, fontWeight: 700, textDecoration: "none", borderBottom: `1px solid ${TOKENS.hivisDeep}`, paddingBottom: 1 }}>
               REF · {s.ref} ↗
             </a>
           </div>
@@ -4811,7 +4836,7 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
       {/* Stage 2/3 — column mapping */}
       {headers.length > 0 && (
         <div className="ec-card" style={{ padding: 16, marginBottom: 14 }}>
-          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 4 }}>CONFIRM COLUMN MAPPING</div>
+          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisInk, fontWeight: 700, marginBottom: 4 }}>CONFIRM COLUMN MAPPING</div>
           <p style={{ fontSize: 11, color: TOKENS.steel, margin: "0 0 10px", lineHeight: 1.5 }}>
             If your sheet has Rate or Total columns, they're used directly — your numbers, not ours. Material is the only required column.
           </p>
@@ -4840,7 +4865,7 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
             {result.needPriceCount > 0 && <CostCard label="Need a price" value={`${result.needPriceCount}`} sub="no rate/total in file" />}
           </div>
 
-          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 4 }}>EVERY LINE FROM YOUR FILE — EDIT OR DELETE HERE</div>
+          <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.12em", color: TOKENS.hivisInk, fontWeight: 700, marginBottom: 4 }}>EVERY LINE FROM YOUR FILE — EDIT OR DELETE HERE</div>
           <p style={{ fontSize: 11, color: TOKENS.steel, margin: "0 0 8px", lineHeight: 1.5 }}>Rename anything (including unnamed lines), fix a qty or rate, or remove a row with ×. Changes here flow through when you apply.</p>
           <div className="ec-mono" style={{ fontSize: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1.7fr 0.7fr 0.7fr 0.8fr 0.4fr 28px", gap: 4, padding: "6px 0", fontSize: 9, letterSpacing: "0.08em", color: TOKENS.steel, borderBottom: `1px solid ${TOKENS.rule}` }}>
@@ -4858,7 +4883,7 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
                 <span style={{ textAlign: "right", color: l.needsPrice ? TOKENS.alert : TOKENS.ink, fontWeight: 600, fontSize: 11 }}>
                   {l.needsPrice ? "—" : `${currency}${fmt(l.total)}`}
                 </span>
-                <span style={{ textAlign: "right", fontSize: 9, letterSpacing: "0.06em", color: l.priceSource === "file" ? TOKENS.ok : l.priceSource === "catalogue" ? TOKENS.hivisDeep : TOKENS.steel }}>
+                <span style={{ textAlign: "right", fontSize: 9, letterSpacing: "0.06em", color: l.priceSource === "file" ? TOKENS.ok : l.priceSource === "catalogue" ? TOKENS.hivisInk : TOKENS.steel }}>
                   {l.priceSource === "file" ? "FILE" : l.priceSource === "catalogue" ? "CAT" : l.priceSource === "manual" ? "YOU" : "—"}
                 </span>
                 <button onClick={() => removePreviewLine(i)} title="Delete this line"
@@ -4871,7 +4896,7 @@ function SpreadsheetTab({ region, currency, onApply, onApplyTemplate, onApplyMat
           </div>
 
           <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 8, lineHeight: 1.5 }}>
-            SRC: <span style={{ color: TOKENS.ok }}>FILE</span> = your sheet's price · <span style={{ color: TOKENS.hivisDeep }}>CAT</span> = catalogue rate · YOU = you edited it. Summary rows (Subtotal, GST, Total) are skipped automatically.
+            SRC: <span style={{ color: TOKENS.ok }}>FILE</span> = your sheet's price · <span style={{ color: TOKENS.hivisInk }}>CAT</span> = catalogue rate · YOU = you edited it. Summary rows (Subtotal, GST, Total) are skipped automatically.
           </div>
 
           {onApplyMaterials && (
@@ -4994,7 +5019,7 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate, onApplyMateri
       {/* Step 1 */}
       <div className="ec-card" style={{ padding: 16, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-          <span className="ec-mono" style={{ fontSize: 18, color: TOKENS.emberDeep, fontWeight: 700 }}>1</span>
+          <span className="ec-mono" style={{ fontSize: 18, color: TOKENS.emberInk, fontWeight: 700 }}>1</span>
           <h4 className="ec-display" style={{ fontSize: 16, margin: 0, letterSpacing: "0.02em" }}>RUN THE EXPORTER IN SKETCHUP</h4>
         </div>
         <p style={{ fontSize: 13, color: TOKENS.inkSoft, margin: "0 0 10px", lineHeight: 1.5 }}>
@@ -5005,7 +5030,10 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate, onApplyMateri
           <button className="ec-btn" onClick={copyRuby}>{copied ? "✓ Copied" : "Copy script"}</button>
         </div>
         {showRuby && (
-          <pre className="ec-mono" style={{ marginTop: 12, padding: 12, background: TOKENS.ink, color: "#d6e2c4", fontSize: 11, lineHeight: 1.5, overflowX: "auto", maxHeight: 280, borderRadius: 2 }}>
+          /* A code block is dark in BOTH themes — `ink` is TEXT and flips to
+             near-white in dark, which put pale green on a white slab. The
+             emphasis/onEmphasisSoft pair stays dark either way. */
+          <pre className="ec-mono" style={{ marginTop: 12, padding: 12, background: TOKENS.emphasis, color: TOKENS.onEmphasisSoft, fontSize: 11, lineHeight: 1.5, overflowX: "auto", maxHeight: 280, borderRadius: 2, border: `1px solid ${TOKENS.rule}` }}>
             {SketchUpImport.rubyExporter()}
           </pre>
         )}
@@ -5014,7 +5042,7 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate, onApplyMateri
       {/* Step 2 */}
       <div className="ec-card" style={{ padding: 16, marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
-          <span className="ec-mono" style={{ fontSize: 18, color: TOKENS.emberDeep, fontWeight: 700 }}>2</span>
+          <span className="ec-mono" style={{ fontSize: 18, color: TOKENS.emberInk, fontWeight: 700 }}>2</span>
           <h4 className="ec-display" style={{ fontSize: 16, margin: 0, letterSpacing: "0.02em" }}>DROP YOUR MODEL.JSON</h4>
         </div>
         <div
@@ -5044,14 +5072,14 @@ function SketchUpTab({ region, currency, onApply, onApplyTemplate, onApplyMateri
 
             {Object.entries(grouped).map(([cat, lines]) => (
               <div key={cat} style={{ marginBottom: 16 }}>
-                <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisDeep, marginBottom: 6, fontWeight: 700 }}>{cat}</div>
+                <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisInk, marginBottom: 6, fontWeight: 700 }}>{cat}</div>
                 <TakeoffTable rows={lines.map((l) => ({ label: `${l.label}  ·  ${l.source}`, qty: `${l.qty} ${l.unit}`, rate: `${currency}${fmt(l.rate)}`, total: `${currency}${fmt(l.total)}` }))} />
               </div>
             ))}
 
             {result.lab && result.lab.lines.length > 0 && (
               <div style={{ marginBottom: 16 }}>
-                <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisDeep, marginBottom: 6, fontWeight: 700 }}>Labour · trades</div>
+                <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.16em", textTransform: "uppercase", color: TOKENS.hivisInk, marginBottom: 6, fontWeight: 700 }}>Labour · trades</div>
                 <TakeoffTable rows={result.lab.lines.map((l) => ({ label: l.label, qty: `${l.hours} hr`, rate: `${currency}${fmt(l.rate)}/hr`, total: `${currency}${fmt(l.total)}` }))} />
               </div>
             )}
@@ -5173,7 +5201,7 @@ function SuppliersTab({ region, estimate }) {
             style={{
               padding: "6px 10px", fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
               border: `1px solid ${TOKENS.rule}`, background: query === m.label ? TOKENS.hivis : TOKENS.card,
-              color: TOKENS.ink, cursor: "pointer", letterSpacing: "0.02em",
+              color: query === m.label ? TOKENS.onHivis : TOKENS.ink, cursor: "pointer", letterSpacing: "0.02em",
             }}>
             {m.label}
           </button>
@@ -5192,7 +5220,7 @@ function SuppliersTab({ region, estimate }) {
         }
         return tiers.map((t) => (
           <div key={t} style={{ marginBottom: 22 }}>
-            <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.14em", color: TOKENS.hivisDeep, fontWeight: 700, marginBottom: 10 }}>{t.toUpperCase()}</div>
+            <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.14em", color: TOKENS.hivisInk, fontWeight: 700, marginBottom: 10 }}>{t.toUpperCase()}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
               {byTier[t].map((s) => (
                 <div key={s.name} className="ec-card" style={{ padding: 16, position: "relative" }}>
@@ -5202,7 +5230,7 @@ function SuppliersTab({ region, estimate }) {
                     style={{ textDecoration: "none", color: TOKENS.ink, display: "block" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, paddingRight: 16 }}>
                       <div className="ec-display" style={{ fontSize: 17, lineHeight: 1.1 }}>{s.name}{s.custom ? " ✎" : ""}</div>
-                      <span style={{ fontSize: 18, color: TOKENS.hivisDeep }}>↗</span>
+                      <span style={{ fontSize: 18, color: TOKENS.hivisInk }}>↗</span>
                     </div>
                     <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.4, marginBottom: 10 }}>{s.coverage}</div>
                     <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, paddingTop: 8, borderTop: `1px dashed ${TOKENS.rule}` }}>

@@ -182,9 +182,13 @@ function JobRow({ job, onOpen }) {
 function StatusPill({ status }) {
   if (!status) return null;
   const bg = { pre: TOKENS.paperLight, active: TOKENS.hivis, done: TOKENS.rule }[status.group];
+  // The active pill sits on safety yellow, which is the same colour in both
+  // themes — so its text must be onHivis, not ink. `ink` flips to near-white
+  // in dark and left the pill unreadable.
+  const fg = status.group === "active" ? TOKENS.onHivis : TOKENS.ink;
   return (
     <span className="ec-mono" title={status.hint}
-      style={{ fontSize: 9, letterSpacing: "0.1em", fontWeight: 700, padding: "2px 7px", background: bg, border: `1px solid ${TOKENS.rule}`, color: TOKENS.ink }}>
+      style={{ fontSize: 9, letterSpacing: "0.1em", fontWeight: 700, padding: "2px 7px", background: bg, border: `1px solid ${TOKENS.rule}`, color: fg }}>
       {status.label.toUpperCase()}
     </span>
   );

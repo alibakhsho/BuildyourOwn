@@ -45,16 +45,36 @@ export const lightPalette = {
   rule: "#D5D8DC",
   hivis: "#F5C518",
   hivisDeep: "#D9AC00",
+  // Gold as TEXT on a paper surface. hivisDeep is a hover/fill colour and only
+  // manages 2.13:1 on white — fine behind a pointer, not for the headline total
+  // on a quote. This is the same hue carried down to 5.1:1 on white.
+  hivisInk: "#8A6A00",
   ember: "#F58E1A",
   emberDeep: "#D96E0A",
+  // Ember as TEXT on paper — emberDeep is a fill/hover colour and only reaches
+  // ~3.1:1 on --paper-light, which fails the 10px labels it was used for.
+  emberInk: "#A85009",
   alert: "#B8420C", // was #C8480E — 4.46:1 on --paper-light, a hair under AA
   ok: "#3A7D44",
   onHivis: "#14171A",
+  // Muted companion to onHivis, for eyebrows/captions on a yellow surface.
+  // Identical in both palettes for the same reason onHivis is: --hivis does
+  // not change between themes, so what sits on it must not either. 6.4:1.
+  onHivisSoft: "#3B414A",
   onEmber: "#14171A",
   emphasis: "#14171A",
   onEmphasis: "#F5C518",
   onEmphasisSoft: "#9AA1A9", // captions on an emphasis chip — --rule is invisible there in dark
   grid: "rgba(20,23,26,0.045)",
+  // The translucent layer the whole app sits on, over the ambient 3D scene.
+  // Must be a token: as a hardcoded rgba it kept the light paper colour in
+  // dark mode while every text token flipped to near-white, leaving the entire
+  // UI at ~1.02:1 contrast. Alpha is part of the value so the scene shows
+  // through; that rules out reusing --paper-light directly.
+  contentVeil: "rgba(246,247,248,0.90)",
+  // Same problem one level down: translucent card surfaces (viewport controls,
+  // inline readouts) that sit over the scene and were hardcoded to white.
+  cardVeil: "rgba(255,255,255,0.90)",
   // Tinted backgrounds for inline banners — kept as tokens so dark mode gets
   // dim washes rather than the fluorescent pastels a naive invert produces.
   warnWash: "#FFF6D8",
@@ -85,16 +105,23 @@ export const darkPalette = {
   rule: "#2E353D",
   hivis: "#F5C518",
   hivisDeep: "#FFD84D",
+  hivisInk: "#FFD84D", // on dark surfaces the bright gold already reads
+
   ember: "#F79A33",
   emberDeep: "#FFB05C",
+  emberInk: "#FFB05C", // already bright enough against dark surfaces
   alert: "#FF6B3D",
   ok: "#5BB56A",
   onHivis: "#14171A",
+  onHivisSoft: "#3B414A", // see light palette — must not flip, --hivis doesn't
   onEmber: "#14171A",
   emphasis: "#2A323B",
   onEmphasis: "#FFD84D",
   onEmphasisSoft: "#A9B3BD",
   grid: "rgba(255,255,255,0.045)",
+  // --paper (#12161B) at the same 0.90 alpha as light.
+  contentVeil: "rgba(18,22,27,0.90)",
+  cardVeil: "rgba(30,36,43,0.90)", // --card (#1E242B) at the same alpha
   warnWash: "#332B14",
   errorWash: "#3A2119",
   okWash: "#18301D",
