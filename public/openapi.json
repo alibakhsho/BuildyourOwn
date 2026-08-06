@@ -1,0 +1,158 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "BuildYourOwn Construction Estimator API",
+    "description": "Get instant, itemised construction cost estimates. Returns materials, labour, equipment, timeline and total cost for residential buildings in Australia, US and UK.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    { "url": "https://buildyour-own.vercel.app" }
+  ],
+  "paths": {
+    "/api/estimate": {
+      "post": {
+        "operationId": "generateEstimate",
+        "summary": "Generate an itemised construction cost estimate from building dimensions and specifications.",
+        "description": "Takes building dimensions (width, length, floors), construction choices (cladding, roof, framing), and region (AU/US/UK) and returns a full itemised estimate with materials, labour, equipment, timeline and total cost. All costs use real 2025-2026 trade rates.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "widthM": {
+                    "type": "number",
+                    "description": "Building width in metres (e.g. 12)",
+                    "default": 12
+                  },
+                  "lengthM": {
+                    "type": "number",
+                    "description": "Building length in metres (e.g. 10)",
+                    "default": 10
+                  },
+                  "floors": {
+                    "type": "integer",
+                    "description": "Number of floors (1 or 2)",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 3
+                  },
+                  "wallHeightM": {
+                    "type": "number",
+                    "description": "Wall height per floor in metres",
+                    "default": 2.7
+                  },
+                  "roofPitch": {
+                    "type": "number",
+                    "description": "Roof pitch in degrees (15-45)",
+                    "default": 22
+                  },
+                  "roofType": {
+                    "type": "string",
+                    "enum": ["colorbond", "tile", "shingle"],
+                    "description": "Roof material type",
+                    "default": "colorbond"
+                  },
+                  "claddingType": {
+                    "type": "string",
+                    "enum": ["brick", "weatherboard", "render"],
+                    "description": "External wall cladding type",
+                    "default": "brick"
+                  },
+                  "framingType": {
+                    "type": "string",
+                    "enum": ["timber", "steel"],
+                    "description": "Structural framing type",
+                    "default": "timber"
+                  },
+                  "siteCondition": {
+                    "type": "string",
+                    "enum": ["flat", "sloping", "difficult"],
+                    "description": "Site condition affects earthworks, access, and contingency",
+                    "default": "flat"
+                  },
+                  "region": {
+                    "type": "string",
+                    "enum": ["AU", "US", "UK"],
+                    "description": "Pricing region — Australia (AUD), United States (USD), or United Kingdom (GBP)",
+                    "default": "AU"
+                  },
+                  "openings": {
+                    "type": "object",
+                    "description": "Window and door quantities",
+                    "properties": {
+                      "windowsM2": {
+                        "type": "number",
+                        "description": "Total window area in m²",
+                        "default": 12
+                      },
+                      "windowsCount": {
+                        "type": "integer",
+                        "description": "Number of windows",
+                        "default": 8
+                      },
+                      "doors": {
+                        "type": "integer",
+                        "description": "Number of external doors",
+                        "default": 2
+                      }
+                    }
+                  }
+                },
+                "required": ["widthM", "lengthM", "region"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Itemised construction estimate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "region": { "type": "string" },
+                    "currency": { "type": "string" },
+                    "dimensions": {
+                      "type": "object",
+                      "properties": {
+                        "widthM": { "type": "number" },
+                        "lengthM": { "type": "number" },
+                        "floors": { "type": "integer" },
+                        "grossFloorAreaM2": { "type": "number" }
+                      }
+                    },
+                    "materialsTotal": { "type": "number" },
+                    "labourTotal": { "type": "number" },
+                    "equipmentTotal": { "type": "number" },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "subtotal": { "type": "number" },
+                        "preliminaries": { "type": "number" },
+                        "builderMargin": { "type": "number" },
+                        "contingency": { "type": "number" },
+                        "total": { "type": "number" },
+                        "ratePerM2": { "type": "number" }
+                      }
+                    },
+                    "timeline": {
+                      "type": "object",
+                      "properties": {
+                        "totalWeeks": { "type": "integer" }
+                      }
+                    },
+                    "disclaimer": { "type": "string" },
+                    "interactive": { "type": "string", "description": "Link to the full interactive estimator with these dimensions pre-filled" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" role="img" aria-label="BYO icon">
+  <rect width="192" height="192" rx="40" fill="#05070b"/>
+  <path d="M54 138V74l42-30 42 30v64" fill="none" stroke="#f5c518" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M96 44v48" stroke="#ff8c1a" stroke-width="10" stroke-linecap="round"/>
+  <rect x="72" y="92" width="48" height="24" rx="4" fill="#ffffff" fill-opacity="0.92"/>
+</svg>

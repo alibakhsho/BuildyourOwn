@@ -15,28 +15,154 @@
    bridges the hero's 3D shader into flat UI. Flat, bordered surfaces over
    shadowed ones — see Elevation.
    ------------------------------------------------------------------------- */
-export const colors = {
-  // Surfaces
-  paper: "#EDEEF0",        // page background
-  paperLight: "#F6F7F8",   // input/inset background
-  card: "#FFFFFF",         // raised surface (cards, popovers)
-  // Ink (text & structure)
-  ink: "#14171A",          // primary text, active states, borders-on-dark
-  inkSoft: "#3B414A",      // secondary text
-  steel: "#6B7279",        // tertiary text, mid-tone rules — also engine3D's grid-line color
-  rule: "#D5D8DC",         // hairline borders/dividers
-  // Primary accent — hi-vis safety yellow (workflow highlight, primary CTA, active states)
+/* Two concrete palettes, then one set of *references* that the app actually
+   uses. See the note under `colors` for why that indirection exists.
+
+   Roles worth understanding before editing either palette:
+
+   - `ink` is TEXT, and it flips: near-black on light, near-white on dark.
+     It is NOT a "dark surface". Anything that wants a dark chip with yellow
+     text must use the `emphasis` / `onEmphasis` pair, which stays dark-on-
+     both-themes. Reaching for `ink` as a background is the single easiest
+     way to produce unreadable yellow-on-white in dark mode.
+   - `onHivis` / `onEmber` are FIXED dark in both themes. Safety yellow and
+     ember are light colours; text on them is always near-black, regardless
+     of theme. They exist so `.ec-btn-hivis` cannot invert into yellow-on-
+     white when `ink` flips.
+   - `hivisDeep` / `emberDeep` are the hover variants and move in OPPOSITE
+     directions per theme: darker than the base on light, brighter on dark.
+     "Deep" means "more emphatic", not "darker". */
+
+export const lightPalette = {
+  paper: "#EDEEF0",
+  paperLight: "#F6F7F8",
+  card: "#FFFFFF",
+  ink: "#14171A",
+  inkSoft: "#3B414A",
+  // Measured on --paper: #6B7279 gives 4.2:1, under the 4.5 AA floor for the
+  // 10–12px captions this carries most often.
+  steel: "#616870",
+  rule: "#D5D8DC",
   hivis: "#F5C518",
-  hivisDeep: "#D9AC00",    // hover/active variant of hivis
-  // Secondary accent — ember orange (hero warmth, bridges the 3D background shader to flat UI)
+  hivisDeep: "#D9AC00",
+  // Gold as TEXT on a paper surface. hivisDeep is a hover/fill colour and only
+  // manages 2.13:1 on white — fine behind a pointer, not for the headline total
+  // on a quote. This is the same hue carried down to 5.1:1 on white.
+  hivisInk: "#8A6A00",
   ember: "#F58E1A",
   emberDeep: "#D96E0A",
-  // Semantic
-  alert: "#C8480E",        // destructive actions, error states
-  ok: "#3A7D44",           // success states
-  // Decorative
-  grid: "rgba(20,23,26,0.045)", // faint blueprint grid overlay (.ec-paper)
+  // Ember as TEXT on paper — emberDeep is a fill/hover colour and only reaches
+  // ~3.1:1 on --paper-light, which fails the 10px labels it was used for.
+  emberInk: "#A85009",
+  alert: "#B8420C", // was #C8480E — 4.46:1 on --paper-light, a hair under AA
+  ok: "#3A7D44",
+  onHivis: "#14171A",
+  // Muted companion to onHivis, for eyebrows/captions on a yellow surface.
+  // Identical in both palettes for the same reason onHivis is: --hivis does
+  // not change between themes, so what sits on it must not either. 6.4:1.
+  onHivisSoft: "#3B414A",
+  onEmber: "#14171A",
+  emphasis: "#14171A",
+  onEmphasis: "#F5C518",
+  onEmphasisSoft: "#9AA1A9", // captions on an emphasis chip — --rule is invisible there in dark
+  grid: "rgba(20,23,26,0.045)",
+  // The translucent layer the whole app sits on, over the ambient 3D scene.
+  // Must be a token: as a hardcoded rgba it kept the light paper colour in
+  // dark mode while every text token flipped to near-white, leaving the entire
+  // UI at ~1.02:1 contrast. Alpha is part of the value so the scene shows
+  // through; that rules out reusing --paper-light directly.
+  contentVeil: "rgba(246,247,248,0.90)",
+  // Same problem one level down: translucent card surfaces (viewport controls,
+  // inline readouts) that sit over the scene and were hardcoded to white.
+  cardVeil: "rgba(255,255,255,0.90)",
+  // Tinted backgrounds for inline banners — kept as tokens so dark mode gets
+  // dim washes rather than the fluorescent pastels a naive invert produces.
+  warnWash: "#FFF6D8",
+  errorWash: "#FDE7E0",
+  okWash: "#E6F1E8",
+  canvasMat: "#5A6068",   // surround behind a plan sheet in the takeoff view
+  // Measurement labels are drawn ON the plan bitmap, which is white paper in
+  // both themes — so these two do NOT flip. Inverting them would put white
+  // text on a white drawing.
+  labelWash: "rgba(255,255,255,0.94)",
+  labelInk: "#14171A",
+  shadowLift: "0 18px 40px rgba(15,17,20,0.18)",
 };
+
+/* Not an inversion of the light palette. Surfaces are a cool charcoal rather
+   than pure black so the hi-vis yellow reads as a highlight instead of
+   vibrating, and the accents are lifted because saturated colour loses
+   apparent contrast against a dark ground. */
+export const darkPalette = {
+  paper: "#12161B",
+  paperLight: "#181D23",
+  card: "#1E242B",
+  ink: "#ECEFF2",
+  inkSoft: "#B4BCC5",
+  // Measured against --card (#1E242B): #7E8892 lands at 4.34:1, just under
+  // the 4.5 AA floor for the 12px card descriptions this is used on.
+  steel: "#8C959F",
+  rule: "#2E353D",
+  hivis: "#F5C518",
+  hivisDeep: "#FFD84D",
+  hivisInk: "#FFD84D", // on dark surfaces the bright gold already reads
+
+  ember: "#F79A33",
+  emberDeep: "#FFB05C",
+  emberInk: "#FFB05C", // already bright enough against dark surfaces
+  alert: "#FF6B3D",
+  ok: "#5BB56A",
+  onHivis: "#14171A",
+  onHivisSoft: "#3B414A", // see light palette — must not flip, --hivis doesn't
+  onEmber: "#14171A",
+  emphasis: "#2A323B",
+  onEmphasis: "#FFD84D",
+  onEmphasisSoft: "#A9B3BD",
+  grid: "rgba(255,255,255,0.045)",
+  // --paper (#12161B) at the same 0.90 alpha as light.
+  contentVeil: "rgba(18,22,27,0.90)",
+  cardVeil: "rgba(30,36,43,0.90)", // --card (#1E242B) at the same alpha
+  warnWash: "#332B14",
+  errorWash: "#3A2119",
+  okWash: "#18301D",
+  canvasMat: "#0C0F13",
+  labelWash: "rgba(255,255,255,0.94)", // intentionally identical to light — see note above
+  labelInk: "#14171A",
+  shadowLift: "0 18px 40px rgba(0,0,0,0.55)",
+};
+
+/**
+ * What the app imports as `TOKENS`. Every value is a `var()` reference, not a
+ * hex string, so the ~300 existing `style={{ color: TOKENS.ink }}` call sites
+ * became theme-aware without being touched — flipping `data-theme` on <html>
+ * re-resolves all of them at once, with no React re-render and no context
+ * threaded through the tree.
+ *
+ * Two places CANNOT use these, because they need a real colour value:
+ *   - <canvas> 2D drawing (ctx.fillStyle) — takeoff measurement rendering
+ *   - three.js materials
+ * Both call `resolveTokens()` from design/theme.js instead.
+ */
+export const colors = Object.freeze(
+  Object.fromEntries(
+    Object.keys(lightPalette).map((k) => [k, `var(--${kebab(k)})`])
+  )
+);
+
+/** Raw palette for a theme id — used to emit the CSS custom properties. */
+export const paletteFor = (theme) => (theme === "dark" ? darkPalette : lightPalette);
+
+export function kebab(k) {
+  return k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+}
+
+/** `--paper: #EDEEF0; --ink: #14171A; …` for a given theme. */
+export function cssVariables(theme) {
+  const p = paletteFor(theme);
+  return Object.entries(p)
+    .map(([k, v]) => `--${kebab(k)}: ${v};`)
+    .join("\n          ");
+}
 
 /* -------------------------------------------------------------------------
    2. TYPOGRAPHY — three roles, no more. Display carries personality
