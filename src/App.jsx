@@ -24,9 +24,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import BackgroundScene from "./engine/BackgroundScene.jsx";
 import { chat as aiChat } from "./ai/client.js";
 import { listProjects, createProject, saveProject, deleteProject, duplicateProject, getProject } from "./state/projects.js";
+import { track } from "./lib/analytics.js";
 import { PERSONAS, buildSystemPrompt, summariseSpec, summariseEstimate, parseActions } from "./ai/personas.js";
-import DesignSystem from "./design/system.js";
+import DesignSystem, { cssVariables } from "./design/system.js";
+import { useTheme } from "./design/theme.js";
+import { Badge } from "@/components/ui/badge";
 import { Icon } from "./design/icons.jsx";
+import ConstructionManager from "./modules/ConstructionManager.jsx";
+import { updateJob as updateCmJob } from "./state/cm.js";
 
 /* Human-readable message for AI failures, shared by every AI feature */
 const aiErrMsg = (e) => e?.message || "Couldn't reach the AI service — check your connection.";
@@ -1407,53 +1412,228 @@ function UserPathsSection({ onPick }) {
 }
 
 /* ---- Projects screen: every project is one workspace ---- */
+/* ---- Dashboard helpers: cost each project from its stored spec ---- */
+function projectEstimate(p) {
+  const region = p.region || "AU";
+  try {
+    if (p.buildMode === "highrise" && p.hrSpec) {
+      const e = HighRiseEstimator.buildEstimate(p.hrSpec, region);
+      return { total: e.total || 0, gfaM2: e.takeoff?.gfaM2 || 0,
+        comp: { Structure: e.systemsTotal || 0, "Design fees": e.designFees || 0, Prelims: e.prelims || 0, Margin: e.margin || 0, Contingency: e.contingency || 0 } };
+    }
+    if (p.buildMode === "materials" && p.matSpec) {
+      const e = MaterialsOnly.buildEstimate(p.matSpec, region);
+      return { total: e.total || 0, gfaM2: 0,
+        comp: { Materials: e.byKind?.material || 0, Labour: e.byKind?.labour || 0, "Trades & jobs": e.byKind?.element || 0 } };
+    }
+    if (p.spec) {
+      const e = Estimator.buildEstimate(p.spec, region);
+      return { total: e.total || 0, gfaM2: e.takeoff?.gfaM2 || 0,
+        comp: { Materials: e.materialsTotal || 0, Labour: e.labourTotal || 0, Equipment: e.equipmentTotal || 0, Prelims: e.prelims || 0, Margin: e.margin || 0, Contingency: e.contingency || 0 } };
+    }
+  } catch { /* legacy / not-yet-opened project — leave at zero */ }
+  return { total: 0, gfaM2: 0, comp: {} };
+}
+
+/* Construction-toned chart palette: hi-vis, rust, steel-blue, grey, charcoal, concrete */
+const CHART_COLORS = ["#D9A514", "#C25A1C", "#5B7C99", "#8A8F98", "#3A4652", "#B8B2A7"];
+
+function StatTile({ label, value, sub, icon, i }) {
+  return (
+    <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.35 }}
+      className="ec-card" style={{ padding: "18px 20px", borderTop: `3px solid ${TOKENS.hivis}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel, textTransform: "uppercase" }}>{label}</span>
+        <span style={{ color: TOKENS.hivisDeep, display: "flex" }}>{icon}</span>
+      </div>
+      <div className="ec-display" style={{ fontSize: 30, lineHeight: 1.1, marginTop: 10 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: TOKENS.inkSoft, marginTop: 4 }}>{sub}</div>}
+    </motion.div>
+  );
+}
+
+function BarChart({ rows, currency }) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {rows.map((r, i) => (
+        <div key={r.label + i}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 4, gap: 10 }}>
+            <span style={{ color: TOKENS.ink, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</span>
+            <span className="ec-mono" style={{ color: TOKENS.inkSoft, flexShrink: 0 }}>{currency}{fmt(r.value)}</span>
+          </div>
+          <div style={{ height: 10, background: TOKENS.rule, borderRadius: 5, overflow: "hidden" }}>
+            {/* Plain div + CSS transition: framer-motion doesn't reliably tween
+               percentage width, so drive it directly. */}
+            <div style={{ height: "100%", width: `${Math.max(2, (r.value / max) * 100)}%`, background: `linear-gradient(90deg, ${TOKENS.hivisDeep}, ${TOKENS.emberDeep})`, borderRadius: 5, transition: "width 0.6s ease" }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DonutChart({ segments, size = 180 }) {
+  const total = segments.reduce((a, s) => a + s.value, 0) || 1;
+  const r = size / 2 - 16, C = 2 * Math.PI * r, cx = size / 2, cy = size / 2;
+  let offset = 0;
+  return (
+    <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke={TOKENS.rule} strokeWidth="14" />
+        {segments.map((s, i) => {
+          const len = (s.value / total) * C;
+          const el = (
+            <motion.circle key={s.label} cx={cx} cy={cy} r={r} fill="none"
+              stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth="14"
+              strokeDasharray={`${len} ${C - len}`} strokeDashoffset={-offset}
+              transform={`rotate(-90 ${cx} ${cy})`} strokeLinecap="butt"
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 + i * 0.08 }} />
+          );
+          offset += len;
+          return el;
+        })}
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7, minWidth: 150, flex: 1 }}>
+        {segments.map((s, i) => (
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0 }} />
+            <span style={{ color: TOKENS.inkSoft, flex: 1 }}>{s.label}</span>
+            <span className="ec-mono" style={{ color: TOKENS.ink }}>{Math.round((s.value / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* Tiny inline stat icons (no icon library — stays on-brand + dependency-free) */
+const DASH_ICONS = {
+  value: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" /></svg>,
+  count: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18M6 21V9l6-5 6 5v12M10 21v-6h4v6" /></svg>,
+  rate: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18M7 14l4-4 3 3 5-6" /></svg>,
+  area: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h18v18H3zM3 9h18M9 21V9" /></svg>,
+};
+
 function ProjectsScreen({ onOpen, onNew }) {
   const [projects, setProjects] = useState(listProjects);
   const [name, setName] = useState("");
   const [type, setType] = useState("homeowner");
   const refresh = () => setProjects(listProjects());
   const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Custom Quote" };
+
+  const metrics = useMemo(() => {
+    const est = {};
+    projects.forEach((p) => { est[p.id] = projectEstimate(p); });
+    const pipeline = projects.reduce((a, p) => a + est[p.id].total, 0);
+    const totalGfa = projects.reduce((a, p) => a + est[p.id].gfaM2, 0);
+    const rated = projects.filter((p) => est[p.id].gfaM2 > 0);
+    const avgRate = rated.length ? rated.reduce((a, p) => a + est[p.id].total / est[p.id].gfaM2, 0) / rated.length : 0;
+    const regionCounts = {}, byMode = {};
+    projects.forEach((p) => {
+      const rg = p.region || "AU"; regionCounts[rg] = (regionCounts[rg] || 0) + 1;
+      byMode[p.buildMode] = (byMode[p.buildMode] || 0) + 1;
+    });
+    const regions = Object.keys(regionCounts);
+    const domRegion = regions.sort((a, b) => regionCounts[b] - regionCounts[a])[0] || "AU";
+    const agg = {};
+    projects.forEach((p) => { const c = est[p.id].comp; for (const k in c) agg[k] = (agg[k] || 0) + c[k]; });
+    const composition = Object.entries(agg).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }));
+    const barRows = projects.map((p) => ({ label: p.name, value: est[p.id].total })).sort((a, b) => b.value - a.value).slice(0, 8);
+    return { est, pipeline, totalGfa, avgRate, byMode, currency: currencySymbol(domRegion), mixed: regions.length > 1, composition, barRows };
+  }, [projects]);
+
+  const { est, pipeline, totalGfa, avgRate, byMode, currency, mixed, composition, barRows } = metrics;
+  const modeSub = Object.entries(byMode).map(([m, n]) => `${n} ${modeLabel[m] || m}`).join(" · ");
+
+  const newProjectCard = (
+    <div className="ec-card" style={{ padding: 18, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <input className="ec-input" placeholder="New project name…" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
+      <select className="ec-select" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }}>
+        {USER_PATHS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+      </select>
+      <button className="ec-btn ec-btn-hivis" onClick={() => onNew(type, name.trim() || "Untitled project")}>+ New project</button>
+    </div>
+  );
+
   return (
     <main style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px 64px", minHeight: "60vh" }}>
-      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Projects</div>
-      <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 24 }}>Every project, one workspace.</h2>
-
-      <div className="ec-card" style={{ padding: 18, marginBottom: 28, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-        <input className="ec-input" placeholder="New project name…" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
-        <select className="ec-select" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }}>
-          {USER_PATHS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-        </select>
-        <button className="ec-btn ec-btn-hivis" onClick={() => onNew(type, name.trim() || "Untitled project")}>+ New project</button>
-      </div>
+      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Portfolio dashboard</div>
+      <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 24 }}>Your build pipeline at a glance.</h2>
 
       {projects.length === 0 ? (
-        <p style={{ color: TOKENS.inkSoft, fontSize: 14 }}>No projects yet — create your first one above.</p>
+        <>
+          {newProjectCard}
+          <p style={{ color: TOKENS.inkSoft, fontSize: 14, marginTop: 20 }}>No projects yet — create your first one above and the dashboard will populate.</p>
+        </>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
-          {projects.map((p, i) => (
-            <motion.div key={p.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-              className="ec-card" style={{ padding: 18, cursor: "pointer", borderTop: `3px solid ${TOKENS.hivis}` }}
-              onClick={() => onOpen(getProject(p.id) || p)}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
-                <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel }}>{modeLabel[p.buildMode] || p.buildMode}</span>
-              </div>
-              <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 6 }}>
-                {p.region} · updated {new Date(p.updatedAt).toLocaleDateString()}
-              </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px" }}
-                  onClick={(e) => { e.stopPropagation(); duplicateProject(p.id); refresh(); }}>Duplicate</button>
-                <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberDeep }}
-                  onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) { deleteProject(p.id); refresh(); } }}>Delete</button>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+        <>
+          {/* KPI tiles */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 20 }}>
+            <StatTile i={0} label="Pipeline value" icon={DASH_ICONS.value} value={`${currency}${fmt(pipeline)}`} sub={mixed ? "Across mixed regions — indicative" : "Total estimated across all projects"} />
+            <StatTile i={1} label="Active projects" icon={DASH_ICONS.count} value={projects.length} sub={modeSub} />
+            <StatTile i={2} label="Avg cost / m²" icon={DASH_ICONS.rate} value={avgRate > 0 ? `${currency}${fmt(avgRate)}` : "—"} sub="Residential & high-rise" />
+            <StatTile i={3} label="Portfolio floor area" icon={DASH_ICONS.area} value={totalGfa > 0 ? `${fmt(totalGfa)} m²` : "—"} sub="Combined GFA" />
+          </div>
+
+          {/* Charts */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 14, marginBottom: 28 }}>
+            <div className="ec-card" style={{ padding: 20 }}>
+              <div className="ec-eyebrow" style={{ marginBottom: 14 }}>Estimated value by project</div>
+              {barRows.some((r) => r.value > 0)
+                ? <BarChart rows={barRows} currency={currency} />
+                : <p style={{ fontSize: 13, color: TOKENS.steel }}>Open a project to generate its estimate.</p>}
+            </div>
+            <div className="ec-card" style={{ padding: 20 }}>
+              <div className="ec-eyebrow" style={{ marginBottom: 14 }}>Portfolio cost composition</div>
+              {composition.length
+                ? <DonutChart segments={composition} />
+                : <p style={{ fontSize: 13, color: TOKENS.steel }}>No costed projects yet.</p>}
+            </div>
+          </div>
+
+          <div style={{ marginBottom: 22 }}>{newProjectCard}</div>
+
+          {/* Project cards */}
+          <div className="ec-eyebrow" style={{ marginBottom: 12 }}>All projects</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+            {projects.map((p, i) => (
+              <motion.div key={p.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.04 }}
+                className="ec-card" style={{ padding: 18, cursor: "pointer", borderTop: `3px solid ${TOKENS.hivis}` }}
+                onClick={() => onOpen(getProject(p.id) || p)}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                  <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
+                  <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel }}>{modeLabel[p.buildMode] || p.buildMode}</span>
+                </div>
+                <div className="ec-display" style={{ fontSize: 22, color: TOKENS.hivisDeep, marginTop: 8 }}>
+                  {est[p.id]?.total > 0 ? `${currencySymbol(p.region || "AU")}${fmt(est[p.id].total)}` : "—"}
+                </div>
+                <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 4 }}>
+                  {est[p.id]?.gfaM2 > 0 ? `${fmt(est[p.id].gfaM2)} m² · ` : ""}{p.region} · updated {new Date(p.updatedAt).toLocaleDateString()}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px" }}
+                    onClick={(e) => { e.stopPropagation(); duplicateProject(p.id); refresh(); }}>Duplicate</button>
+                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberDeep }}
+                    onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) { deleteProject(p.id); refresh(); } }}>Delete</button>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </>
       )}
     </main>
   );
 }
+
+/* Build modes, defined once. The Projects picker and the read-only badge
+   shown inside a project both read from here, so they cannot drift apart. */
+const BUILD_MODES = [
+  ["residential", "Residential"],
+  ["highrise", "High-rise"],
+  ["materials", "Custom Quote"],
+];
+const buildModeLabel = (m) => (BUILD_MODES.find(([id]) => id === m) || [, m])[1];
 
 /* ---- Workflow stepper: the workspace's linear flow ---- */
 const WORKFLOW = [
@@ -1482,9 +1662,9 @@ function WorkflowStepper({ stage, onStage, buildMode }) {
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
                 padding: "8px 14px", fontSize: 11, letterSpacing: "0.08em", fontWeight: 700,
-                border: `1px solid ${active ? TOKENS.ink : TOKENS.rule}`,
-                background: active ? TOKENS.ink : TOKENS.paperLight,
-                color: active ? TOKENS.hivis : TOKENS.ink,
+                border: `1px solid ${active ? TOKENS.emphasis : TOKENS.rule}`,
+                background: active ? TOKENS.emphasis : TOKENS.paperLight,
+                color: active ? TOKENS.onEmphasis : TOKENS.ink,
               }}>
               <Icon name={`workflow.${s.id}`} size={15} strokeWidth={2.2} />
               {s.label}
@@ -1520,6 +1700,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
     const q = (text || input).trim();
     if (!q || busy) return;
     setInput(""); setErr(""); setBusy(true);
+    track("ai_chat_message", { persona: persona.id, buildMode, region });
     const next = [...msgs, { role: "user", content: q }];
     setMsgs(next);
     try {
@@ -1563,14 +1744,14 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
           <motion.div key={p.id} whileHover={{ y: -4 }} onClick={() => switchPersona(p.id)}
             style={{
               padding: "14px 12px", cursor: "pointer", textAlign: "center",
-              background: p.id === personaId ? TOKENS.ink : TOKENS.paperLight,
-              border: `1px solid ${p.id === personaId ? TOKENS.ink : TOKENS.rule}`,
+              background: p.id === personaId ? TOKENS.emphasis : TOKENS.paperLight,
+              border: `1px solid ${p.id === personaId ? TOKENS.emphasis : TOKENS.rule}`,
               borderTop: `3px solid ${p.id === personaId ? TOKENS.hivis : TOKENS.rule}`,
             }}>
             <div style={{ display: "flex", justifyContent: "center", color: p.id === personaId ? TOKENS.hivis : TOKENS.steel }}>
               <Icon name={`persona.${p.id}`} size={24} strokeWidth={2} />
             </div>
-            <div className="ec-display" style={{ fontSize: 14, marginTop: 8, color: p.id === personaId ? TOKENS.hivis : TOKENS.ink }}>{p.name}</div>
+            <div className="ec-display" style={{ fontSize: 14, marginTop: 8, color: p.id === personaId ? TOKENS.onEmphasis : TOKENS.ink }}>{p.name}</div>
             <div className="ec-mono" style={{ fontSize: 8.5, letterSpacing: "0.1em", marginTop: 3, color: p.id === personaId ? "rgba(242,244,247,0.7)" : TOKENS.steel }}>{p.role.toUpperCase()}</div>
           </motion.div>
         ))}
@@ -1621,7 +1802,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
           <div style={{ display: "flex", alignItems: "center", gap: 8, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderRadius: 26, padding: 6, boxShadow: "0 12px 22px -16px rgba(15,17,20,0.3)" }}>
             <button type="button" onClick={() => setShowPrompts((v) => !v)} title="Quick prompts" aria-label="Quick prompts"
               style={{ width: 38, height: 38, flexShrink: 0, borderRadius: 13, border: "none", cursor: "pointer",
-                background: showPrompts ? TOKENS.ink : TOKENS.paperLight, color: showPrompts ? TOKENS.hivis : TOKENS.inkSoft,
+                background: showPrompts ? TOKENS.emphasis : TOKENS.paperLight, color: showPrompts ? TOKENS.onEmphasis : TOKENS.inkSoft,
                 display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}>
               <Icon name="ui.plus" size={18} strokeWidth={2.2} />
             </button>
@@ -1733,6 +1914,7 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
 }
 
 export default function App() {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [region, setRegion] = useState("AU");
   const [buildMode, setBuildMode] = useState("residential"); // residential | highrise
   const [spec, setSpec] = useState(DEFAULT_SPEC);
@@ -1744,6 +1926,7 @@ export default function App() {
      Every project lives in ONE workspace, walked as a linear workflow:
      Estimate → 3D → Materials → Timeline → AI → Quote → Proposal. */
   const [screen, setScreen] = useState("landing");     // landing | projects | workspace
+  const [guestMode] = useState(true);
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
   const [userType, setUserType] = useState(null);      // homeowner | tradie | developer — gates which build modes show
@@ -1881,6 +2064,13 @@ export default function App() {
       : Estimator.buildEstimate(spec, region),
     [spec, hrSpec, matSpec, buildMode, region, ratesVersion]
   );
+
+  /* Track estimate completion when total changes meaningfully */
+  useEffect(() => {
+    if (estimate && estimate.total > 0) {
+      track("estimate_completed", { buildMode, region, total: Math.round(estimate.total) });
+    }
+  }, [estimate?.total, buildMode, region]);
 
   /* Representative building inferred from the quote — drives the Quote-mode viewport label */
   const quoteMassingSpec = useMemo(
@@ -2085,21 +2275,16 @@ export default function App() {
       {/* Inline style block for fonts + custom colors (Tailwind core only supports utility classes) */}
       <style>{`
         @import url('${FONT_URL}');
+        /* The single source of colour for the whole app. TOKENS.* are var()
+           references (design/system.js), so flipping data-theme on <html>
+           re-colours every inline style and .ec-* class at once. */
         :root {
-          --paper: ${TOKENS.paper};
-          --paper-light: ${TOKENS.paperLight};
-          --card: ${TOKENS.card};
-          --ink: ${TOKENS.ink};
-          --ink-soft: ${TOKENS.inkSoft};
-          --steel: ${TOKENS.steel};
-          --rule: ${TOKENS.rule};
-          --hivis: ${TOKENS.hivis};
-          --hivis-deep: ${TOKENS.hivisDeep};
-          --ember: ${TOKENS.ember};
-          --ember-deep: ${TOKENS.emberDeep};
-          --alert: ${TOKENS.alert};
-          --ok: ${TOKENS.ok};
-          --grid: ${TOKENS.grid};
+          ${cssVariables("light")}
+          color-scheme: light;
+        }
+        :root[data-theme="dark"] {
+          ${cssVariables("dark")}
+          color-scheme: dark;
         }
         html { scroll-behavior: smooth; }
         body { background: var(--paper); overflow-x: hidden; }
@@ -2128,7 +2313,10 @@ export default function App() {
           font-family: 'JetBrains Mono', monospace; font-size: 10px;
           letter-spacing: 0.12em; text-transform: uppercase;
         }
-        .ec-tag-hivis { background: var(--hivis); color: var(--ink); }
+        /* --on-hivis, not --ink: safety yellow is a light colour in BOTH
+           themes, so its text stays near-black. Using --ink here would flip
+           to near-white on dark and give yellow-on-white. */
+        .ec-tag-hivis { background: var(--hivis); color: var(--on-hivis); }
         .ec-input, .ec-select {
           width: 100%;
           background: var(--paper-light);
@@ -2166,11 +2354,21 @@ export default function App() {
         }
         .ec-btn:hover { background: #000; }
         .ec-btn:active { transform: translateY(1px); }
-        .ec-btn-hivis { background: var(--hivis); color: var(--ink); }
+        .ec-btn-hivis { background: var(--hivis); color: var(--on-hivis); }
         .ec-btn-hivis:hover { background: var(--hivis-deep); }
         .ec-btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
         .ec-btn-ghost:hover { background: var(--ink); color: var(--paper); }
-        .ec-tab { padding: 11px 18px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--steel); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.18s; white-space: nowrap; }
+        /* The strip scrolls sideways rather than wrapping. Each tab must keep
+           its natural width — flex items shrink by default, and combined with
+           white-space:nowrap that squeezed every box to ~50px while the text
+           kept full width, so labels overlapped their neighbours and the tap
+           target no longer matched the words you were aiming at. */
+        .ec-tabstrip { display: flex; gap: 0; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scroll-snap-type: x proximity; }
+        /* Hide the scrollbar without losing the scroll — the underline rule is
+           the visual boundary here and a gutter breaks it. */
+        .ec-tabstrip { scrollbar-width: none; -ms-overflow-style: none; }
+        .ec-tabstrip::-webkit-scrollbar { display: none; }
+        .ec-tab { flex: 0 0 auto; scroll-snap-align: start; display: flex; align-items: center; min-height: 44px; padding: 11px 18px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--steel); cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.18s, border-bottom-color 0.18s; white-space: nowrap; -webkit-tap-highlight-color: transparent; user-select: none; }
         .ec-tab:hover { color: var(--ink); }
         .ec-tab-active { color: var(--ink); border-bottom-color: var(--hivis); }
         .ec-link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--hivis); text-decoration-thickness: 2px; text-underline-offset: 3px; }
@@ -2240,6 +2438,10 @@ export default function App() {
 
         {/* Top hero bar — minimal, transparent over shader */}
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, padding: "20px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 25, display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(5,7,11,0.78)", border: "1px solid rgba(245,197,24,0.35)", color: "#fff", fontSize: 11, letterSpacing: "0.12em", fontFamily: "'JetBrains Mono', monospace" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "999px", background: TOKENS.hivis }} />
+            GUEST MODE · NO SIGN-UP
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }} className="ec-fade-down">
             <BYOLogo size={34} />
             <div className="ec-display" style={{ fontSize: 18, color: "#fff", letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
@@ -2319,6 +2521,12 @@ export default function App() {
           </p>
 
           <div className="ec-fade-up ec-delay-4" style={{ marginTop: 36, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+            <div style={{ width: "100%", display: "flex", justifyContent: "center", marginTop: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 999, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.9)", fontSize: 12, letterSpacing: "0.05em", fontFamily: "'JetBrains Mono', monospace" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "999px", background: TOKENS.hivis, display: "inline-block" }} />
+                Works instantly on your phone · save projects locally · add accounts later
+              </div>
+            </div>
             <button onClick={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
               style={{
                 padding: "14px 28px",
@@ -2395,6 +2603,12 @@ export default function App() {
         borderBottom: screen === "workspace" ? `1px solid ${TOKENS.rule}` : "none",
       }}>
         <div className="hdr-in" style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          {guestMode && (
+            <div style={{ position: "absolute", top: 8, right: 24, zIndex: 20, display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 999, background: "rgba(245,197,24,0.14)", border: "1px solid rgba(245,197,24,0.28)", color: TOKENS.ink, fontSize: 10, letterSpacing: "0.12em", fontFamily: "'JetBrains Mono', monospace" }}>
+              <span style={{ width: 6, height: 6, borderRadius: "999px", background: TOKENS.hivis }} />
+              GUEST FIRST
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span onClick={() => setScreen("landing")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
               <BYOLogo size={28} />
@@ -2404,50 +2618,82 @@ export default function App() {
               style={{ marginLeft: 6, background: screen === "projects" ? TOKENS.ink : "transparent", color: screen === "projects" ? TOKENS.paper : TOKENS.ink }}>
               Projects
             </button>
+            {/* The management side: jobs, takeoffs, budgets, claims. Separate
+                from Projects because it answers a different question — not
+                "what will this cost" but "how is this job actually going". */}
+            <button className="ec-btn ec-btn-ghost" onClick={() => setScreen("manage")}
+              style={{ background: screen === "manage" ? TOKENS.ink : "transparent", color: screen === "manage" ? TOKENS.paper : TOKENS.ink }}>
+              Site Office
+            </button>
             {screen === "workspace" && (
               <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
                 title="Project name" style={{ width: 170, fontWeight: 600, fontSize: 13 }} />
             )}
           </div>
-          <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-              {[["residential","Residential"],["highrise","High-rise"],["materials","Custom Quote"]]
-                .filter(([m]) => userType !== "homeowner" || m !== "highrise")
-                .map(([m, label]) => (
-                <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
-                  className="ec-mono"
-                  style={{
-                    padding: "6px 12px",
-                    background: buildMode === m ? TOKENS.emberDeep : "transparent",
-                    color: buildMode === m ? "#fff" : TOKENS.emberDeep,
-                    border: "none", cursor: "pointer",
-                    fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
-                  }}>{label}</button>
-              ))}
-            </div>
-            <div className="ec-mono hdr-proj" style={{ fontSize: 10, color: TOKENS.inkSoft }}>
-              <span style={{ color: TOKENS.steel, marginRight: 5 }}>PROJ</span>{projectNo}
-            </div>
-            <div style={{ display: "flex", border: `1px solid ${TOKENS.ink}` }}>
-              {["AU","US","UK"].map((r) => (
-                <button key={r} onClick={() => setRegion(r)}
-                  className="ec-mono"
-                  style={{
-                    padding: "5px 10px",
-                    background: region === r ? TOKENS.ink : "transparent",
-                    color: region === r ? TOKENS.paper : TOKENS.ink,
-                    border: "none", cursor: "pointer",
-                    fontSize: 10, letterSpacing: "0.12em",
-                  }}>{r}</button>
-              ))}
-            </div>
-            <button className="ec-btn ec-btn-hivis" onClick={downloadReport}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" /></svg>
-              Save / share
-            </button>
-            <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
-              {copied ? "Copied ✓" : "Copy"}
-            </button>
+          {/* Build mode and region are DECISIONS made when a project is set
+              up, so they are only editable on the Projects screen. Once
+              you're inside a project they become read-only labels: changing
+              a job's build mode halfway through would silently invalidate
+              every quantity already measured against it. */}
+          <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            {screen === "projects" && (
+              <>
+                <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
+                  {BUILD_MODES
+                    .filter(([m]) => userType !== "homeowner" || m !== "highrise")
+                    .map(([m, label]) => (
+                    <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
+                      className="ec-mono"
+                      style={{
+                        padding: "6px 12px",
+                        background: buildMode === m ? TOKENS.emberDeep : "transparent",
+                        color: buildMode === m ? TOKENS.onEmber : TOKENS.emberDeep,
+                        border: "none", cursor: "pointer",
+                        fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
+                      }}>{label}</button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", border: `1px solid ${TOKENS.ink}` }}>
+                  {["AU","US","UK"].map((r) => (
+                    <button key={r} onClick={() => setRegion(r)}
+                      className="ec-mono"
+                      style={{
+                        padding: "5px 10px",
+                        background: region === r ? TOKENS.ink : "transparent",
+                        color: region === r ? TOKENS.paper : TOKENS.ink,
+                        border: "none", cursor: "pointer",
+                        fontSize: 10, letterSpacing: "0.12em",
+                      }}>{r}</button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {screen === "workspace" && (
+              <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                <Badge variant="outline" className="border-ember-deep text-ember-deep">
+                  {buildModeLabel(buildMode)}
+                </Badge>
+                <Badge variant="outline">{region}</Badge>
+              </div>
+            )}
+
+            {/* Export only once there is a real priced quote behind it — an
+                empty estimate produces a document that makes the app look
+                broken to whoever it gets sent to. */}
+            {screen === "workspace" && estimate?.total > 0 && (
+              <>
+                <button className="ec-btn ec-btn-hivis" onClick={downloadReport}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 4v12m0 0l-5-5m5 5l5-5M4 20h16" /></svg>
+                  Save / share
+                </button>
+                <button className="ec-btn ec-btn-ghost hdr-copy" onClick={copyReport} title="Copy estimate text">
+                  {copied ? "Copied ✓" : "Copy"}
+                </button>
+              </>
+            )}
+
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
           </div>
         </div>
       </header>
@@ -2474,6 +2720,25 @@ export default function App() {
       {/* ============== PROJECTS SCREEN ============== */}
       {screen === "projects" && (
         <ProjectsScreen onOpen={openProject} onNew={newProject} />
+      )}
+
+      {/* ============== CONSTRUCTION MANAGEMENT ============== */}
+      {screen === "manage" && (
+        <ConstructionManager
+          onOpenEstimator={(job) => {
+            // A job either already points at an estimator project or gets a
+            // fresh one created and linked, so the two sides stay joined
+            // rather than drifting into duplicate records.
+            let project = job.estimateProjectId ? getProject(job.estimateProjectId) : null;
+            if (!project) {
+              project = createProject({ name: job.name, buildMode: job.buildMode, region: job.region });
+              updateCmJob(job.id, { estimateProjectId: project.id });
+            }
+            openProject(project);
+            setScreen("workspace");
+            window.scrollTo({ top: 0 });
+          }}
+        />
       )}
 
       {/* ============== MAIN GRID (estimator tool) ============== */}
@@ -2702,7 +2967,7 @@ export default function App() {
             <div style={{ position: "absolute", top: 16, right: 16, maxWidth: "42%", pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
               <span className="ec-tag"><span className="ec-live" style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} />{walkMode ? "WALKTHROUGH" : "LIVE"}</span>
               {walkMode && walkRoom && (
-                <div className="ec-mono" style={{ fontSize: 12, background: TOKENS.ink, color: TOKENS.hivis, padding: "5px 10px", letterSpacing: "0.04em" }}>
+                <div className="ec-mono" style={{ fontSize: 12, background: TOKENS.emphasis, color: TOKENS.onEmphasis, padding: "5px 10px", letterSpacing: "0.04em" }}>
                   ▸ {walkRoom}
                 </div>
               )}
@@ -2782,7 +3047,7 @@ export default function App() {
 
           {/* ===== TABS ===== */}
           <div className="ec-rule-strong" style={{ marginTop: 28 }} />
-          <div style={{ display: "flex", gap: 0, overflowX: "auto", borderBottom: `1px solid ${TOKENS.rule}` }}>
+          <div className="ec-tabstrip" style={{ borderBottom: `1px solid ${TOKENS.rule}` }}>
             {(buildMode === "highrise"
               ? [{ id: "estimate", label: "Elemental cost plan" }, { id: "timeline", label: "Programme" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
               : buildMode === "materials"
@@ -3017,6 +3282,39 @@ function BathroomCard({ spec, setSpec }) {
       </div>
       <button className="ec-btn ec-btn-ghost" style={{ marginTop: 12, width: "100%", justifyContent: "center" }} onClick={addBath}>+ Add bathroom</button>
     </InputCard>
+  );
+}
+
+/* Light / dark switch. Labelled with the mode you'd be switching TO, which is
+   what people reach for — a sun icon while already in light mode reads as
+   "you are here" and gets clicked by mistake. */
+function ThemeToggle({ theme, onToggle }) {
+  const goingDark = theme !== "dark";
+  return (
+    <button
+      onClick={onToggle}
+      className="ec-mono"
+      title={`Switch to ${goingDark ? "dark" : "light"} mode`}
+      aria-label={`Switch to ${goingDark ? "dark" : "light"} mode`}
+      style={{
+        display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
+        padding: "5px 10px", fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
+        border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.inkSoft,
+      }}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {goingDark ? (
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        ) : (
+          <>
+            <circle cx="12" cy="12" r="4.2" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </>
+        )}
+      </svg>
+      {goingDark ? "DARK" : "LIGHT"}
+    </button>
   );
 }
 
@@ -3457,7 +3755,7 @@ Respond as ONLY JSON, no markdown:
         {/* ---- AI: describe the job in plain words ---- */}
         <div style={{ marginTop: 12, padding: 12, border: `1px solid ${TOKENS.ink}`, background: TOKENS.card }}>
           <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.ink, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ background: TOKENS.hivis, color: TOKENS.ink, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
+            <span style={{ background: TOKENS.hivis, color: TOKENS.onHivis, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
             DESCRIBE YOUR JOB
           </div>
           <p style={{ fontSize: 11, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
@@ -3831,7 +4129,7 @@ Rules:
       {/* AI: describe the tower → fills the fields below */}
       <div style={{ marginBottom: 12, padding: 12, border: `1px solid ${TOKENS.ink}`, background: TOKENS.card }}>
         <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.ink, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ background: TOKENS.hivis, color: TOKENS.ink, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
+          <span style={{ background: TOKENS.hivis, color: TOKENS.onHivis, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
           DESCRIBE THE TOWER
         </div>
         <p style={{ fontSize: 11, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
@@ -4202,7 +4500,7 @@ function EstimateTab({ estimate, currency, region, onRatesChanged }) {
               </div>
             </>
           )}
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", marginTop: 4, fontSize: 18, fontWeight: 700, color: TOKENS.ink, background: TOKENS.hivis, marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16, marginBottom: -16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", marginTop: 4, fontSize: 18, fontWeight: 700, color: TOKENS.onHivis, background: TOKENS.hivis, marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16, marginBottom: -16 }}>
             <span>TOTAL ESTIMATE</span><span>{currency}{fmt(estimate.total)}</span>
           </div>
         </div>

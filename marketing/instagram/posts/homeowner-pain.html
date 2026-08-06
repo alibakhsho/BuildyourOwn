@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080, height=1080">
+<title>Homeowner Pain Point</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  body {
+    width: 1080px; height: 1080px; overflow: hidden;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #12161C;
+    color: #F2F4F7;
+    position: relative;
+  }
+  .container {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+    padding: 80px;
+  }
+  /* Moody dark background with vignette */
+  .vignette {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(ellipse at center, rgba(18,22,28,0) 20%, rgba(0,0,0,0.6) 100%);
+  }
+  .noise {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+  }
+  /* Dramatic red/orange glow for pain */
+  .pain-glow {
+    position: absolute; top: 30%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 800px; height: 600px;
+    background: radial-gradient(ellipse, rgba(239,68,68,0.08) 0%, transparent 60%);
+  }
+  .content {
+    position: relative; z-index: 2;
+    max-width: 900px;
+  }
+  .pain-icon {
+    font-size: 64px;
+    margin-bottom: 32px;
+    filter: drop-shadow(0 0 20px rgba(239,68,68,0.3));
+  }
+  .main-text {
+    font-size: 62px; font-weight: 900;
+    line-height: 1.15;
+    margin-bottom: 12px;
+  }
+  .main-text .highlight {
+    color: #F97316;
+    position: relative;
+  }
+  .main-text .highlight::after {
+    content: '';
+    position: absolute; bottom: -4px; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, #F97316, #FB923C);
+    border-radius: 2px;
+  }
+  .sub-text {
+    font-size: 24px;
+    color: rgba(242,244,247,0.62);
+    line-height: 1.5;
+    margin-top: 40px;
+    max-width: 700px;
+    margin-left: auto; margin-right: auto;
+  }
+  .divider {
+    width: 80px; height: 3px;
+    background: linear-gradient(90deg, #F97316, #FB923C);
+    border-radius: 2px;
+    margin: 40px auto;
+  }
+  .solution {
+    font-size: 20px; font-weight: 600;
+    color: #F97316;
+    letter-spacing: 1px;
+  }
+  .cta-pill {
+    display: inline-block;
+    margin-top: 40px;
+    background: linear-gradient(135deg, #F97316, #EA580C);
+    color: #12161C;
+    font-size: 20px; font-weight: 800;
+    padding: 18px 40px;
+    border-radius: 50px;
+    box-shadow: 0 8px 40px rgba(249,115,22,0.35);
+  }
+  .bottom-logo {
+    position: absolute; bottom: 50px; right: 60px; z-index: 2;
+    font-size: 20px; font-weight: 800;
+    color: rgba(242,244,247,0.4);
+  }
+  .bottom-logo span { color: #F97316; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="vignette"></div>
+  <div class="noise"></div>
+  <div class="pain-glow"></div>
+
+  <div class="content">
+    <div class="pain-icon">😤</div>
+    <div class="main-text">
+      Getting 3 quotes that are<br>
+      <span class="highlight">$40k apart</span>?
+    </div>
+    <div class="sub-text">
+      You shouldn't need a degree in construction
+      to know if a quote is fair. BuildYourOwn gives you
+      an AI-powered estimate in minutes — transparent,
+      itemised, and based on real market data.
+    </div>
+    <div class="divider"></div>
+    <div class="solution">Finally, pricing transparency for homeowners.</div>
+    <div class="cta-pill">Get a free estimate →</div>
+  </div>
+
+  <div class="bottom-logo"><span>Build</span>YourOwn</div>
+</div>
+</body>
+</html>

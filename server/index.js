@@ -15,6 +15,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
+import { readPlanWithClaude, planReaderError } from "../api/_lib/plan-reader.js";
+import { mountAccounting } from "./accounting/routes.js";
 
 // Load server/.env regardless of the cwd the process was started from.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -22,11 +24,12 @@ dotenv.config({ path: join(here, ".env") });
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+// Plan images arrive base64-encoded and routinely exceed the old 1 MB cap.
+app.use(express.json({ limit: "12mb" }));
 
 const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim());
 // Default model for every AI feature. Override per request with `model`.
-const DEFAULT_MODEL = process.env.BYO_AI_MODEL || "claude-opus-4-8";
+const DEFAULT_MODEL = process.env.BYO_AI_MODEL || "claude-opus-5";
 
 app.get("/api/health", (_req, res) => res.json({ ok: true, hasKey: hasKey() }));
 
@@ -54,6 +57,34 @@ app.post("/api/ai/chat", async (req, res) => {
     res.status(status).json({ error: msg });
   }
 });
+
+/* ---- Plan reader: POST /api/ai/vision ----------------------------------
+   Takes a base64 plan image and returns structured takeoff data. Shares its
+   prompt and schema with the Vercel route via api/_lib/plan-reader.js. */
+app.post("/api/ai/vision", async (req, res) => {
+  if (!hasKey()) {
+    return res.status(503).json({
+      error: "The AI backend has no ANTHROPIC_API_KEY set. Add it to server/.env and restart the backend.",
+    });
+  }
+  const { image, imageWidth, imageHeight, pxPerMetre, model } = req.body || {};
+  if (!image?.data || !image?.mediaType) {
+    return res.status(400).json({ error: "An image (base64 data + mediaType) is required." });
+  }
+  try {
+    const client = new Anthropic();
+    const data = await readPlanWithClaude(client, {
+      image, imageWidth, imageHeight, pxPerMetre, model: model || DEFAULT_MODEL,
+    });
+    res.json(data);
+  } catch (e) {
+    const { status, error } = planReaderError(e);
+    res.status(status).json({ error });
+  }
+});
+
+/* ---- Xero / MYOB OAuth + sync ---- */
+mountAccounting(app);
 
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => {

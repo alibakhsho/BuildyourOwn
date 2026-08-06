@@ -6,3 +6,12 @@ dist/
 !server/.env.example
 .DS_Store
 *.log
+
+# Accounting OAuth tokens (Xero/MYOB refresh tokens — never commit these)
+server/.tokens.json
+
+# Admin panel — a static design mockup whose charts are randomly generated
+# (ri(40,180)), with no auth and no data source. Kept out of git so a stray
+# `git add .` can't publish a login-less dashboard of invented numbers to the
+# deployed site. Delete this line once it reads real data behind real auth.
+admin-panel/

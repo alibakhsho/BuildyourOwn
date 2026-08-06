@@ -13,9 +13,9 @@ const BASE = import.meta.env?.VITE_AI_BACKEND || ""; // "" = same origin (Vite p
    an explicit `model` always wins; omitting both defers to the backend
    default. Swap these ids in one place to re-tier the whole app. */
 export const MODELS = {
-  fast: "claude-haiku-4-5-20251001", // cheapest — structured JSON, param extraction, quick tasks
-  smart: "claude-sonnet-5",          // balanced — the AI crew conversations
-  max: "claude-opus-4-8",            // most capable — heavy reasoning (opt-in)
+  fast: "claude-haiku-4-5",  // cheapest — structured JSON, param extraction, quick tasks
+  smart: "claude-sonnet-5",  // balanced — the AI crew conversations
+  max: "claude-opus-5",      // most capable — heavy reasoning, plan reading (opt-in)
 };
 
 /* chat({ system, messages, maxTokens, model, tier }) -> assistant text.
