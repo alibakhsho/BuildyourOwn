@@ -2348,7 +2348,17 @@ export default function App() {
         .ec-btn-hivis:hover { background: var(--hivis-deep); }
         .ec-btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
         .ec-btn-ghost:hover { background: var(--ink); color: var(--paper); }
-        .ec-tab { padding: 11px 18px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--steel); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.18s; white-space: nowrap; }
+        /* The strip scrolls sideways rather than wrapping. Each tab must keep
+           its natural width — flex items shrink by default, and combined with
+           white-space:nowrap that squeezed every box to ~50px while the text
+           kept full width, so labels overlapped their neighbours and the tap
+           target no longer matched the words you were aiming at. */
+        .ec-tabstrip { display: flex; gap: 0; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scroll-snap-type: x proximity; }
+        /* Hide the scrollbar without losing the scroll — the underline rule is
+           the visual boundary here and a gutter breaks it. */
+        .ec-tabstrip { scrollbar-width: none; -ms-overflow-style: none; }
+        .ec-tabstrip::-webkit-scrollbar { display: none; }
+        .ec-tab { flex: 0 0 auto; scroll-snap-align: start; display: flex; align-items: center; min-height: 44px; padding: 11px 18px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--steel); cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.18s, border-bottom-color 0.18s; white-space: nowrap; -webkit-tap-highlight-color: transparent; user-select: none; }
         .ec-tab:hover { color: var(--ink); }
         .ec-tab-active { color: var(--ink); border-bottom-color: var(--hivis); }
         .ec-link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--hivis); text-decoration-thickness: 2px; text-underline-offset: 3px; }
@@ -3011,7 +3021,7 @@ export default function App() {
 
           {/* ===== TABS ===== */}
           <div className="ec-rule-strong" style={{ marginTop: 28 }} />
-          <div style={{ display: "flex", gap: 0, overflowX: "auto", borderBottom: `1px solid ${TOKENS.rule}` }}>
+          <div className="ec-tabstrip" style={{ borderBottom: `1px solid ${TOKENS.rule}` }}>
             {(buildMode === "highrise"
               ? [{ id: "estimate", label: "Elemental cost plan" }, { id: "timeline", label: "Programme" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
               : buildMode === "materials"
