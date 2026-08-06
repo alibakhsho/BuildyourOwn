@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080, height=1080">
+<title>3D House Wireframe</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  body {
+    width: 1080px; height: 1080px; overflow: hidden;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #12161C;
+    color: #F2F4F7;
+    position: relative;
+  }
+  .container {
+    width: 100%; height: 100%;
+    padding: 60px;
+    display: flex; flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  .grid-bg {
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background-image:
+      linear-gradient(rgba(249,115,22,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(249,115,22,0.02) 1px, transparent 1px);
+    background-size: 30px 30px;
+  }
+  .glow-center {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 700px; height: 700px;
+    background: radial-gradient(circle, rgba(249,115,22,0.1) 0%, transparent 60%);
+    border-radius: 50%;
+  }
+  .header {
+    position: relative; z-index: 2;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .tag {
+    display: inline-block;
+    background: rgba(249,115,22,0.15);
+    border: 1px solid rgba(249,115,22,0.3);
+    color: #F97316;
+    font-size: 14px; font-weight: 700;
+    letter-spacing: 3px; text-transform: uppercase;
+    padding: 8px 18px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+  }
+  .header h1 {
+    font-size: 50px; font-weight: 900;
+    line-height: 1.1;
+  }
+  .header h1 span { color: #F97316; }
+  .subtitle {
+    font-size: 18px;
+    color: rgba(242,244,247,0.5);
+    margin-top: 10px;
+  }
+  .house-area {
+    position: relative; z-index: 2;
+    flex: 1;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* Isometric 3D house with SVG */
+  .house-svg {
+    filter: drop-shadow(0 0 40px rgba(249,115,22,0.2));
+  }
+  .steps-row {
+    position: relative; z-index: 2;
+    display: flex; gap: 16px;
+    justify-content: center;
+    margin-top: 16px;
+  }
+  .step {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 20px;
+    background: rgba(249,115,22,0.06);
+    border: 1px solid rgba(249,115,22,0.12);
+    border-radius: 10px;
+  }
+  .step-icon {
+    font-size: 22px;
+  }
+  .step-text {
+    font-size: 15px; font-weight: 600;
+    color: rgba(242,244,247,0.8);
+  }
+  .step-arrow {
+    font-size: 20px; color: rgba(249,115,22,0.4);
+    display: flex; align-items: center;
+  }
+  .footer {
+    position: absolute; bottom: 40px; right: 60px; z-index: 2;
+  }
+  .logo {
+    font-size: 20px; font-weight: 800;
+    color: rgba(242,244,247,0.4);
+  }
+  .logo span { color: #F97316; }
+
+  /* Animation for the wireframe */
+  @keyframes draw {
+    from { stroke-dashoffset: 2000; }
+    to { stroke-dashoffset: 0; }
+  }
+  .animate-line {
+    stroke-dasharray: 2000;
+    animation: draw 4s ease-out forwards;
+  }
+  @keyframes glow-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+  .glow-line {
+    animation: glow-pulse 3s ease-in-out infinite;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="grid-bg"></div>
+  <div class="glow-center"></div>
+
+  <div class="header">
+    <div class="tag">🏗️ 3D Visualisation</div>
+    <h1>Watch your design <span>build itself</span></h1>
+    <div class="subtitle">Type dimensions → see it in 3D → know the cost</div>
+  </div>
+
+  <div class="house-area">
+    <svg class="house-svg" width="700" height="520" viewBox="0 0 700 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Ground plane grid -->
+      <g opacity="0.15">
+        <line x1="100" y1="380" x2="250" y2="460" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="180" y1="380" x2="330" y2="460" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="260" y1="380" x2="410" y2="460" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="340" y1="380" x2="490" y2="460" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="420" y1="380" x2="570" y2="460" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="500" y1="380" x2="650" y2="460" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="100" y1="400" x2="600" y2="400" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="130" y1="420" x2="620" y2="420" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="160" y1="440" x2="640" y2="440" stroke="#F97316" stroke-width="0.5"/>
+        <line x1="190" y1="460" x2="660" y2="460" stroke="#F97316" stroke-width="0.5"/>
+      </g>
+
+      <!-- House body - isometric box -->
+      <!-- Front face -->
+      <polygon points="150,380 350,380 350,220 150,220" fill="rgba(249,115,22,0.04)" stroke="#F97316" stroke-width="2.5" class="animate-line"/>
+      <!-- Right face -->
+      <polygon points="350,380 550,310 550,150 350,220" fill="rgba(249,115,22,0.02)" stroke="#F97316" stroke-width="2.5" class="animate-line" style="animation-delay: 0.3s"/>
+      <!-- Top face -->
+      <polygon points="150,220 350,220 550,150 350,150" fill="rgba(249,115,22,0.03)" stroke="#F97316" stroke-width="2.5" class="animate-line" style="animation-delay: 0.6s"/>
+
+      <!-- Roof -->
+      <polygon points="120,220 250,100 450,100 350,150 150,220" fill="rgba(249,115,22,0.05)" stroke="#F97316" stroke-width="3" class="animate-line glow-line" style="animation-delay: 0.9s"/>
+      <polygon points="250,100 450,100 580,150 550,150 350,150" fill="rgba(249,115,22,0.03)" stroke="#F97316" stroke-width="3" class="animate-line glow-line" style="animation-delay: 1.0s"/>
+      <line x1="250" y1="100" x2="350" y2="150" stroke="#F97316" stroke-width="2" class="animate-line" style="animation-delay: 1.1s"/>
+
+      <!-- Door -->
+      <rect x="220" y="290" width="60" height="90" fill="rgba(249,115,22,0.1)" stroke="#FB923C" stroke-width="2" rx="2" class="animate-line" style="animation-delay: 1.5s"/>
+      <circle cx="270" cy="340" r="3" fill="#FB923C" class="glow-line"/>
+
+      <!-- Windows - front -->
+      <rect x="170" y="250" width="35" height="30" fill="rgba(249,115,22,0.08)" stroke="#FB923C" stroke-width="1.5" rx="2" class="animate-line" style="animation-delay: 1.7s"/>
+      <rect x="310" y="250" width="35" height="30" fill="rgba(249,115,22,0.08)" stroke="#FB923C" stroke-width="1.5" rx="2" class="animate-line" style="animation-delay: 1.8s"/>
+      <!-- Window cross lines -->
+      <line x1="187" y1="250" x2="187" y2="280" stroke="#FB923C" stroke-width="1" opacity="0.5"/>
+      <line x1="170" y1="265" x2="205" y2="265" stroke="#FB923C" stroke-width="1" opacity="0.5"/>
+      <line x1="327" y1="250" x2="327" y2="280" stroke="#FB923C" stroke-width="1" opacity="0.5"/>
+      <line x1="310" y1="265" x2="345" y2="265" stroke="#FB923C" stroke-width="1" opacity="0.5"/>
+
+      <!-- Windows - side -->
+      <rect x="400" y="200" width="40" height="30" fill="rgba(249,115,22,0.06)" stroke="#FB923C" stroke-width="1.5" rx="2" transform="skewY(-18)" class="animate-line" style="animation-delay: 2s"/>
+      <rect x="470" y="200" width="40" height="30" fill="rgba(249,115,22,0.06)" stroke="#FB923C" stroke-width="1.5" rx="2" transform="skewY(-18)" class="animate-line" style="animation-delay: 2.1s"/>
+
+      <!-- Dimension lines -->
+      <g opacity="0.5">
+        <line x1="150" y1="400" x2="350" y2="400" stroke="#F97316" stroke-width="1" stroke-dasharray="4 4"/>
+        <text x="240" y="418" fill="#F97316" font-family="Inter, sans-serif" font-size="14" font-weight="600" text-anchor="middle">12.0m</text>
+        <line x1="370" y1="390" x2="565" y2="320" stroke="#F97316" stroke-width="1" stroke-dasharray="4 4"/>
+        <text x="485" y="348" fill="#F97316" font-family="Inter, sans-serif" font-size="14" font-weight="600" text-anchor="middle">8.5m</text>
+      </g>
+
+      <!-- Glow effects on vertices -->
+      <circle cx="150" cy="220" r="4" fill="#F97316" opacity="0.8" class="glow-line"/>
+      <circle cx="350" cy="220" r="4" fill="#F97316" opacity="0.8" class="glow-line"/>
+      <circle cx="550" cy="150" r="4" fill="#F97316" opacity="0.8" class="glow-line"/>
+      <circle cx="250" cy="100" r="5" fill="#F97316" opacity="0.9" class="glow-line"/>
+      <circle cx="450" cy="100" r="5" fill="#F97316" opacity="0.9" class="glow-line"/>
+    </svg>
+  </div>
+
+  <div class="steps-row">
+    <div class="step">
+      <div class="step-icon">⌨️</div>
+      <div class="step-text">Type dimensions</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-icon">🧊</div>
+      <div class="step-text">See it in 3D</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-icon">💰</div>
+      <div class="step-text">Know the cost</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="logo"><span>Build</span>YourOwn</div>
+  </div>
+</div>
+</body>
+</html>
