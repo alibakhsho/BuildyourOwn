@@ -88,6 +88,27 @@ ok("multi-centre trade splits evenly", concreteRows.map(r => r.budget), [45000, 
 ok("split conserves the total", concreteRows.reduce((s, r) => s + r.budget, 0), 90000);
 ok("unknown trade is ignored", CM.applyEstimateToBudget(job.id, { not_a_trade: 5000 }), 0);
 
+// --- Quote -> trade totals (what the "Send to Site Office" button feeds in) ---
+// Labour splits 3:1 between roof and concrete; everything else in the quote
+// (materials, plant, prelims, margin) rides along pro-rata on that weighting.
+const estimate = {
+  total: 200000,
+  labourLines: [
+    { tradeKey: "roof", trade: "Roofers", total: 30000 },
+    { tradeKey: "concrete", trade: "Concretors", total: 10000 },
+  ],
+};
+const tt = CM.tradeTotalsFromEstimate(estimate);
+ok("trade totals reconcile to the quote total", Math.round(tt.roof + tt.concrete), 200000);
+ok("roof takes its 75% labour share", Math.round(tt.roof), 150000);
+ok("concrete takes its 25% labour share", Math.round(tt.concrete), 50000);
+ok("no labour means nothing to map", CM.tradeTotalsFromEstimate({ total: 5000, labourLines: [] }), {});
+ok("a missing estimate is not a crash", CM.tradeTotalsFromEstimate(null), {});
+// Lines without a tradeKey can't be joined to a cost centre, so they're dropped
+// rather than silently bucketed into the wrong trade.
+ok("untagged labour lines are ignored",
+  CM.tradeTotalsFromEstimate({ total: 100, labourLines: [{ trade: "Roofers", total: 100 }] }), {});
+
 // --- Deleting a job takes its children with it ---
 CM.deleteJob(job.id);
 ok("job gone", CM.getJob(job.id), null);

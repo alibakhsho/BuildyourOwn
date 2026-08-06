@@ -31,7 +31,10 @@ import { useTheme } from "./design/theme.js";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "./design/icons.jsx";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
-import { updateJob as updateCmJob } from "./state/cm.js";
+import {
+  updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
+  applyEstimateToBudget, tradeTotalsFromEstimate,
+} from "./state/cm.js";
 
 /* Human-readable message for AI failures, shared by every AI feature */
 const aiErrMsg = (e) => e?.message || "Couldn't reach the AI service — check your connection.";
@@ -1828,8 +1831,9 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
 }
 
 /* ---- Proposal: the client-facing document, print-ready ---- */
-function ProposalSection({ projectName, estimate, currency, region, buildMode, projectNo, reportText }) {
+function ProposalSection({ projectName, estimate, currency, region, buildMode, projectNo, reportText, onSendToSiteOffice, onOpenSiteOffice }) {
   const est = estimate || {};
+  const [sent, setSent] = useState(null);
   const money = (v) => `${currency}${fmt(v || 0)}`;
   const rows = buildMode === "materials"
     ? (est.lines || []).map((l) => [l.label, `${l.qty} ${l.unit || ""}`, money(l.total)])
@@ -1846,10 +1850,34 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
   const doPrint = () => window.print();
   return (
     <main style={{ maxWidth: 900, margin: "0 auto", padding: "28px 24px 64px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} className="no-print">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, gap: 12, flexWrap: "wrap" }} className="no-print">
         <div className="ec-eyebrow">Proposal — client-facing</div>
-        <button className="ec-btn ec-btn-hivis" onClick={doPrint}>Print / save as PDF</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {onSendToSiteOffice && (
+            <button className="ec-btn ec-btn-ghost" disabled={!(est.total > 0)}
+              onClick={() => setSent(onSendToSiteOffice())}>
+              {sent ? "↻ Re-sync budget" : "→ Send to Site Office"}
+            </button>
+          )}
+          <button className="ec-btn ec-btn-hivis" onClick={doPrint}>Print / save as PDF</button>
+        </div>
       </div>
+      {sent && (
+        <div className="no-print" style={{ marginBottom: 16, padding: "12px 14px", background: TOKENS.okWash, border: `1px solid ${TOKENS.ok}`, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+            <strong>{sent.existed ? "Budget re-synced on" : "Job created —"} {sent.job.jobNo}.</strong>{" "}
+            Contract sum set to {money(est.total)} and {sent.seeded} cost centre{sent.seeded === 1 ? "" : "s"} budgeted from this quote.
+            {/* Say plainly what the split is, because a builder will reconcile
+                these numbers against their own and needs to know the basis. */}
+            <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 4 }}>
+              Trades are budgeted on the labour split, with materials, plant, prelims and margin spread pro-rata. Reallocate in the job budget.
+            </div>
+          </div>
+          {onOpenSiteOffice && (
+            <button className="ec-btn ec-btn-ghost" onClick={() => onOpenSiteOffice(sent.job)}>Open the job</button>
+          )}
+        </div>
+      )}
       <style>{`@media print { .no-print, header, footer { display: none !important; } body { background: #fff !important; } }`}</style>
       {/* Fixed shadow, not var(--shadow-lift): the token would resolve inside
           this element's own light palette and vanish against a dark app. */}
@@ -1933,6 +1961,9 @@ export default function App() {
   const [guestMode] = useState(true);
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
+  // Set when the estimator hands a quote to a specific job, so Site Office
+  // opens on that job rather than its dashboard. Cleared on plain navigation.
+  const [manageJobId, setManageJobId] = useState(null);
   const [userType, setUserType] = useState(null);      // homeowner | tradie | developer — gates which build modes show
   const [stage, setStage] = useState("estimate");      // workflow stage id
 
@@ -2086,6 +2117,29 @@ export default function App() {
   const update = useCallback((patch) => setSpec((s) => ({ ...s, ...patch })), []);
   const updateOpenings = useCallback((patch) =>
     setSpec((s) => ({ ...s, openings: { ...s.openings, ...patch } })), []);
+
+  /* Send the finished quote across to the management side. This was the one
+     direction the join never ran: a job could open its estimate, but a quote
+     had no way to become a job. Reuses the job already linked to this project
+     so pressing it twice re-syncs the budget rather than creating a duplicate. */
+  const sendToSiteOffice = useCallback(() => {
+    if (!projectId || !estimate || !(estimate.total > 0)) return null;
+    let job = listCmJobs().find((j) => j.estimateProjectId === projectId) || null;
+    const existed = !!job;
+    if (!job) {
+      job = createCmJob({
+        name: projectName || "Untitled quote",
+        buildMode, region,
+        estimateProjectId: projectId,
+        // The quote total becomes the contract sum the job is measured against.
+        contractValue: Math.round(estimate.total),
+      });
+    } else {
+      updateCmJob(job.id, { contractValue: Math.round(estimate.total), region, buildMode });
+    }
+    const seeded = applyEstimateToBudget(job.id, tradeTotalsFromEstimate(estimate));
+    return { job, existed, seeded };
+  }, [projectId, projectName, buildMode, region, estimate]);
 
   /* ---- Reset / clear helpers ----
      clearSection zeroes one card's fields; clearAll wipes the active engine. */
@@ -2644,7 +2698,7 @@ export default function App() {
                 from Projects because it answers a different question — not
                 "what will this cost" but "how is this job actually going". */}
             <button className={"ec-btn ec-btn-ghost" + (screen === "manage" ? " ec-btn-ghost-on" : "")}
-              onClick={() => setScreen("manage")}>
+              onClick={() => { setManageJobId(null); setScreen("manage"); }}>
               Site Office
             </button>
             {screen === "workspace" && (
@@ -2747,6 +2801,8 @@ export default function App() {
       {/* ============== CONSTRUCTION MANAGEMENT ============== */}
       {screen === "manage" && (
         <ConstructionManager
+          key={manageJobId || "dash"}
+          initialJobId={manageJobId}
           onOpenEstimator={(job) => {
             // A job either already points at an estimator project or gets a
             // fresh one created and linked, so the two sides stay joined
@@ -3119,7 +3175,9 @@ export default function App() {
       {/* ============== PROPOSAL STAGE ============== */}
       {screen === "workspace" && stage === "proposal" && (
         <ProposalSection projectName={projectName} estimate={estimate} currency={currency} region={region}
-          buildMode={buildMode} projectNo={projectNo} reportText={buildReportText} />
+          buildMode={buildMode} projectNo={projectNo} reportText={buildReportText}
+          onSendToSiteOffice={sendToSiteOffice}
+          onOpenSiteOffice={(job) => { setManageJobId(job?.id || null); setScreen("manage"); window.scrollTo({ top: 0 }); }} />
       )}
       </>}
 

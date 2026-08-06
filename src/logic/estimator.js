@@ -316,6 +316,10 @@ export const Estimator = {
     }[region];
 
     return Object.entries(rates).map(([trade, rate]) => ({
+      // Carry the raw key alongside the label. The management side keys its
+      // cost centres off these ids, and without it the only join between a
+      // quote and a job budget was a display string.
+      tradeKey: trade,
       trade: humaniseTradeName(trade),
       total: round(rate * takeoff.gfaM2 * complexity, 2),
     }));

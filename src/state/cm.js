@@ -324,6 +324,32 @@ export const deleteCostCentre = (id) => remove("costCentres", id);
  * measured against.
  * `tradeTotals` is { tradeKey: amount } as produced by logic/estimator.js.
  */
+/**
+ * Turn a finished estimate into { tradeKey: amount } for applyEstimateToBudget.
+ *
+ * Only labour is broken down by trade in the estimator — materials carry a
+ * catalogue `category`, not a trade, so there is no honest per-trade split for
+ * them. Seeding trade centres with labour alone would set every budget far
+ * below what the trade will actually invoice, which is worse than useless on a
+ * job. So each trade gets its labour plus a pro-rata share of everything else
+ * (materials, equipment, prelims, margin, contingency), weighted by its share
+ * of labour. The totals then reconcile to the contract sum, and the builder
+ * reallocates from a sane starting point rather than from zero.
+ */
+export function tradeTotalsFromEstimate(estimate) {
+  const lines = (estimate?.labourLines || []).filter((l) => l.tradeKey && l.total > 0);
+  const labourTotal = lines.reduce((s, l) => s + l.total, 0);
+  if (!labourTotal) return {};
+  // Everything the estimate charges that isn't labour, spread by labour weight.
+  const rest = Math.max(0, (Number(estimate.total) || 0) - labourTotal);
+  const out = {};
+  for (const l of lines) {
+    const share = l.total / labourTotal;
+    out[l.tradeKey] = (out[l.tradeKey] || 0) + l.total + rest * share;
+  }
+  return out;
+}
+
 export function applyEstimateToBudget(jobId, tradeTotals = {}) {
   const centres = listCostCentres(jobId);
   const db = read();

@@ -47,9 +47,11 @@ const JOB_MODULES = [
   { id: "documents", label: "Documents" },
 ];
 
-export default function ConstructionManager({ onOpenEstimator }) {
-  const [view, setView] = useState("dashboard");
-  const [jobId, setJobId] = useState(null);
+export default function ConstructionManager({ onOpenEstimator, initialJobId = null }) {
+  // initialJobId lets the estimator hand a quote straight to its job — landing
+  // on the dashboard after "Open the job" makes you go hunting for it.
+  const [view, setView] = useState(initialJobId ? "jobs" : "dashboard");
+  const [jobId, setJobId] = useState(initialJobId);
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [, force] = useState(0);
