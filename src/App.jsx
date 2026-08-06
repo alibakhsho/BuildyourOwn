@@ -24,6 +24,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import BackgroundScene from "./engine/BackgroundScene.jsx";
 import { chat as aiChat } from "./ai/client.js";
 import { listProjects, createProject, saveProject, deleteProject, duplicateProject, getProject } from "./state/projects.js";
+import { track } from "./lib/analytics.js";
 import { PERSONAS, buildSystemPrompt, summariseSpec, summariseEstimate, parseActions } from "./ai/personas.js";
 import DesignSystem, { cssVariables } from "./design/system.js";
 import { useTheme } from "./design/theme.js";
@@ -1699,6 +1700,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
     const q = (text || input).trim();
     if (!q || busy) return;
     setInput(""); setErr(""); setBusy(true);
+    track("ai_chat_message", { persona: persona.id, buildMode, region });
     const next = [...msgs, { role: "user", content: q }];
     setMsgs(next);
     try {
@@ -1924,6 +1926,7 @@ export default function App() {
      Every project lives in ONE workspace, walked as a linear workflow:
      Estimate → 3D → Materials → Timeline → AI → Quote → Proposal. */
   const [screen, setScreen] = useState("landing");     // landing | projects | workspace
+  const [guestMode] = useState(true);
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
   const [userType, setUserType] = useState(null);      // homeowner | tradie | developer — gates which build modes show
@@ -2061,6 +2064,13 @@ export default function App() {
       : Estimator.buildEstimate(spec, region),
     [spec, hrSpec, matSpec, buildMode, region, ratesVersion]
   );
+
+  /* Track estimate completion when total changes meaningfully */
+  useEffect(() => {
+    if (estimate && estimate.total > 0) {
+      track("estimate_completed", { buildMode, region, total: Math.round(estimate.total) });
+    }
+  }, [estimate?.total, buildMode, region]);
 
   /* Representative building inferred from the quote — drives the Quote-mode viewport label */
   const quoteMassingSpec = useMemo(
@@ -2428,6 +2438,10 @@ export default function App() {
 
         {/* Top hero bar — minimal, transparent over shader */}
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, padding: "20px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 25, display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(5,7,11,0.78)", border: "1px solid rgba(245,197,24,0.35)", color: "#fff", fontSize: 11, letterSpacing: "0.12em", fontFamily: "'JetBrains Mono', monospace" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "999px", background: TOKENS.hivis }} />
+            GUEST MODE · NO SIGN-UP
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }} className="ec-fade-down">
             <BYOLogo size={34} />
             <div className="ec-display" style={{ fontSize: 18, color: "#fff", letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
@@ -2507,6 +2521,12 @@ export default function App() {
           </p>
 
           <div className="ec-fade-up ec-delay-4" style={{ marginTop: 36, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+            <div style={{ width: "100%", display: "flex", justifyContent: "center", marginTop: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 999, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.9)", fontSize: 12, letterSpacing: "0.05em", fontFamily: "'JetBrains Mono', monospace" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "999px", background: TOKENS.hivis, display: "inline-block" }} />
+                Works instantly on your phone · save projects locally · add accounts later
+              </div>
+            </div>
             <button onClick={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
               style={{
                 padding: "14px 28px",
@@ -2583,6 +2603,12 @@ export default function App() {
         borderBottom: screen === "workspace" ? `1px solid ${TOKENS.rule}` : "none",
       }}>
         <div className="hdr-in" style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          {guestMode && (
+            <div style={{ position: "absolute", top: 8, right: 24, zIndex: 20, display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 999, background: "rgba(245,197,24,0.14)", border: "1px solid rgba(245,197,24,0.28)", color: TOKENS.ink, fontSize: 10, letterSpacing: "0.12em", fontFamily: "'JetBrains Mono', monospace" }}>
+              <span style={{ width: 6, height: 6, borderRadius: "999px", background: TOKENS.hivis }} />
+              GUEST FIRST
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span onClick={() => setScreen("landing")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
               <BYOLogo size={28} />

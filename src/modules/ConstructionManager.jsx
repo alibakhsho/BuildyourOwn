@@ -33,6 +33,8 @@ import { AppShell, SITE_OFFICE_NAV } from "@/components/app-shell.jsx";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
+import { track } from "../lib/analytics.js";
+
 const JOB_MODULES = [
   { id: "overview", label: "Overview" },
   { id: "takeoff", label: "Takeoff" },
@@ -207,6 +209,7 @@ function NewJobDialog({ onClose, onCreated }) {
         contractValue: Number(form.contractValue) || 0,
       })
     );
+    track("job_created", { contractValue: Number(form.contractValue) || 0 });
   };
 
   return (
