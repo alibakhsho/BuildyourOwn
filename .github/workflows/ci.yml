@@ -1,0 +1,45 @@
+name: CI
+
+# Every push and PR gets the same two checks we run locally before shipping:
+# the headless domain tests (takeoff geometry, CM claim arithmetic, EXIF) and a
+# real production build. The build is the one that catches broken imports —
+# App.jsx is large enough that a bad edit can pass tests and still fail Vite.
+on:
+  push:
+    branches: [main, architecture-v2, "feature/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      # A guard against the mistake that is easiest to make and worst to ship:
+      # a real key committed to a public repo. .gitignore covers server/.env,
+      # this fails the build if one ever slips past it.
+      - name: No committed secrets
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$'; then
+            echo "::error::A .env file is tracked in git. Remove it and rotate the key."
+            exit 1
+          fi
+          if git grep -nE 'sk-ant-[A-Za-z0-9]{20}' -- . ':!*.example' ':!.github/*'; then
+            echo "::error::An Anthropic API key appears in tracked source. Rotate it immediately."
+            exit 1
+          fi
+          echo "No tracked .env and no key-shaped strings found."
