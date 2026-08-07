@@ -7,7 +7,10 @@
    ========================================================================= */
 import Anthropic from "@anthropic-ai/sdk";
 
-const DEFAULT_MODEL = process.env.BYO_AI_MODEL || "claude-opus-4-8";
+// Must track server/index.js — this is the DEV/PROD pair for the same route,
+// and they drifted: this one was left on a model id that no longer exists, so
+// any call that didn't pass an explicit model would have failed once deployed.
+const DEFAULT_MODEL = process.env.BYO_AI_MODEL || "claude-opus-5";
 const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim());
 
 export default async function handler(req, res) {
