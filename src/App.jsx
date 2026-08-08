@@ -2646,7 +2646,7 @@ export default function App() {
             color: "rgba(255, 240, 220, 0.85)",
             fontWeight: 400,
           }}>
-            Takeoffs in seconds — from your spreadsheet, your SketchUp model, or a photo of the build plans. Priced line by line against live material and labour rates, ready to send as a quote. For the homeowner pricing a reno, the tradie quoting a job, and the builder running six.
+            Takeoffs in seconds — from your spreadsheet, your SketchUp model, or a photo of the build plans. Priced line by line against live material and labour rates, ready to send as a quote. For the homeowner pricing a reno, the tradie quoting a job, and the builder running six of them at once.
           </p>
 
           <div className="ec-fade-up ec-delay-4" style={{ marginTop: 36, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>

@@ -16,6 +16,7 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readPlanWithClaude, planReaderError } from "../api/_lib/plan-reader.js";
+import { preflight, LIMITS, clampModel, clampTokens, promptSize } from "../api/_lib/guard.js";
 import { mountAccounting } from "./accounting/routes.js";
 
 // Load server/.env regardless of the cwd the process was started from.
@@ -39,13 +40,26 @@ app.post("/api/ai/chat", async (req, res) => {
       error: "The AI backend has no ANTHROPIC_API_KEY set. Add it to server/.env and restart the backend.",
     });
   }
-  const { system, messages, maxTokens = 1500, model = DEFAULT_MODEL } = req.body || {};
+  // Same guard as production (api/ai/chat.js) so limits are exercised in dev
+  // rather than discovered live.
+  const blocked = preflight(req, "chat");
+  if (blocked) {
+    if (blocked.retryAfter) res.setHeader("Retry-After", String(blocked.retryAfter));
+    return res.status(blocked.status).json({ error: blocked.error });
+  }
+
+  const { system, messages, maxTokens = 1500, model } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({ error: "messages must be a non-empty array" });
   }
+  if (promptSize(messages, system) > LIMITS.chat.maxPromptChars) {
+    return res.status(413).json({ error: "That request is too long. Trim it and try again." });
+  }
+  const safeModel = clampModel(model, DEFAULT_MODEL);
+  const safeTokens = clampTokens(maxTokens, LIMITS.chat.maxTokens);
   try {
     const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env
-    const resp = await client.messages.create({ model, max_tokens: maxTokens, system, messages });
+    const resp = await client.messages.create({ model: safeModel, max_tokens: safeTokens, system, messages });
     const text = (resp.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
     if (!text) return res.status(502).json({ error: "The model returned an empty response." });
     res.json({ text });
@@ -67,14 +81,23 @@ app.post("/api/ai/vision", async (req, res) => {
       error: "The AI backend has no ANTHROPIC_API_KEY set. Add it to server/.env and restart the backend.",
     });
   }
+  const blocked = preflight(req, "vision");
+  if (blocked) {
+    if (blocked.retryAfter) res.setHeader("Retry-After", String(blocked.retryAfter));
+    return res.status(blocked.status).json({ error: blocked.error });
+  }
+
   const { image, imageWidth, imageHeight, pxPerMetre, model } = req.body || {};
   if (!image?.data || !image?.mediaType) {
     return res.status(400).json({ error: "An image (base64 data + mediaType) is required." });
   }
+  if (String(image.data).length > LIMITS.vision.maxImageBytes) {
+    return res.status(413).json({ error: "That plan image is too large. Downscale it and try again." });
+  }
   try {
     const client = new Anthropic();
     const data = await readPlanWithClaude(client, {
-      image, imageWidth, imageHeight, pxPerMetre, model: model || DEFAULT_MODEL,
+      image, imageWidth, imageHeight, pxPerMetre, model: clampModel(model, DEFAULT_MODEL),
     });
     res.json(data);
   } catch (e) {
