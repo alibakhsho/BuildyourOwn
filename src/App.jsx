@@ -69,17 +69,40 @@ const CARD_SHAPES = [
   { borderRadius: "4px 28px 4px 28px" },
 ];
 
+/* ---- Tax presentation -------------------------------------------------
+   Estimates are computed EXCLUSIVE of tax; `estimate.total` is always the
+   ex-tax figure. But the headline number a client sees has to be the one
+   they will actually pay — in Australia the Consumer Law requires a single
+   GST-inclusive total price, and showing "total + GST" makes the reader do
+   the arithmetic themselves, which is exactly what they get wrong.
+
+   So: display gross, and state the tax it already contains. The ex-tax
+   figure still appears as its own line in the quote breakdown, because a
+   builder reconciling against a supplier invoice needs it.                */
+const taxOf   = (est) => (est?.total || 0) * (est?.taxRate || 0);
+const grossOf = (est) => (est?.total || 0) + taxOf(est);
+/* `taxLabel` already carries the rate ("GST (10%)"), which reads fine on the
+   tax line itself but turns into "excl. GST (10%)" inside a qualifier. These
+   give the bare name for those: "GST", "VAT", "Sales tax". */
+const bareTax = (label) => String(label || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+const taxName = (est) => bareTax(est?.taxLabel);
+/** "incl. A$64,075 GST" — the sub-line that sits under a gross total. */
+const inclusiveNote = (est, currency) =>
+  est?.taxRate > 0 ? `incl. ${currency}${fmt(taxOf(est))} ${est.taxLabel}` : "No tax applied";
+
 /* How it works — same flying-card language as the toolkit, on a dark glass
    band so the ambient build/break scene shows through behind it. */
+/* The order is the real workflow, and it now opens where the work actually
+   starts — with whatever the client already has in their hand. */
 const HOW_STEPS = [
-  { n: "01", title: "Configure", body: "Dimensions, floors, framing, cladding, roof, openings, site condition. Toggle region for AU, US or UK rates.",
-    icon: <path d="M8 40V20l16-12 16 12v20M8 40h32M18 40V28h12v12" /> },
+  { n: "01", title: "Bring your takeoff", body: "Drop in a spreadsheet, a SketchUp export, or a photo of the build plans. No file? Type the dimensions instead.",
+    icon: <path d="M24 30V6m0 24l-8-8m8 8l8-8M8 34v8h32v-8" /> },
   { n: "02", title: "Watch it rise", body: "The 3D skeleton rebuilds the moment a slider moves. Play the construction sequence stage by stage.",
     icon: <path d="M10 42V22m14 20V12m14 30V28M6 42h36M10 22l14-10 14 16" /> },
-  { n: "03", title: "See the numbers", body: "Itemised materials, trade-by-trade labour, equipment hire, builder build-up, and a programme in weeks. All live.",
+  { n: "03", title: "See every line priced", body: "Materials, trade-by-trade labour, equipment hire and margin — itemised against live AU, US or UK rates.",
     icon: <path d="M8 8h24l8 8v24H8V8zm24 0v8h8M14 22h20M14 29h20M14 36h12" /> },
-  { n: "04", title: "Take it further", body: "Import CAD/BIM or SketchUp takeoffs, search live supplier prices, download the takeoff sheet.",
-    icon: <path d="M24 30V6m0 24l-8-8m8 8l8-8M8 34v8h32v-8" /> },
+  { n: "04", title: "Send the quote", body: "A client-ready quote with one GST-inclusive total. Print it, save it as a PDF, or hand it to the job.",
+    icon: <path d="M6 12h36v24H6V12zm0 0l18 13 18-13M14 42h20" /> },
 ];
 
 function HowItWorksSection() {
@@ -1064,8 +1087,11 @@ const Reporter = {
     lines.push(pad("Builder margin (15%)", 62) + `${currency}${fmt(margin)}`);
     lines.push(pad(`Contingency (${Math.round(contingencyPct * 100)}%)`, 62) + `${currency}${fmt(contingency)}`);
     lines.push(half);
-    lines.push(pad("TOTAL ESTIMATE", 62) + `${currency}${fmt(total)}`);
-    if (taxRate > 0) lines.push(pad(`+ ${taxLabel}`, 62) + `${currency}${fmt(total * taxRate)}`);
+    if (taxRate > 0) {
+      lines.push(pad(`Subtotal (excl. ${bareTax(taxLabel)})`, 62) + `${currency}${fmt(total)}`);
+      lines.push(pad(`${taxLabel}`, 62) + `${currency}${fmt(total * taxRate)}`);
+    }
+    lines.push(pad(taxRate > 0 ? `TOTAL ESTIMATE (incl. ${bareTax(taxLabel)})` : "TOTAL ESTIMATE", 62) + `${currency}${fmt(total * (1 + taxRate))}`);
     lines.push("");
 
     lines.push("CONSTRUCTION PROGRAMME");
@@ -1144,7 +1170,10 @@ const Reporter = {
     lines.push(half);
     lines.push(pad("TOTAL ESTIMATE", 54) + `${currency}${fmt(total)}`);
     lines.push(pad("Rate per m² GFA", 54) + `${currency}${fmt(total / Math.max(1, takeoff.gfaM2))}/m²`);
-    if (taxRate > 0) lines.push(pad(`+ ${taxLabel}`, 54) + `${currency}${fmt(total * taxRate)}`);
+    if (taxRate > 0) {
+      lines.push(pad(`${taxLabel}`, 54) + `${currency}${fmt(total * taxRate)}`);
+      lines.push(pad(`TOTAL ESTIMATE (incl. ${bareTax(taxLabel)})`, 54) + `${currency}${fmt(total * (1 + taxRate))}`);
+    }
     lines.push("");
     lines.push("INDICATIVE PROGRAMME");
     lines.push(half);
@@ -1191,8 +1220,11 @@ const Reporter = {
       if (byKind.element) out.push(pad("  Trades & jobs", 56) + `${currency}${fmt(byKind.element)}`);
       out.push(half);
     }
-    out.push(pad("QUOTE TOTAL", 56) + `${currency}${fmt(total)}`);
-    if (taxRate > 0) out.push(pad(`+ ${taxLabel}`, 56) + `${currency}${fmt(total * taxRate)}`);
+    if (taxRate > 0) {
+      out.push(pad(`Subtotal (excl. ${bareTax(taxLabel)})`, 56) + `${currency}${fmt(total)}`);
+      out.push(pad(`${taxLabel}`, 56) + `${currency}${fmt(total * taxRate)}`);
+    }
+    out.push(pad(taxRate > 0 ? `QUOTE TOTAL (incl. ${bareTax(taxLabel)})` : "QUOTE TOTAL", 56) + `${currency}${fmt(total * (1 + taxRate))}`);
     out.push("");
     out.push("Feasibility-grade. Indicative rates; confirm materials with suppliers and");
     out.push("labour with your trades. Material order quantities include trade waste.");
@@ -1891,9 +1923,11 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
             </div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel }}>PROPOSED TOTAL</div>
-            <div className="ec-display" style={{ fontSize: 34, color: TOKENS.hivisInk }}>{money(est.total)}</div>
-            {est.taxRate > 0 && <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>+ {money(est.total * est.taxRate)} {est.taxLabel}</div>}
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel }}>
+              {est.taxRate > 0 ? `PROPOSED TOTAL INCL. ${taxName(est)}` : "PROPOSED TOTAL"}
+            </div>
+            <div className="ec-display" style={{ fontSize: 34, color: TOKENS.hivisInk }}>{money(grossOf(est))}</div>
+            {est.taxRate > 0 && <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>includes {money(taxOf(est))} {est.taxLabel}</div>}
           </div>
         </div>
 
@@ -1916,10 +1950,29 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
                 <td className="ec-mono" style={{ padding: "8px 0", textAlign: "right" }}>{c}</td>
               </tr>
             ))}
+            {/* Subtotal → tax → inclusive total. The ex-tax figure stays on the
+                page because a builder reconciles against it, but the number set
+                in bold is the one the client actually pays. */}
+            {est.taxRate > 0 && (
+              <>
+                <tr style={{ borderBottom: `1px solid ${TOKENS.rule}` }}>
+                  <td style={{ padding: "8px 0" }}>Subtotal (excl. {taxName(est)})</td>
+                  <td />
+                  <td className="ec-mono" style={{ padding: "8px 0", textAlign: "right" }}>{money(est.total)}</td>
+                </tr>
+                <tr style={{ borderBottom: `1px solid ${TOKENS.rule}` }}>
+                  <td style={{ padding: "8px 0" }}>{est.taxLabel}</td>
+                  <td />
+                  <td className="ec-mono" style={{ padding: "8px 0", textAlign: "right" }}>{money(taxOf(est))}</td>
+                </tr>
+              </>
+            )}
             <tr>
-              <td className="ec-display" style={{ padding: "12px 0", fontSize: 15 }}>TOTAL {est.taxRate > 0 ? "(excl. tax)" : ""}</td>
+              <td className="ec-display" style={{ padding: "12px 0", fontSize: 15 }}>
+                TOTAL {est.taxRate > 0 ? `(incl. ${taxName(est)})` : ""}
+              </td>
               <td />
-              <td className="ec-mono" style={{ padding: "12px 0", textAlign: "right", fontWeight: 700, fontSize: 16, color: TOKENS.hivisInk }}>{money(est.total)}</td>
+              <td className="ec-mono" style={{ padding: "12px 0", textAlign: "right", fontWeight: 700, fontSize: 16, color: TOKENS.hivisInk }}>{money(grossOf(est))}</td>
             </tr>
           </tbody>
         </table>
@@ -2593,7 +2646,7 @@ export default function App() {
             color: "rgba(255, 240, 220, 0.85)",
             fontWeight: 400,
           }}>
-            Instant estimates and quotes — material lists, codes and compliance, project scope, even the management — generated in seconds. Feed it numbers, a design, or a plain-English brief and let AI do the dirty work: from a homeowner&apos;s extension to a developer&apos;s full project.
+            Takeoffs in seconds — from your spreadsheet, your SketchUp model, or a photo of the build plans. Priced line by line against live material and labour rates, ready to send as a quote. For the homeowner pricing a reno, the tradie quoting a job, and the builder running six.
           </p>
 
           <div className="ec-fade-up ec-delay-4" style={{ marginTop: 36, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
@@ -2779,7 +2832,10 @@ export default function App() {
         <WorkflowStepper stage={stage} onStage={(s) => {
           setStage(s);
           if (s === "estimate") setTab("estimate");
-          if (s === "materials") setTab(buildMode === "materials" ? "estimate" : "spreadsheet");
+          // Materials means "show me the priced lines", not "show me an import
+          // screen". It used to land residential users on the spreadsheet
+          // importer, which is a way IN to a quote, not the quote itself.
+          if (s === "materials") setTab("estimate");
           if (s === "timeline" && buildMode !== "materials") setTab("timeline");
           if (s === "quote") setTab("estimate");
           // Scroll to the matching section after the stage/tab re-render commits.
@@ -3101,19 +3157,19 @@ export default function App() {
           <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16, scrollMarginTop: 132 }}>
             <StaggerReveal variant="fade-up" stagger={0.06}>
               {buildMode === "materials" ? [
-                <CostCard key="t" label="Quote total" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
+                <CostCard key="t" label="Quote total" value={`${currency}${fmt(grossOf(estimate))}`} hivis sub={inclusiveNote(estimate, currency)} />,
                 <CostCard key="m" label="Materials" value={`${currency}${fmt((estimate.byKind || {}).material || 0)}`} />,
                 <CostCard key="l" label="Labour" value={`${currency}${fmt((estimate.byKind || {}).labour || 0)}`} />,
                 <CostCard key="e" label="Trades & jobs" value={`${currency}${fmt((estimate.byKind || {}).element || 0)}`} sub={`${estimate.lines.length} lines`} />,
               ] : buildMode === "highrise" ? [
-                <CostCard key="t" label="Total estimate" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
+                <CostCard key="t" label="Total estimate" value={`${currency}${fmt(grossOf(estimate))}`} hivis sub={inclusiveNote(estimate, currency)} />,
                 <CostCard key="s" label="Systems (adj.)" value={`${currency}${fmt(estimate.systemsTotal)}`} />,
                 <CostCard key="d" label="Design fees" value={`${currency}${fmt(estimate.designFees)}`} />,
                 <CostCard key="g" label="GFA" value={`${fmt(estimate.takeoff.gfaM2)} m²`} sub={`${estimate.spec.floors} floors`} />,
                 <CostCard key="p" label="Programme" value={`${estimate.timeline.totalWeeks} wks`} sub={`~${(estimate.timeline.totalWeeks / 52).toFixed(1)} yrs`} />,
                 <CostCard key="r" label={`${currency}/m² GFA`} value={`${currency}${fmt(estimate.total / Math.max(1, estimate.takeoff.gfaM2))}`} />,
               ] : [
-                <CostCard key="t" label="Total estimate" value={`${currency}${fmt(estimate.total)}`} hivis sub={estimate.taxRate > 0 ? `+ ${currency}${fmt(estimate.total * estimate.taxRate)} ${estimate.taxLabel}` : "Excl. tax"} />,
+                <CostCard key="t" label="Total estimate" value={`${currency}${fmt(grossOf(estimate))}`} hivis sub={inclusiveNote(estimate, currency)} />,
                 <CostCard key="m" label="Materials" value={`${currency}${fmt(estimate.materialsTotal)}`} />,
                 <CostCard key="l" label="Labour" value={`${currency}${fmt(estimate.labourTotal)}`} />,
                 <CostCard key="e" label="Equipment" value={`${currency}${fmt(estimate.equipmentTotal)}`} />,
@@ -4005,8 +4061,10 @@ Respond as ONLY JSON, no markdown:
 
       {!embed && summary && (
         <div style={{ padding: 14, border: `2px solid ${TOKENS.ink}`, background: TOKENS.card }}>
-          <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Quote total</div>
-          <div className="ec-display" style={{ fontSize: 30, lineHeight: 1, color: TOKENS.ink }}>{currency}{fmt(summary.total)}</div>
+          <div className="ec-eyebrow" style={{ marginBottom: 8 }}>
+            Quote total{summary.taxRate > 0 ? ` (incl. ${taxName(summary)})` : ""}
+          </div>
+          <div className="ec-display" style={{ fontSize: 30, lineHeight: 1, color: TOKENS.ink }}>{currency}{fmt(grossOf(summary))}</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 10 }}>
             {[["material", "Materials"], ["labour", "Labour"], ["element", "Trades & jobs"]].map(([k, lbl]) => (
               (bk[k] > 0) ? (
@@ -4017,7 +4075,7 @@ Respond as ONLY JSON, no markdown:
             ))}
             {summary.taxRate > 0 && (
               <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: TOKENS.steel, marginTop: 4, paddingTop: 4, borderTop: `1px dashed ${TOKENS.rule}` }}>
-                <span>+ {summary.taxLabel}</span><span>{currency}{fmt(summary.total * summary.taxRate)}</span>
+                <span>incl. {summary.taxLabel}</span><span>{currency}{fmt(summary.total * summary.taxRate)}</span>
               </div>
             )}
           </div>
@@ -4066,14 +4124,20 @@ function MaterialsEstimateTab({ estimate, currency }) {
           </div>
         </div>
       ))}
-      <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
-        <span>QUOTE TOTAL</span><span>{currency}{fmt(estimate.total)}</span>
-      </div>
       {estimate.taxRate > 0 && (
-        <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12, color: TOKENS.inkSoft }}>
-          <span>+ {estimate.taxLabel}</span><span>{currency}{fmt(estimate.total * estimate.taxRate)}</span>
-        </div>
+        <>
+          <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: `1px solid ${TOKENS.rule}`, fontSize: 12, color: TOKENS.inkSoft }}>
+            <span>Subtotal (excl. {taxName(estimate)})</span><span>{currency}{fmt(estimate.total)}</span>
+          </div>
+          <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12, color: TOKENS.inkSoft }}>
+            <span>{estimate.taxLabel}</span><span>{currency}{fmt(taxOf(estimate))}</span>
+          </div>
+        </>
       )}
+      <div className="ec-mono" style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${TOKENS.ink}`, fontSize: 14, fontWeight: 700 }}>
+        <span>QUOTE TOTAL{estimate.taxRate > 0 ? ` (incl. ${taxName(estimate)})` : ""}</span>
+        <span>{currency}{fmt(grossOf(estimate))}</span>
+      </div>
     </div>
   );
 }
