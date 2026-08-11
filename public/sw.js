@@ -1,5 +1,7 @@
-const CACHE = "byo-cache-v1";
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.svg", "/icon-512.svg"];
+// Bump the cache name whenever the shell list changes, so old clients drop
+// the stale precache (which still referenced the removed SVG icons).
+const CACHE = "byo-cache-v2";
+const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(APP_SHELL)));

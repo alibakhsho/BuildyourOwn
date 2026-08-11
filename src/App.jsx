@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, Children, cloneElement } from "react";
+// Children/cloneElement went with StaggerReveal, their only consumer.
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { round, fmt, pad, currencySymbol } from "./lib/format.js";
 import { nextId } from "./lib/ids.js";
@@ -30,6 +31,19 @@ import DesignSystem, { cssVariables } from "./design/system.js";
 import { useTheme } from "./design/theme.js";
 import { Badge } from "@/components/ui/badge";
 import { Icon } from "./design/icons.jsx";
+/* Shared UI primitives. These were inline in this file; they carry no domain
+   knowledge, so they live in components/ui and are imported back here. */
+import Reveal from "./components/ui/Reveal.jsx";
+import StaggerReveal from "./components/ui/StaggerReveal.jsx";
+import InputCard from "./components/ui/InputCard.jsx";
+import InputRow from "./components/ui/InputRow.jsx";
+import Field from "./components/ui/Field.jsx";
+import Toggle from "./components/ui/Toggle.jsx";
+import CostCard from "./components/ui/CostCard.jsx";
+import SectionHeader from "./components/ui/SectionHeader.jsx";
+import TakeoffTable from "./components/ui/TakeoffTable.jsx";
+import BYOLogo from "./components/ui/BYOLogo.jsx";
+import HowItWorksIcon from "./components/ui/HowItWorksIcon.jsx";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import {
   updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
@@ -334,62 +348,7 @@ function useShaderBackground() {
    Pure IntersectionObserver. Variants: fade-up, fade-in, scale-up,
    slide-left, slide-right. Optional stagger across children.
    ========================================================================= */
-function Reveal({ children, variant = "fade-up", delay = 0, duration = 0.7, threshold = 0.15, once = true, className = "", style = {}, as: Tag = "div" }) {
-  const ref = useRef(null);
-  const [visible, setVisible] = useState(false);
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // Respect users with reduced motion preference — show immediately
-    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setVisible(true);
-      return;
-    }
-    const obs = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting) {
-        setVisible(true);
-        if (once) obs.disconnect();
-      } else if (!once) {
-        setVisible(false);
-      }
-    }, { threshold, rootMargin: "0px 0px -40px 0px" });
-    obs.observe(el);
-    return () => obs.disconnect();
-  }, [threshold, once]);
-
-  const variants = {
-    "fade-up": { initial: "translate3d(0, 28px, 0)", final: "translate3d(0, 0, 0)" },
-    "fade-in": { initial: "translate3d(0, 0, 0)", final: "translate3d(0, 0, 0)" },
-    "scale-up": { initial: "scale(0.96)", final: "scale(1)" },
-    "slide-left": { initial: "translate3d(-32px, 0, 0)", final: "translate3d(0, 0, 0)" },
-    "slide-right": { initial: "translate3d(32px, 0, 0)", final: "translate3d(0, 0, 0)" },
-  };
-  const v = variants[variant] || variants["fade-up"];
-
-  return (
-    <Tag ref={ref} className={className} style={{
-      opacity: visible ? 1 : 0,
-      transform: visible ? v.final : v.initial,
-      transition: `opacity ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s, transform ${duration}s cubic-bezier(0.16, 1, 0.3, 1) ${delay}s`,
-      willChange: "opacity, transform",
-      ...style,
-    }}>
-      {children}
-    </Tag>
-  );
-}
-
-function StaggerReveal({ children, stagger = 0.08, baseDelay = 0, ...props }) {
-  const arr = Children.toArray(children);
-  return (
-    <>
-      {arr.map((child, i) => (
-        <Reveal key={i} delay={baseDelay + i * stagger} {...props}>{child}</Reveal>
-      ))}
-    </>
-  );
-}
 
 /* =========================================================================
    STYLE TOKENS — drafting-room aesthetic
@@ -3454,106 +3413,12 @@ function ThemeToggle({ theme, onToggle }) {
   );
 }
 
-function BYOLogo({ size = 34, dark = false }) {
-  /* Circular monogram: the outer ring IS the "O", with B and Y nested inside.
-     Hi-vis ring on an ink disc, tick marks like a site level dial. */
-  const ink = dark ? "#f2f4f7" : TOKENS.ink;
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48" style={{ flexShrink: 0, display: "block" }} aria-label="BYO logo">
-      <circle cx="24" cy="24" r="22" fill={TOKENS.ink} />
-      <circle cx="24" cy="24" r="18.5" fill="none" stroke={TOKENS.hivis} strokeWidth="4" />
-      {/* dial ticks */}
-      {[45, 135, 225, 315].map((a) => (
-        <line key={a} x1={24 + 15 * Math.cos((a * Math.PI) / 180)} y1={24 + 15 * Math.sin((a * Math.PI) / 180)}
-          x2={24 + 12.5 * Math.cos((a * Math.PI) / 180)} y2={24 + 12.5 * Math.sin((a * Math.PI) / 180)}
-          stroke={TOKENS.hivis} strokeWidth="1.6" opacity="0.7" />
-      ))}
-      {/* B + Y nested inside the O-ring */}
-      <text x="17.5" y="29.5" textAnchor="middle" fontFamily="'Barlow Condensed', sans-serif" fontWeight="800" fontSize="16.5" fill="#f2f4f7" letterSpacing="-0.5">B</text>
-      <text x="29.5" y="29.5" textAnchor="middle" fontFamily="'Barlow Condensed', sans-serif" fontWeight="800" fontSize="16.5" fill={TOKENS.hivis} letterSpacing="-0.5">Y</text>
-    </svg>
-  );
-}
 
-function HowItWorksIcon({ kind }) {
-  const common = { width: 30, height: 30, viewBox: "0 0 24 24", fill: "none", stroke: TOKENS.ink, strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" };
-  const paths = {
-    config: <><path d="M3 6h18M3 12h18M3 18h18" /><circle cx="8" cy="6" r="2" fill={TOKENS.hivis} /><circle cx="15" cy="12" r="2" fill={TOKENS.hivis} /><circle cx="10" cy="18" r="2" fill={TOKENS.hivis} /></>,
-    build: <><path d="M3 21V8l9-5 9 5v13M9 21v-7h6v7" /></>,
-    data: <><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></>,
-    share: <><circle cx="6" cy="12" r="2.4" /><circle cx="18" cy="6" r="2.4" /><circle cx="18" cy="18" r="2.4" /><path d="M8.1 11l7.8-4M8.1 13l7.8 4" /></>,
-  };
-  return <svg {...common}>{paths[kind] || paths.config}</svg>;
-}
 
-function InputCard({ title, badge, children, onClear }) {
-  return (
-    <div style={{ background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, padding: 16, marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, paddingBottom: 8, borderBottom: `1px solid ${TOKENS.rule}` }}>
-        <h3 className="ec-display" style={{ fontSize: 16, letterSpacing: "0.04em", textTransform: "uppercase", margin: 0 }}>{title}</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {badge != null && <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.steel }}>{badge}</span>}
-          {onClear && (
-            <button onClick={onClear} title={`Clear ${title}`}
-              className="ec-mono"
-              style={{ fontSize: 9, letterSpacing: "0.1em", padding: "3px 8px", border: `1px solid ${TOKENS.rule}`, background: "transparent", color: TOKENS.steel, cursor: "pointer", textTransform: "uppercase" }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = TOKENS.alert; e.currentTarget.style.color = TOKENS.alert; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = TOKENS.rule; e.currentTarget.style.color = TOKENS.steel; }}>
-              Clear
-            </button>
-          )}
-        </div>
-      </div>
-      {children}
-    </div>
-  );
-}
 
-function InputRow({ children }) {
-  return <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>{children}</div>;
-}
 
-function Field({ label, children }) {
-  return (
-    <label style={{ display: "block", marginBottom: 8 }}>
-      <span className="ec-label">{label}</span>
-      {children}
-    </label>
-  );
-}
 
-function Toggle({ label, value, onChange }) {
-  return (
-    <button onClick={() => onChange(!value)}
-      style={{
-        flex: 1, padding: "8px 10px", border: `1px solid ${value ? TOKENS.ink : TOKENS.rule}`,
-        background: value ? TOKENS.ink : TOKENS.paperLight,
-        color: value ? TOKENS.paper : TOKENS.ink,
-        fontFamily: "'JetBrains Mono', monospace", fontSize: 11, letterSpacing: "0.1em",
-        textTransform: "uppercase", cursor: "pointer",
-      }}>
-      {value ? "✓ " : ""}{label}
-    </button>
-  );
-}
 
-function CostCard({ label, value, sub, hivis }) {
-  return (
-    <div style={{
-      background: hivis ? TOKENS.hivis : TOKENS.card,
-      border: `1px solid ${hivis ? TOKENS.hivis : TOKENS.rule}`,
-      padding: "14px 16px",
-      position: "relative",
-    }}>
-      {/* On a hivis card the text sits on safety yellow, which does NOT flip
-          between themes — so its foreground must not either. Using `ink` here
-          put the headline total in near-white on yellow in dark mode. */}
-      <div className="ec-eyebrow" style={{ marginBottom: 8, ...(hivis && { color: TOKENS.onHivisSoft }) }}>{label}</div>
-      <div className="ec-display" style={{ fontSize: 26, lineHeight: 1, color: hivis ? TOKENS.onHivis : TOKENS.ink }}>{value}</div>
-      {sub && <div className="ec-mono" style={{ fontSize: 10, color: hivis ? TOKENS.onHivisSoft : TOKENS.inkSoft, marginTop: 6 }}>{sub}</div>}
-    </div>
-  );
-}
 
 function stageLabel(p) {
   if (p < 0.05) return "SITE";
@@ -4656,33 +4521,7 @@ function EstimateTab({ estimate, currency, region, onRatesChanged }) {
   );
 }
 
-function SectionHeader({ index, title }) {
-  return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 12 }}>
-      <span className="ec-mono" style={{ fontSize: 22, color: TOKENS.hivis, fontWeight: 700 }}>{index}</span>
-      <h3 className="ec-display" style={{ fontSize: 18, letterSpacing: "0.04em", textTransform: "uppercase", margin: 0 }}>{title}</h3>
-      <div style={{ flex: 1, borderTop: `1px solid ${TOKENS.rule}` }} />
-    </div>
-  );
-}
 
-function TakeoffTable({ rows }) {
-  return (
-    <div className="ec-mono" style={{ fontSize: 12 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 110px", padding: "6px 0", fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel, borderBottom: `1px solid ${TOKENS.rule}` }}>
-        <span>ITEM</span><span style={{ textAlign: "right" }}>QTY</span><span style={{ textAlign: "right" }}>RATE</span><span style={{ textAlign: "right" }}>TOTAL</span>
-      </div>
-      {rows.map((r, i) => (
-        <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 100px 100px 110px", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}`, alignItems: "baseline" }}>
-          <span style={{ color: TOKENS.ink }}>{r.label}</span>
-          <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{r.qty}</span>
-          <span style={{ textAlign: "right", color: TOKENS.inkSoft }}>{r.rate}</span>
-          <span style={{ textAlign: "right", color: TOKENS.ink, fontWeight: 500 }}>{r.total}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 /* ---- Timeline tab ---- */
 function TimelineTab({ estimate }) {
