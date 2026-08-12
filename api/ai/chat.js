@@ -6,7 +6,7 @@
    runs once deployed. Same request/response shape, so ai/client.js is unchanged.
    ========================================================================= */
 import Anthropic from "@anthropic-ai/sdk";
-import { preflight, LIMITS, clampModel, clampTokens, promptSize } from "../_lib/guard.js";
+import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../_lib/guard.js";
 
 // Must track server/index.js — this is the DEV/PROD pair for the same route,
 // and they drifted: this one was left on a model id that no longer exists, so
@@ -47,10 +47,7 @@ export default async function handler(req, res) {
     if (!text) return res.status(502).json({ error: "The model returned an empty response." });
     return res.status(200).json({ text });
   } catch (e) {
-    const status = e?.status || 500;
-    const msg = status === 401 ? "The server's API key was rejected (401). Check the Vercel env var."
-      : status === 429 ? "Rate limited (429) — wait a few seconds and try again."
-      : e?.message || "AI service error.";
-    return res.status(status).json({ error: msg });
+    const { status, error } = mapAnthropicError(e);
+    return res.status(status).json({ error });
   }
 }

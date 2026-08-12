@@ -5,7 +5,7 @@
    ========================================================================= */
 import {
   LIMITS, ALLOWED_MODELS, aiEnabled, allowedOrigin, rateLimit, clientKey,
-  clampModel, clampTokens, promptSize, preflight, __resetBuckets,
+  clampModel, clampTokens, promptSize, preflight, __resetBuckets, mapAnthropicError,
 } from "../api/_lib/guard.js";
 
 let pass = 0, fail = 0;
@@ -130,6 +130,19 @@ for (let i = 0; i < LIMITS.chat.perMinute; i++) preflight(good, "chat");
 const limited = preflight(good, "chat");
 ok("preflight returns 429 once over the limit", limited?.status, 429);
 ok("429 carries a Retry-After value", typeof limited?.retryAfter, "number");
+
+/* ---- Anthropic error mapping: the "out of credit" path ----
+   This is what keeps a capped balance from showing users a billing error. */
+const credit = mapAnthropicError({ status: 400, error: { error: { message: "Your credit balance is too low to access the Anthropic API." } } });
+ok("out-of-credit maps to a paused 503", credit.status, 503);
+ok("out-of-credit is flagged paused", credit.paused, true);
+ok("paused message never mentions billing", /billing|credit|balance/i.test(credit.error), false);
+ok("paused message reassures the rest works", /still work/i.test(credit.error), true);
+ok("a 402 is treated as out of credit", mapAnthropicError({ status: 402, message: "payment required" }).status, 503);
+ok("a bad key maps to 401", mapAnthropicError({ status: 401, message: "invalid x-api-key" }).status, 401);
+ok("an overload maps to 429", mapAnthropicError({ status: 429, message: "overloaded" }).status, 429);
+ok("an unknown error stays a 500", mapAnthropicError({ message: "kaboom" }).status, 500);
+ok("nested SDK message shape is read", mapAnthropicError({ status: 400, error: { message: "credit balance too low" } }).status, 503);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

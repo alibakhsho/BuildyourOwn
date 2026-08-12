@@ -16,7 +16,7 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readPlanWithClaude, planReaderError } from "../api/_lib/plan-reader.js";
-import { preflight, LIMITS, clampModel, clampTokens, promptSize } from "../api/_lib/guard.js";
+import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../api/_lib/guard.js";
 import { mountAccounting } from "./accounting/routes.js";
 
 // Load server/.env regardless of the cwd the process was started from.
@@ -64,11 +64,8 @@ app.post("/api/ai/chat", async (req, res) => {
     if (!text) return res.status(502).json({ error: "The model returned an empty response." });
     res.json({ text });
   } catch (e) {
-    const status = e?.status || 500;
-    const msg = status === 401 ? "The server's API key was rejected (401). Check server/.env."
-      : status === 429 ? "Rate limited (429) — wait a few seconds and try again."
-      : e?.message || "AI service error.";
-    res.status(status).json({ error: msg });
+    const { status, error } = mapAnthropicError(e);
+    res.status(status).json({ error });
   }
 });
 

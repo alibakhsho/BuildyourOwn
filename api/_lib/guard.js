@@ -127,6 +127,33 @@ export function rateLimit(route, key, limits, now = Date.now()) {
 /** Test seam — resets the in-memory counters. */
 export function __resetBuckets() { buckets.clear(); }
 
+/* ---- Error mapping --------------------------------------------------- */
+
+/**
+ * Turn an Anthropic SDK error into a clean {status, error} for the client.
+ *
+ * This is what makes the "just top up $10 and leave it open" model safe: when
+ * the balance runs out Anthropic returns a 400 whose message mentions the
+ * credit balance. Left raw, every user would see a scary billing error. Mapped,
+ * they see "AI is paused" while the estimator, 3D and quotes keep working — and
+ * nothing can be spent past the balance, because there's nothing left to spend.
+ */
+export function mapAnthropicError(e) {
+  const status = e?.status || e?.statusCode || 500;
+  const raw = (e?.error?.error?.message || e?.error?.message || e?.message || "").toLowerCase();
+
+  // Out of credit / billing — the expected end state of a capped balance.
+  if (raw.includes("credit balance") || raw.includes("billing") ||
+      raw.includes("insufficient") || status === 402) {
+    return { status: 503, paused: true,
+      error: "AI features are paused for now — the estimator, 3D model and quotes all still work. They'll be back shortly." };
+  }
+  if (status === 401) return { status: 401, error: "The server's API key was rejected. Check the key in your host's environment settings." };
+  if (status === 429) return { status: 429, error: "The AI is busy right now — give it a few seconds and try again." };
+  if (status === 413 || raw.includes("too large")) return { status: 413, error: "That request was too large. Trim it and try again." };
+  return { status: status >= 400 && status < 600 ? status : 500, error: e?.message || "AI service error." };
+}
+
 /* ---- Input clamps ---------------------------------------------------- */
 
 export function clampModel(model, fallback) {
