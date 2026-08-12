@@ -44,6 +44,7 @@ import SectionHeader from "./components/ui/SectionHeader.jsx";
 import TakeoffTable from "./components/ui/TakeoffTable.jsx";
 import BYOLogo from "./components/ui/BYOLogo.jsx";
 import HowItWorksIcon from "./components/ui/HowItWorksIcon.jsx";
+import { AccountButton } from "./components/AuthModal.jsx";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import {
   updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
@@ -2782,6 +2783,7 @@ export default function App() {
             )}
 
             <ThemeToggle theme={theme} onToggle={toggleTheme} />
+            <AccountButton />
           </div>
         </div>
       </header>

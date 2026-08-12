@@ -109,6 +109,24 @@ ok("a missing estimate is not a crash", CM.tradeTotalsFromEstimate(null), {});
 ok("untagged labour lines are ignored",
   CM.tradeTotalsFromEstimate({ total: 100, labourLines: [{ trade: "Roofers", total: 100 }] }), {});
 
+// --- Job pipeline: advance / revert / off-ramp ---
+const pj = CM.createJob({ name: "Pipeline test" });
+ok("a new job starts as a lead", pj.status, "lead");
+ok("next after lead is estimating", CM.nextJobStatus("lead"), "estimating");
+ok("nothing before lead", CM.prevJobStatus("lead"), null);
+ok("nothing after closed", CM.nextJobStatus("closed"), null);
+ok("lost is off the line — no next", CM.nextJobStatus("lost"), null);
+ok("advance moves one step", CM.advanceJob(pj.id), "estimating");
+ok("advance is persisted", CM.getJob(pj.id).status, "estimating");
+ok("revert moves back one step", CM.revertJob(pj.id), "lead");
+// Walk the whole line and confirm it stops cleanly at the end.
+let walk = "lead", steps = 0;
+while (CM.nextJobStatus(walk)) { walk = CM.nextJobStatus(walk); steps++; }
+ok("the main line is seven stages long", steps + 1, CM.JOB_PIPELINE.length);
+ok("the line ends on closed", walk, "closed");
+ok("advancing a closed job is a no-op", (CM.setJobStatus(pj.id, "closed"), CM.advanceJob(pj.id)), "closed");
+CM.deleteJob(pj.id);
+
 // --- Deleting a job takes its children with it ---
 CM.deleteJob(job.id);
 ok("job gone", CM.getJob(job.id), null);

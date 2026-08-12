@@ -278,6 +278,41 @@ export function setJobStatus(id, status) {
   return patch("jobs", id, { status });
 }
 
+/* The main line a job travels, in order. "lost" is deliberately NOT here —
+   it's an off-ramp reachable from anywhere, not a step you advance into. The
+   pipeline UI walks this array; the plain status dropdown can still jump
+   anywhere, including to "lost". */
+export const JOB_PIPELINE = [
+  "lead", "estimating", "quoted", "won", "in_progress", "practical_completion", "closed",
+];
+
+/** The next/previous status on the main line, or null at the ends. A job
+ *  sitting on "lost" (off the line) has no next — the UI offers "reopen"
+ *  back to a real stage instead of an advance. */
+export const nextJobStatus = (status) => {
+  const i = JOB_PIPELINE.indexOf(status);
+  return i >= 0 && i < JOB_PIPELINE.length - 1 ? JOB_PIPELINE[i + 1] : null;
+};
+export const prevJobStatus = (status) => {
+  const i = JOB_PIPELINE.indexOf(status);
+  return i > 0 ? JOB_PIPELINE[i - 1] : null;
+};
+
+/** Advance/revert a job one step and return its new status (or the current
+ *  one if it can't move). Keeps the store as the single writer. */
+export function advanceJob(id) {
+  const job = getJob(id);
+  const next = job && nextJobStatus(job.status);
+  if (next) setJobStatus(id, next);
+  return next || job?.status || null;
+}
+export function revertJob(id) {
+  const job = getJob(id);
+  const prev = job && prevJobStatus(job.status);
+  if (prev) setJobStatus(id, prev);
+  return prev || job?.status || null;
+}
+
 /* ---- Cost centres / budget -------------------------------------------- */
 
 export function listCostCentres(jobId) {

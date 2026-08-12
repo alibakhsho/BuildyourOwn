@@ -181,6 +181,74 @@ function JobRow({ job, onOpen }) {
   );
 }
 
+/* =========================================================================
+   JobPipeline — the visual "where does this job stand" strip plus the two
+   buttons that move it forward and back. The plain status dropdown handles
+   the exceptions (jump anywhere, mark lost); this handles the 95% case of
+   "this job just moved to the next stage".
+   ========================================================================= */
+function JobPipeline({ job }) {
+  const stages = CM.JOB_PIPELINE.map((id) => CM.JOB_STATUS.find((s) => s.id === id));
+  const currentIdx = CM.JOB_PIPELINE.indexOf(job.status);
+  const onLine = currentIdx >= 0;               // false when the job is "lost"
+  const isLost = job.status === "lost";
+  const next = CM.nextJobStatus(job.status);
+  const prev = CM.prevJobStatus(job.status);
+  const nextLabel = next && CM.JOB_STATUS.find((s) => s.id === next)?.label;
+
+  return (
+    <div style={{ marginBottom: 18 }}>
+      {/* The stage rail. Past = ink fill, current = hi-vis, future = muted.
+          Scrolls sideways on a phone rather than wrapping mid-pipeline. */}
+      <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 6 }}>
+        {stages.map((s, i) => {
+          const done = onLine && i < currentIdx;
+          const here = onLine && i === currentIdx;
+          return (
+            <button key={s.id} onClick={() => CM.setJobStatus(job.id, s.id)} title={s.hint}
+              className="ec-mono"
+              style={{
+                flex: "1 0 auto", minWidth: 92, padding: "7px 10px", cursor: "pointer",
+                fontSize: 9.5, letterSpacing: "0.08em", fontWeight: here ? 700 : 500,
+                textTransform: "uppercase", textAlign: "center",
+                border: `1px solid ${here ? TOKENS.hivis : done ? TOKENS.ink : TOKENS.rule}`,
+                background: here ? TOKENS.hivis : done ? TOKENS.ink : TOKENS.card,
+                color: here ? TOKENS.onHivis : done ? TOKENS.paper : TOKENS.steel,
+              }}>
+              {s.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {prev && (
+          <button className="ec-btn ec-btn-ghost" onClick={() => CM.revertJob(job.id)}
+            style={{ fontSize: 11 }}>← Back</button>
+        )}
+        {next ? (
+          <button className="ec-btn ec-btn-hivis" onClick={() => CM.advanceJob(job.id)}
+            style={{ fontSize: 11 }}>Advance to {nextLabel} →</button>
+        ) : isLost ? (
+          <button className="ec-btn ec-btn-ghost" onClick={() => CM.setJobStatus(job.id, "lead")}
+            style={{ fontSize: 11 }}>Reopen as Lead</button>
+        ) : onLine ? (
+          <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel }}>Job closed.</span>
+        ) : null}
+
+        {/* Off-ramp: available from any live stage, never as an "advance". */}
+        {!isLost && job.status !== "closed" && (
+          <button className="ec-mono" onClick={() => CM.setJobStatus(job.id, "lost")}
+            style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer",
+              fontSize: 10, color: TOKENS.steel, textDecoration: "underline" }}>
+            Mark lost
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function StatusPill({ status }) {
   if (!status) return null;
   const bg = { pre: TOKENS.paperLight, active: TOKENS.hivis, done: TOKENS.rule }[status.group];
@@ -268,10 +336,14 @@ function JobDetail({ job, onBack, onOpenEstimator }) {
             {[client?.company || client?.name, job.siteAddress].filter(Boolean).join(" · ") || "No client or site set"}
           </div>
         </div>
+        {/* The dropdown still allows a jump to any status (including "lost"
+            and jumping backwards); the pipeline below is the everyday control. */}
         <select className="ec-select" value={job.status} onChange={(e) => CM.setJobStatus(job.id, e.target.value)} style={{ width: 190 }}>
           {CM.JOB_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label} — {s.hint}</option>)}
         </select>
       </div>
+
+      <JobPipeline job={job} />
 
       <div style={{ display: "flex", gap: 5, overflowX: "auto", borderBottom: `1px solid ${TOKENS.rule}`, marginBottom: 20, paddingBottom: 0 }}>
         {JOB_MODULES.map((m) => {
