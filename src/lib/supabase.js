@@ -12,17 +12,38 @@
    ========================================================================= */
 import { createClient } from "@supabase/supabase-js";
 
-const url = import.meta.env?.VITE_SUPABASE_URL;
+const rawUrl = (import.meta.env?.VITE_SUPABASE_URL || "").trim();
 // Supabase renamed `anon` to `publishable`; accept either so an older
-// project's keys keep working.
-const key =
+// project's keys keep working. .trim() defends against a stray newline or
+// space pasted into the Vercel env field, a common cause of a broken client.
+const key = (
   import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  import.meta.env?.VITE_SUPABASE_ANON_KEY;
+  import.meta.env?.VITE_SUPABASE_ANON_KEY ||
+  ""
+).trim();
+
+// A malformed URL (wrong value pasted, quotes, the dashboard URL instead of
+// the project URL) must NOT crash the whole app. Validate it here so a bad
+// paste degrades to "auth off, app still runs" instead of a white screen.
+const url = /^https:\/\/[^/]+\.supabase\.(co|in|net)/.test(rawUrl) ? rawUrl : "";
 
 export const isAuthConfigured = !!(url && key);
 
-export const supabase = isAuthConfigured
-  ? createClient(url, key, {
+/* createClient can throw on a bad argument. It is imported (via auth.jsx)
+   into main.jsx, which wraps the entire app — so an unguarded throw here
+   blanks every page. Fail safe: on any error, log it and run without auth. */
+export const supabase = (() => {
+  if (!isAuthConfigured) {
+    if ((rawUrl || key) && !url) {
+      console.warn(
+        "[BYO] VITE_SUPABASE_URL doesn't look like a Supabase project URL " +
+        "(expected https://<ref>.supabase.co). Running without sign-in."
+      );
+    }
+    return null;
+  }
+  try {
+    return createClient(url, key, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
@@ -31,8 +52,12 @@ export const supabase = isAuthConfigured
         detectSessionInUrl: true,
         flowType: "pkce",
       },
-    })
-  : null;
+    });
+  } catch (e) {
+    console.error("[BYO] Supabase failed to initialise; running without sign-in.", e);
+    return null;
+  }
+})();
 
 /* Where Google should send the user back to. Uses the live origin so the
    same build works on localhost, a preview URL and production without a
