@@ -14,38 +14,60 @@
 -- column in the row. So the tier columns are protected with column-level
 -- GRANTs instead, which is the mechanism Postgres actually provides for
 -- this.
+--
+-- IDEMPOTENT: this script is safe to run any number of times. It was
+-- originally applied in pieces across sessions, so every statement now
+-- either uses IF NOT EXISTS / OR REPLACE or is wrapped so re-running it
+-- converges a partial database to the correct final shape instead of
+-- erroring on "already exists".
 -- =========================================================================
 
 -- ---- enums --------------------------------------------------------------
--- Segments mirror the four audiences in marketing/pricing.md.
-create type public.user_segment as enum ('homeowner', 'tradie', 'builder', 'developer');
+-- Postgres has no "create type if not exists", so guard each with a DO
+-- block that swallows the duplicate.
+do $$ begin
+  create type public.user_segment as enum ('homeowner', 'tradie', 'builder', 'developer');
+exception when duplicate_object then null;
+end $$;
 
--- Tiers mirror the four plans. 'free' is the default for every new signup.
-create type public.subscription_tier as enum ('free', 'pro', 'business', 'enterprise');
+do $$ begin
+  create type public.subscription_tier as enum ('free', 'pro', 'business', 'enterprise');
+exception when duplicate_object then null;
+end $$;
 
 
 -- ---- profiles -----------------------------------------------------------
-create table public.profiles (
+create table if not exists public.profiles (
   id                  uuid primary key references auth.users on delete cascade,
   email               text,
   full_name           text,
   company             text,
   segment             public.user_segment,
 
-  -- Billing state. Writable only by the service role (see grants below).
   tier                public.subscription_tier not null default 'free',
   tier_updated_at     timestamptz,
   stripe_customer_id  text unique,
 
-  -- Metered usage. Plan reads are the real marginal cost of the product
-  -- (a 2576px vision call), so they are counted per period rather than
-  -- charging per seat. Reset by the billing job, never by the client.
   plan_reads_used     integer not null default 0,
   period_started_at   timestamptz not null default now(),
 
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
+
+-- If an earlier, partial run created the table with fewer columns, add any
+-- that are missing. Each is a no-op when the column is already present.
+alter table public.profiles add column if not exists email              text;
+alter table public.profiles add column if not exists full_name          text;
+alter table public.profiles add column if not exists company            text;
+alter table public.profiles add column if not exists segment            public.user_segment;
+alter table public.profiles add column if not exists tier               public.subscription_tier not null default 'free';
+alter table public.profiles add column if not exists tier_updated_at    timestamptz;
+alter table public.profiles add column if not exists stripe_customer_id text;
+alter table public.profiles add column if not exists plan_reads_used    integer not null default 0;
+alter table public.profiles add column if not exists period_started_at  timestamptz not null default now();
+alter table public.profiles add column if not exists created_at         timestamptz not null default now();
+alter table public.profiles add column if not exists updated_at         timestamptz not null default now();
 
 comment on column public.profiles.tier is
   'Subscription entitlement. Service-role writable only — never trust a client to set this.';
@@ -61,7 +83,7 @@ alter table public.profiles enable row level security;
 -- public.profiles yet) and is safe here because the function takes no
 -- caller-supplied arguments, writes only the new user's own id, and pins
 -- search_path to '' so every reference must be schema-qualified.
-create function public.handle_new_user()
+create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer
@@ -82,7 +104,10 @@ begin
         then (new.raw_user_meta_data ->> 'segment')::public.user_segment
       else null
     end
-  );
+  )
+  -- If the profile already exists (e.g. the trigger fired before, or a row
+  -- was backfilled by hand), don't blow up the signup.
+  on conflict (id) do nothing;
   return new;
 end;
 $$;
@@ -92,13 +117,15 @@ $$;
 -- ambient grant away.
 revoke execute on function public.handle_new_user() from public, anon, authenticated;
 
+-- Recreate the trigger cleanly whether or not it already existed.
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
 
 -- ---- keep updated_at honest --------------------------------------------
-create function public.touch_updated_at()
+create or replace function public.touch_updated_at()
 returns trigger
 language plpgsql
 security invoker
@@ -110,15 +137,19 @@ begin
 end;
 $$;
 
+drop trigger if exists profiles_touch_updated_at on public.profiles;
 create trigger profiles_touch_updated_at
   before update on public.profiles
   for each row execute function public.touch_updated_at();
 
 
 -- ---- RLS policies -------------------------------------------------------
+-- Dropped-then-created so a re-run replaces them rather than erroring.
+
 -- Read your own row. `TO authenticated` alone would be authentication
 -- without authorization — every signed-in user would see every profile —
 -- so it is paired with an ownership predicate.
+drop policy if exists "profiles: read own" on public.profiles;
 create policy "profiles: read own"
   on public.profiles for select
   to authenticated
@@ -127,6 +158,7 @@ create policy "profiles: read own"
 -- Update your own row. Both USING and WITH CHECK are required: USING picks
 -- the rows you may touch, WITH CHECK stops you handing the row to someone
 -- else by rewriting id.
+drop policy if exists "profiles: update own" on public.profiles;
 create policy "profiles: update own"
   on public.profiles for update
   to authenticated
