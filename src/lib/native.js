@@ -21,6 +21,14 @@ export const isNative = Capacitor.isNativePlatform();
    dashboard (Authentication → URL Configuration). */
 export const AUTH_CALLBACK = "dev.buildyourown.estimator://auth-callback";
 
+/** Run cb whenever the app returns to the foreground (e.g. after the user
+ *  upgraded on the website). Returns an unsubscribe function. No-op on web. */
+export function onAppResume(cb) {
+  if (!isNative) return () => {};
+  const handle = App.addListener("appStateChange", ({ isActive }) => { if (isActive) cb(); });
+  return () => { Promise.resolve(handle).then((h) => h?.remove?.()).catch(() => {}); };
+}
+
 /** Open an external URL (OAuth consent, docs) in the system browser. */
 export const openExternal = (url) => Browser.open({ url });
 

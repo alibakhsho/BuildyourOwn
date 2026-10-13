@@ -9,9 +9,9 @@
    subscription tier has somewhere to live, not to put a wall in front of
    the product.
    ========================================================================= */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from "react";
 import { supabase, isAuthConfigured, redirectTo } from "../lib/supabase.js";
-import { isNative, openExternal } from "../lib/native.js";
+import { isNative, openExternal, onAppResume } from "../lib/native.js";
 import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
 import { PLANS, entitlementsFor } from "../lib/entitlements.js";
 
@@ -71,21 +71,42 @@ export function AuthProvider({ children }) {
     if (userId) startCloudSync(userId); else stopCloudSync();
   }, [userId]);
 
+  /* The plan can change server-side at any time (a payment, a cancellation,
+     an AI plan read using up the allowance), so the profile is re-read when
+     the user comes back to the tab or the app, and on demand. */
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+  const refreshProfile = useCallback(async () => {
+    const id = userIdRef.current;
+    if (!isAuthConfigured || !id) return null;
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, company, segment, tier, ai_addon, plan_reads_used, period_started_at, stripe_customer_id")
+      .eq("id", id)
+      .maybeSingle();
+    if (userIdRef.current !== id) return null;            // signed out / switched meanwhile
+    if (error) { console.error("Couldn't load profile:", error.message); return null; }
+    setProfile(data ?? null);
+    return data ?? null;
+  }, []);
+
   useEffect(() => {
     if (!isAuthConfigured || !userId) { setProfile(null); return; }
-    let alive = true;
-    supabase
-      .from("profiles")
-      .select("id, email, full_name, company, segment, tier, ai_addon, plan_reads_used, period_started_at")
-      .eq("id", userId)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (!alive) return;
-        if (error) { console.error("Couldn't load profile:", error.message); return; }
-        setProfile(data ?? null);
-      });
-    return () => { alive = false; };
-  }, [userId]);
+    refreshProfile();
+    let last = Date.now();
+    const maybe = () => { if (Date.now() - last > 3000) { last = Date.now(); refreshProfile(); } };
+    const onVis = () => { if (document.visibilityState === "visible") maybe(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", maybe);
+    window.addEventListener("byo:profile-stale", refreshProfile);
+    const offResume = onAppResume(refreshProfile);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", maybe);
+      window.removeEventListener("byo:profile-stale", refreshProfile);
+      offResume();
+    };
+  }, [userId, refreshProfile]);
 
   const signUp = useCallback(async ({ email, password, fullName, segment }) => {
     if (!isAuthConfigured) throw new Error("Sign-in isn't configured yet.");
@@ -163,9 +184,9 @@ export function AuthProvider({ children }) {
       // With no accounts configured (local dev) there is nothing to check
       // against — the server skips its check too — so everything is open.
       can: isAuthConfigured ? entitlementsFor(session ? profile : null) : entitlementsFor({ tier: "enterprise" }),
-      signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile,
+      signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile, refreshProfile,
     };
-  }, [loading, session, profile, signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile]);
+  }, [loading, session, profile, signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile, refreshProfile]);
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }

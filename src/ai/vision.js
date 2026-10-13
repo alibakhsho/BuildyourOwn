@@ -14,7 +14,7 @@
    surfaced in the UI as a suggestion to check, never applied silently.
    ========================================================================= */
 
-import { aiHeaders } from "./client.js";
+import { aiHeaders, AiAccessError } from "./client.js";
 import { blobToDataURL } from "../state/blobstore.js";
 
 const BASE = import.meta.env?.VITE_AI_BACKEND || "";
@@ -50,15 +50,20 @@ export async function readPlan(blob, ctx = {}) {
   }
 
   if (!resp.ok) {
-    let msg = `Plan reader failed (${resp.status}).`;
+    let msg = `Plan reader failed (${resp.status}).`, code, resetsAt;
     try {
       const j = await resp.json();
       if (j?.error) msg = j.error;
+      code = j?.code; resetsAt = j?.resetsAt;
     } catch {}
+    // "upgrade" / "limit" / "sign_in" let the UI offer the right next step
+    if (code) throw Object.assign(new AiAccessError(msg, code), { resetsAt });
     throw new Error(msg);
   }
 
   const data = await resp.json();
+  // a plan read was counted — let the account meter refresh
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("byo:profile-stale"));
   return normalise(data, ctx);
 }
 

@@ -13,6 +13,7 @@
 import { useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { useAuth, TIERS } from "../state/auth.jsx";
+import { planReadsUsedNow } from "../lib/entitlements.js";
 import { useCloudSync, syncNow } from "../state/cloud-sync.js";
 import AuthModal from "./AuthModal.jsx";
 
@@ -109,7 +110,7 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
         <div className="ec-eyebrow">Your plan</div>
         <Meter label="Projects in the cloud" used={cloudCount} cap={limits.projects} />
         {can.ai
-          ? <Meter label="AI plan reads" used={profile?.plan_reads_used || 0} cap={can.planReads} />
+          ? <Meter label="AI plan reads" used={planReadsUsedNow(profile)} cap={can.planReads} />
           : <div style={{ fontSize: 12, color: TOKENS.steel }}>AI assistant: not on your plan.</div>}
         {localOnly > 0 && (
           <div style={{ fontSize: 12, lineHeight: 1.5, color: TOKENS.inkSoft }}>

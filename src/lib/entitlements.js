@@ -82,6 +82,18 @@ export function entitlementsFor(profile) {
   };
 }
 
+/** Plan reads used in the CURRENT monthly window. The database rolls the
+ *  window forward lazily (only when the next read is reserved), so a stored
+ *  count from last month must read as 0 — same rule as reserve_plan_read. */
+export function planReadsUsedNow(profile, now = new Date()) {
+  const used = profile?.plan_reads_used || 0;
+  const start = profile?.period_started_at ? new Date(profile.period_started_at) : null;
+  if (!start || isNaN(start)) return used;
+  const next = new Date(start);
+  next.setUTCMonth(next.getUTCMonth() + 1);
+  return now >= next ? 0 : used;
+}
+
 /** The cheapest public plan that unlocks a feature — for upgrade prompts. */
 export function planFor(feature) {
   if (feature === "ai") return "pro";

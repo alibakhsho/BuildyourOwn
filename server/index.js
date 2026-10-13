@@ -16,7 +16,8 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readPlanWithClaude, planReaderError } from "../api/_lib/plan-reader.js";
-import { checkAiAccess } from "../api/_lib/ai-access.js";
+import { checkAiAccess, authorizeAi } from "../api/_lib/ai-access.js";
+import { withPlanRead } from "../api/_lib/metering.js";
 import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../api/_lib/guard.js";
 import { mountAccounting } from "./accounting/routes.js";
 
@@ -90,8 +91,8 @@ app.post("/api/ai/vision", async (req, res) => {
   }
 
   // Plan check: AI is a paid feature. Runs before anything is spent.
-  const denied = await checkAiAccess(req, "vision");
-  if (denied) return res.status(denied.status).json({ error: denied.error, code: denied.code });
+  const access = await authorizeAi(req);
+  if (access.denied) return res.status(access.denied.status).json({ error: access.denied.error, code: access.denied.code });
 
   const { image, imageWidth, imageHeight, pxPerMetre, model } = req.body || {};
   if (!image?.data || !image?.mediaType) {
@@ -101,12 +102,16 @@ app.post("/api/ai/vision", async (req, res) => {
     return res.status(413).json({ error: "That plan image is too large. Downscale it and try again." });
   }
   try {
-    const client = new Anthropic();
-    const data = await readPlanWithClaude(client, {
+    // Same metering as the Vercel route (api/ai/vision.js).
+    const data = await withPlanRead(access, () => readPlanWithClaude(new Anthropic(), {
       image, imageWidth, imageHeight, pxPerMetre, model: clampModel(model, DEFAULT_MODEL),
-    });
+    }));
     res.json(data);
   } catch (e) {
+    // metering refusals (cap reached / allowance unavailable) carry their own code
+    if (e?.code && ["limit", "unavailable", "no_profile"].includes(e.code)) {
+      return res.status(e.status).json({ error: e.message, code: e.code, resetsAt: e.resetsAt || undefined });
+    }
     const { status, error } = planReaderError(e);
     res.status(status).json({ error });
   }
