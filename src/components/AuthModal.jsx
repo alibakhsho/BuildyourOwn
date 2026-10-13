@@ -33,7 +33,7 @@ export function AccountButton() {
 }
 
 export default function AuthModal({ onClose }) {
-  const { user, profile, signIn, signUp, signInWithGoogle, signOut, resetPassword } = useAuth();
+  const { user, profile, signIn, signUp, signInWithGoogle, signOut, resetPassword, updateProfile } = useAuth();
   const [mode, setMode] = useState("signup");     // signup | signin | reset | done
   // No segment here — it's chosen after signup on the Onboarding page, so the
   // profile is created with segment null and the welcome step knows to ask.
@@ -65,16 +65,91 @@ export default function AuthModal({ onClose }) {
     });
   };
 
-  // Signed in already → a compact account panel, not the form.
+  // Profile-editing state lives up here, not inside the `if (user)` branch:
+  // hooks must run in the same order on every render, and the modal flips
+  // between signed-out and signed-in while open.
+  const [editing, setEditing] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    fullName: profile?.full_name || "",
+    company: profile?.company || "",
+    segment: profile?.segment || "homeowner",
+  });
+
+  // Signed in already → a compact account panel with profile editing.
   if (user) {
+
+    const setProf = (k) => (e) => setProfileForm((f) => ({ ...f, [k]: e.target.value }));
+
+    const save = async (e) => {
+      e.preventDefault();
+      setBusy(true);
+      try {
+        await updateProfile({
+          full_name: profileForm.fullName,
+          company: profileForm.company,
+          segment: profileForm.segment,
+        });
+        setEditing(false);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setBusy(false);
+      }
+    };
+
     return (
       <Backdrop onClose={onClose}>
         <h2 className="ec-display" style={H2}>Your account</h2>
-        <div className="ec-mono" style={{ fontSize: 12, color: TOKENS.inkSoft, marginBottom: 4 }}>{user.email}</div>
-        <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, marginBottom: 18 }}>
-          Plan: {TIERS[profile?.tier ?? "free"]?.label ?? "Homeowner"}
-        </div>
-        <button className="ec-btn ec-btn-ghost" style={{ width: "100%", justifyContent: "center" }}
+        <div className="ec-mono" style={{ fontSize: 12, color: TOKENS.inkSoft, marginBottom: 12 }}>{user.email}</div>
+        
+        {!editing ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${TOKENS.rule}` }}>
+              <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>Plan</div>
+              <div className="ec-mono" style={{ fontSize: 12, fontWeight: 700 }}>{TIERS[profile?.tier ?? "free"]?.label ?? "Homeowner"}</div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${TOKENS.rule}` }}>
+              <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>Name</div>
+              <div className="ec-mono" style={{ fontSize: 12 }}>{profile?.full_name || "Not set"}</div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${TOKENS.rule}` }}>
+              <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>Company</div>
+              <div className="ec-mono" style={{ fontSize: 12 }}>{profile?.company || "Not set"}</div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${TOKENS.rule}` }}>
+              <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>Role</div>
+              <div className="ec-mono" style={{ fontSize: 12 }}>{SEGMENTS.find(s => s.id === profile?.segment)?.label || "Homeowner"}</div>
+            </div>
+            <button className="ec-btn ec-btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={() => setEditing(true)}>
+              Edit profile
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={save} style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+            <label style={LBL}>
+              <span className="ec-label">Full Name</span>
+              <input className="ec-input" value={profileForm.fullName} onChange={setProf("fullName")} placeholder="Jordan Fielding" />
+            </label>
+            <label style={LBL}>
+              <span className="ec-label">Company</span>
+              <input className="ec-input" value={profileForm.company} onChange={setProf("company")} placeholder="Company Name" />
+            </label>
+            <label style={LBL}>
+              <span className="ec-label">Role</span>
+              <select className="ec-input" value={profileForm.segment} onChange={setProf("segment")}>
+                {SEGMENTS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button type="button" className="ec-btn ec-btn-ghost" style={{ flex: 1, justifyContent: "center" }} onClick={() => setEditing(false)} disabled={busy}>Cancel</button>
+              <button type="submit" className="ec-btn ec-btn-hivis" style={{ flex: 1, justifyContent: "center" }} disabled={busy}>Save</button>
+            </div>
+          </form>
+        )}
+
+        {error && <div className="ec-mono" style={MSG(TOKENS.alert)}>{error}</div>}
+        
+        <button className="ec-btn ec-btn-ghost" style={{ width: "100%", justifyContent: "center", borderTop: `1px solid ${TOKENS.rule}`, paddingTop: 16, marginTop: 8 }}
           onClick={() => run(async () => { await signOut(); onClose(); })} disabled={busy}>
           Sign out
         </button>
@@ -142,9 +217,6 @@ export default function AuthModal({ onClose }) {
           </label>
         )}
 
-        {/* Segment is asked AFTER signup, on its own page (see Onboarding),
-            so the sign-up form stays to the three fields people expect. */}
-
         {error && <div className="ec-mono" style={MSG(TOKENS.alert)}>{error}</div>}
         {notice && <div className="ec-mono" style={MSG(TOKENS.ok)}>{notice}</div>}
 
@@ -183,19 +255,15 @@ export default function AuthModal({ onClose }) {
 const SEGMENT_DETAIL = {
   homeowner: {
     blurb: "Planning a build or renovation. Price it yourself before you talk to a builder — see exactly where the money goes and walk in informed.",
-    plan: "Free — 3 projects and 2 AI plan reads a month.",
+    plan: "Projects, 3D and full cost breakdowns.",
   },
   tradie: {
     blurb: "Sole trader or subbie. Quote jobs fast from your own rates, send a clean priced quote, and save presets for the jobs you do again and again.",
-    plan: "Free to start · Tradie plan later — unlimited quotes and more AI.",
+    plan: "Unlimited quotes, your own rates, saved presets.",
   },
   builder: {
-    blurb: "Running several jobs at once. Estimate, quote, then manage the build — budgets, purchase orders and progress claims in one place.",
-    plan: "Free to start · Builder plan later — the full management side and Xero / MYOB.",
-  },
-  developer: {
-    blurb: "Volume residential or commercial. High-rise cost planning, custom rate cards, and API access to run it at scale.",
-    plan: "Free to start · Developer plan later — high-rise, API and priority support.",
+    blurb: "Running jobs, small to large. Estimate, quote, then manage the build — budgets, purchase orders and progress claims — plus high-rise cost planning and custom rate cards when you need them.",
+    plan: "The full management side, Xero / MYOB, and high-rise cost planning.",
   },
 };
 
@@ -224,8 +292,8 @@ export function Onboarding() {
         <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Welcome{profile?.full_name ? `, ${profile.full_name.split(" ")[0]}` : ""}</div>
         <h2 className="ec-display" style={{ fontSize: 24, margin: "0 0 6px" }}>How will you use BuildYourOwn?</h2>
         <p style={{ fontSize: 13, lineHeight: 1.5, color: TOKENS.steel, marginBottom: 18, maxWidth: "62ch" }}>
-          Pick the one that fits best — it tailors what you see first. Everything's free while we're
-          getting started; you can change this any time from your account.
+          Pick the one that fits best — it tailors what you see first. You can change this any time
+          from your account.
         </p>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 10 }}>

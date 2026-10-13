@@ -4,41 +4,10 @@
    the construction sequence.
    ========================================================================= */
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { easeOutCubic } from "../lib/format.js";
-
-/* Slice-and-dice treemap: packs rooms into a rectangle with no gaps/overlaps,
-   areas proportional to each room's footprint. Returns [{x,z,w,l,room}]. */
-function sliceAndDice(rooms, x, z, w, l, horizontal) {
-  const areaOf = (r) => Math.max(0.1, (r.widthM || 0) * (r.lengthM || 0));
-  if (rooms.length === 1) {
-    return [{ x, z, w, l, room: rooms[0] }];
-  }
-  const total = rooms.reduce((a, r) => a + areaOf(r), 0);
-  // split into two groups near half the area
-  let acc = 0, splitIdx = 0;
-  for (let i = 0; i < rooms.length; i++) {
-    acc += areaOf(rooms[i]);
-    if (acc >= total / 2) { splitIdx = i + 1; break; }
-  }
-  splitIdx = Math.max(1, Math.min(rooms.length - 1, splitIdx));
-  const groupA = rooms.slice(0, splitIdx);
-  const groupB = rooms.slice(splitIdx);
-  const areaA = groupA.reduce((a, r) => a + areaOf(r), 0);
-  const ratio = areaA / total;
-  if (horizontal) {
-    const wA = w * ratio;
-    return [
-      ...sliceAndDice(groupA, x, z, wA, l, false),
-      ...sliceAndDice(groupB, x + wA, z, w - wA, l, false),
-    ];
-  } else {
-    const lA = l * ratio;
-    return [
-      ...sliceAndDice(groupA, x, z, w, lA, true),
-      ...sliceAndDice(groupB, x, z + lA, w, l - lA, true),
-    ];
-  }
-}
+import { buildHouse } from "./house-builder.js";
+import { grassTexture, gravelTexture } from "./materials3d.js";
 
 export class Engine3D {
   constructor(mountEl) {
@@ -101,7 +70,7 @@ export class Engine3D {
 
     // ---- Natural site: grass plot + cleared building pad, instead of a bare grid ----
     // Grass — the plot the building sits on
-    const grassMat = new THREE.MeshStandardMaterial({ color: 0x8ba368, roughness: 1.0 });
+    const grassMat = new THREE.MeshStandardMaterial({ map: grassTexture(), color: 0xffffff, roughness: 1.0 });
     const grass = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), grassMat);
     grass.rotation.x = -Math.PI / 2;
     grass.position.y = -0.04;
@@ -109,7 +78,7 @@ export class Engine3D {
     this.scene.add(grass);
 
     // Cleared building pad — gravel/dirt the structure is built on (reads as a site)
-    const padMat = new THREE.MeshStandardMaterial({ color: 0xc7bca0, roughness: 1.0 });
+    const padMat = new THREE.MeshStandardMaterial({ map: gravelTexture(), color: 0xffffff, roughness: 1.0 });
     const pad = new THREE.Mesh(new THREE.CircleGeometry(36, 56), padMat);
     pad.rotation.x = -Math.PI / 2;
     pad.position.y = -0.01;
@@ -135,6 +104,15 @@ export class Engine3D {
     this.autoRotate = true;
     this.playing = false;
     this.spec = null;
+    this.viewMode = "finished"; // "finished" | "structural"
+
+    // Image-based lighting so glass, Colorbond and glazing pick up a sky
+    // reflection instead of reading as flat colour.
+    try {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      pmrem.dispose();
+    } catch (e) { /* no WebGL — plain lighting still works */ }
 
     // Walkthrough state
     this.mode = "orbit"; // "orbit" | "walk"
@@ -162,7 +140,6 @@ export class Engine3D {
     const clampTilt = (t) => Math.max(0.35, Math.min(1.8, t));
 
     el.addEventListener("pointerdown", (e) => {
-      if (this.mode === "walk") return;
       dragging = true; lastX = e.clientX; lastY = e.clientY;
       this.autoRotate = false; this._userOrbiting = true; this.requestRender && this.requestRender();
       el.setPointerCapture && el.setPointerCapture(e.pointerId);
@@ -246,379 +223,69 @@ export class Engine3D {
     this._needsRender = true;
   }
 
-  /* Build / rebuild the building meshes from spec */
+  /* Build / rebuild the building meshes from spec. All geometry comes from
+     logic/house-geometry.js so the model and the estimate share one set of
+     numbers (window count, glazed area, slab, rooms, solar). */
   buildFromSpec(spec) {
     this.spec = spec;
-    // Clear previous
-    while (this.buildingGroup.children.length) {
-      const c = this.buildingGroup.children[0];
-      this.buildingGroup.remove(c);
-      c.geometry?.dispose();
-      if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
-      else c.material?.dispose();
-    }
-    /* Scale down for viewport — divide real metres so very large buildings fit. */
-    const scale = 1.0;
-    const w = spec.widthM * scale;
-    const l = spec.lengthM * scale;
-    const floorH = spec.wallHeightM * scale;
-    const floors = spec.floors;
-    const totalH = floorH * floors;
-
-    /* --- Foundation (slab) --- */
-    const slabH = 0.4;
-    const slabMat = new THREE.MeshStandardMaterial({ color: 0x9a9a9a, roughness: 0.9 });
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, slabH, l + 0.6), slabMat);
-    slab.position.y = slabH / 2;
-    slab.castShadow = true;
-    slab.receiveShadow = true;
-    slab.userData.stage = "foundation";
-    this.buildingGroup.add(slab);
-
-    /* --- Frame posts (corners + intermediates) — carport-style steel members --- */
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x9aa4b0, metalness: 0.35, roughness: 0.6 });
-    const pierMat = new THREE.MeshStandardMaterial({ color: 0xb8b2a7, roughness: 0.9 });
-    const postGeo = new THREE.BoxGeometry(0.12, totalH, 0.12);
-    const pierGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.9, 20);
-    const cornerOffsets = [
-      [-w / 2 + 0.1, l / 2 - 0.1], [w / 2 - 0.1, l / 2 - 0.1],
-      [-w / 2 + 0.1, -l / 2 + 0.1], [w / 2 - 0.1, -l / 2 + 0.1],
-    ];
-    const allPosts = [...cornerOffsets];
-    /* intermediate posts at ~2m spacing along each wall */
-    const stepX = Math.max(2.0, w / Math.ceil(w / 2.0));
-    const stepZ = Math.max(2.0, l / Math.ceil(l / 2.0));
-    for (let x = -w / 2 + stepX; x < w / 2 - 0.5; x += stepX) {
-      allPosts.push([x, l / 2 - 0.1]);
-      allPosts.push([x, -l / 2 + 0.1]);
-    }
-    for (let z = -l / 2 + stepZ; z < l / 2 - 0.5; z += stepZ) {
-      allPosts.push([-w / 2 + 0.1, z]);
-      allPosts.push([w / 2 - 0.1, z]);
-    }
-    for (const [px, pz] of allPosts) {
-      /* bored pier footing under every post (visible during foundation stage) */
-      const pier = new THREE.Mesh(pierGeo, pierMat);
-      pier.position.set(px, -0.40, pz);
-      pier.userData.stage = "foundation";
-      this.buildingGroup.add(pier);
-      const post = new THREE.Mesh(postGeo, frameMat);
-      post.position.set(px, slabH + totalH / 2, pz);
-      post.castShadow = true;
-      post.userData.stage = "frame";
-      this.buildingGroup.add(post);
-    }
-    /* horizontal floor plates between each storey */
-    for (let f = 0; f <= floors; f++) {
-      const plateY = slabH + f * floorH;
-      const plateGeoX = new THREE.BoxGeometry(w, 0.15, 0.15);
-      const plateGeoZ = new THREE.BoxGeometry(0.15, 0.15, l);
-      const p1 = new THREE.Mesh(plateGeoX, frameMat);
-      const p2 = new THREE.Mesh(plateGeoX, frameMat);
-      const p3 = new THREE.Mesh(plateGeoZ, frameMat);
-      const p4 = new THREE.Mesh(plateGeoZ, frameMat);
-      p1.position.set(0, plateY, l / 2 - 0.1);
-      p2.position.set(0, plateY, -l / 2 + 0.1);
-      p3.position.set(-w / 2 + 0.1, plateY, 0);
-      p4.position.set(w / 2 - 0.1, plateY, 0);
-      [p1, p2, p3, p4].forEach((m) => { m.castShadow = true; m.userData.stage = "frame"; this.buildingGroup.add(m); });
-    }
-
-    /* --- Walls (per floor, per side) — carport-style stud framing at 600
-       centres instead of solid cladding panels, so the whole model reads as
-       an exposed structural skeleton. Cladding type tints the studs. --- */
-    const studTint = spec.claddingType === "weatherboard" ? 0x8f9aa6
-                  : spec.claddingType === "render" ? 0x9aa4b0
-                  : 0x828c98;
-    const studMat = new THREE.MeshStandardMaterial({ color: studTint, metalness: 0.35, roughness: 0.6 });
-    const wallThk = 0.2;
-    const studGeoX = new THREE.BoxGeometry(0.045, floorH - 0.15, 0.09);
-    const studGeoZ = new THREE.BoxGeometry(0.09, floorH - 0.15, 0.045);
-    const STUD_SPACING = 0.6;
-    for (let f = 0; f < floors; f++) {
-      const cy = slabH + f * floorH + floorH / 2;
-      for (let x = -w / 2 + STUD_SPACING; x < w / 2 - 0.1; x += STUD_SPACING) {
-        const sF = new THREE.Mesh(studGeoX, studMat);
-        sF.position.set(x, cy, l / 2 - 0.045);
-        const sB = new THREE.Mesh(studGeoX, studMat);
-        sB.position.set(x, cy, -l / 2 + 0.045);
-        [sF, sB].forEach((m) => { m.castShadow = true; m.userData.stage = "walls"; this.buildingGroup.add(m); });
-      }
-      for (let z = -l / 2 + STUD_SPACING; z < l / 2 - 0.1; z += STUD_SPACING) {
-        const sL = new THREE.Mesh(studGeoZ, studMat);
-        sL.position.set(-w / 2 + 0.045, cy, z);
-        const sR = new THREE.Mesh(studGeoZ, studMat);
-        sR.position.set(w / 2 - 0.045, cy, z);
-        [sL, sR].forEach((m) => { m.castShadow = true; m.userData.stage = "walls"; this.buildingGroup.add(m); });
-      }
-    }
-
-    /* --- Windows (front + back, evenly spaced per floor) --- */
-    const windowMat = new THREE.MeshStandardMaterial({
-      color: 0x6fa8d1, roughness: 0.1, metalness: 0.5,
-      emissive: 0x223a4e, emissiveIntensity: 0.3,
-    });
-    const winW = 1.0, winH = 1.2;
-    const winsPerSide = Math.max(2, Math.floor(w / 2.5));
-    for (let f = 0; f < floors; f++) {
-      const cy = slabH + f * floorH + floorH * 0.55;
-      for (let i = 0; i < winsPerSide; i++) {
-        const x = -w / 2 + (w / (winsPerSide + 1)) * (i + 1);
-        const winF = new THREE.Mesh(new THREE.BoxGeometry(winW, winH, 0.05), windowMat);
-        winF.position.set(x, cy, l / 2 + wallThk / 2 + 0.01);
-        winF.userData.stage = "finishes";
-        const winB = new THREE.Mesh(new THREE.BoxGeometry(winW, winH, 0.05), windowMat);
-        winB.position.set(x, cy, -l / 2 - wallThk / 2 - 0.01);
-        winB.userData.stage = "finishes";
-        this.buildingGroup.add(winF);
-        this.buildingGroup.add(winB);
-      }
-      const winsPerEnd = Math.max(1, Math.floor(l / 3));
-      for (let i = 0; i < winsPerEnd; i++) {
-        const z = -l / 2 + (l / (winsPerEnd + 1)) * (i + 1);
-        const winL = new THREE.Mesh(new THREE.BoxGeometry(0.05, winH, winW), windowMat);
-        winL.position.set(-w / 2 - wallThk / 2 - 0.01, cy, z);
-        winL.userData.stage = "finishes";
-        const winR = new THREE.Mesh(new THREE.BoxGeometry(0.05, winH, winW), windowMat);
-        winR.position.set(w / 2 + wallThk / 2 + 0.01, cy, z);
-        winR.userData.stage = "finishes";
-        this.buildingGroup.add(winL);
-        this.buildingGroup.add(winR);
-      }
-    }
-
-    /* --- Front door --- */
-    const doorMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.7 });
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.9, 2.0, 0.06), doorMat);
-    door.position.set(0, slabH + 1.0, l / 2 + wallThk / 2 + 0.02);
-    door.userData.stage = "finishes";
-    this.buildingGroup.add(door);
-
-    /* --- Roof (gable or hip approximated as a prism) --- */
-    const roofColor = spec.roofType === "tile" ? 0x6a3a2e
-                   : spec.roofType === "shingle" ? 0x3a3a40
-                   : 0x4a4f56; // colorbond default
-    const roofMat = new THREE.MeshStandardMaterial({ color: roofColor, roughness: 0.7, metalness: 0.2 });
-    const rafterMat = new THREE.MeshStandardMaterial({ color: 0x77828f, metalness: 0.35, roughness: 0.6 });
-    /* Carport-style roof: individual rafters at 1.1m centres up each slope
-       to a ridge, sheeted with per-slope panels — an exposed gable frame
-       rather than a solid extruded prism. */
-    const pitch = (spec.roofPitch * Math.PI) / 180;
-    const halfSpan = w / 2 + 0.4;
-    const ridgeH = halfSpan * Math.tan(pitch);
-    const slopeLen = halfSpan / Math.cos(pitch);
-    const roofBaseY = slabH + totalH;
-    const RAFTER_SPACING = 1.1;
-    const rafterCount = Math.max(2, Math.ceil(l / RAFTER_SPACING) + 1);
-    const rSpacing = (l + 0.4) / (rafterCount - 1);
-    const rafterGeo = new THREE.BoxGeometry(slopeLen, 0.14, 0.05);
-    for (let j = 0; j < rafterCount; j++) {
-      const z = -(l + 0.4) / 2 + j * rSpacing;
-      const rL = new THREE.Mesh(rafterGeo, rafterMat);
-      rL.position.set(-halfSpan / 2, roofBaseY + ridgeH / 2 + 0.08, z);
-      rL.rotation.z = pitch;
-      const rR = new THREE.Mesh(rafterGeo, rafterMat);
-      rR.position.set(halfSpan / 2, roofBaseY + ridgeH / 2 + 0.08, z);
-      rR.rotation.z = -pitch;
-      [rL, rR].forEach((m) => { m.castShadow = true; m.userData.stage = "roof"; this.buildingGroup.add(m); });
-    }
-    /* ridge beam */
-    const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.19, l + 0.4), rafterMat);
-    ridge.position.set(0, roofBaseY + ridgeH + 0.08, 0);
-    ridge.castShadow = true;
-    ridge.userData.stage = "roof";
-    this.buildingGroup.add(ridge);
-    /* sheeting: one thin panel per slope, sitting just above the rafters */
-    for (const side of [-1, 1]) {
-      const sheet = new THREE.Mesh(new THREE.BoxGeometry(slopeLen, 0.04, l + 0.6), roofMat);
-      sheet.position.set(side * halfSpan / 2, roofBaseY + ridgeH / 2 + 0.24, 0);
-      sheet.rotation.z = -side * pitch;
-      sheet.castShadow = true;
-      sheet.userData.stage = "roof";
-      this.buildingGroup.add(sheet);
-    }
-
-    /* --- Garage attached --- */
-    if (spec.hasGarage) {
-      const gw = 6, gl = 6.5, gh = 2.6;
-      const garageMat = new THREE.MeshStandardMaterial({ color: studTint, metalness: 0.35, roughness: 0.6 });
-      const garage = new THREE.Group();
-      const gWallF = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, wallThk), garageMat);
-      gWallF.position.set(0, gh / 2, gl / 2);
-      const gWallB = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, wallThk), garageMat);
-      gWallB.position.set(0, gh / 2, -gl / 2);
-      const gWallR = new THREE.Mesh(new THREE.BoxGeometry(wallThk, gh, gl), garageMat);
-      gWallR.position.set(gw / 2, gh / 2, 0);
-      const gRoof = new THREE.Mesh(new THREE.BoxGeometry(gw + 0.4, 0.2, gl + 0.4), roofMat);
-      gRoof.position.set(0, gh + 0.1, 0);
-      const gDoor = new THREE.Mesh(new THREE.BoxGeometry(gw - 1, gh - 0.4, 0.08),
-        new THREE.MeshStandardMaterial({ color: 0xc8cdd1, roughness: 0.6 }));
-      gDoor.position.set(0, (gh - 0.4) / 2 + 0.1, gl / 2 + wallThk / 2 + 0.01);
-      [gWallF, gWallB, gWallR, gRoof, gDoor].forEach((m) => { m.castShadow = true; m.userData.stage = "finishes"; garage.add(m); });
-      garage.position.set(-w / 2 - gw / 2 - 0.4, slabH, 0);
-      garage.userData.stage = "finishes";
-      this.buildingGroup.add(garage);
-    }
-
-    /* --- Solar PV array on roof --- */
-    if (spec.solar) {
-      const panelMat = new THREE.MeshStandardMaterial({ color: 0x12233a, roughness: 0.3, metalness: 0.4, emissive: 0x0a1530, emissiveIntensity: 0.2 });
-      const rows = 2, cols = 4;
-      const panelW = 1.6, panelH = 1.0;
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const panel = new THREE.Mesh(new THREE.BoxGeometry(panelW, 0.05, panelH), panelMat);
-          panel.rotation.z = -(spec.roofPitch * Math.PI / 180);
-          panel.position.set(-(cols - 1) * panelW / 2 + c * panelW * 1.05,
-                             slabH + totalH + ridgeH * 0.55,
-                             -(rows - 1) * panelH / 2 + r * panelH * 1.05 + 1);
-          panel.userData.stage = "finishes";
-          this.buildingGroup.add(panel);
-        }
-      }
-    }
-
-    /* --- Interior partitions + room floors (from room schedule) --- */
+    this.isTower = false;
+    this._clearGroup();
+    const { waypoints, summary } = buildHouse(this.buildingGroup, spec);
+    this.walkWaypoints = waypoints;
+    this.buildSummary = summary;
     this.roofMeshes = [];
-    this.walkWaypoints = [];
-    const rooms = (spec.rooms || []).filter((r) => (r.widthM || 0) * (r.lengthM || 0) > 0);
-    const inset = 0.25;
-    const interiorRect = { x: -w / 2 + inset, z: -l / 2 + inset, w: w - 2 * inset, l: l - 2 * inset };
-
-    if (rooms.length > 0) {
-      const layout = sliceAndDice(rooms, interiorRect.x, interiorRect.z, interiorRect.w, interiorRect.l, interiorRect.w >= interiorRect.l);
-      const partWallMat = new THREE.MeshStandardMaterial({ color: 0xf0ece3, roughness: 0.92 });
-      const partThk = 0.1;
-      const partH = floorH - 0.15;
-      const doorW = 0.9, doorH = 2.05;
-      const floorColors = { timber: 0xb98a55, tile: 0xd7d3c8, carpet: 0x9a8d86 };
-
-      // collect interior edges, dedup so shared walls aren't doubled
-      const edgeMap = new Map();
-      const isBoundary = (a, b, axis) => {
-        // axis 'x' => horizontal edge at constant z; 'z' => vertical edge at constant x
-        if (axis === "z") return Math.abs(a - (-w / 2 + inset)) < 0.05 || Math.abs(a - (w / 2 - inset)) < 0.05;
-        return Math.abs(a - (-l / 2 + inset)) < 0.05 || Math.abs(a - (l / 2 - inset)) < 0.05;
-      };
-
-      for (const cell of layout) {
-        // per-room floor patch (subtle colour so rooms read in walkthrough)
-        const fcol = floorColors[cell.room.floorFinish] || floorColors.timber;
-        const floorPatch = new THREE.Mesh(
-          new THREE.BoxGeometry(cell.w - partThk, 0.04, cell.l - partThk),
-          new THREE.MeshStandardMaterial({ color: fcol, roughness: 0.85 })
-        );
-        floorPatch.position.set(cell.x + cell.w / 2, slabH + 0.03, cell.z + cell.l / 2);
-        floorPatch.receiveShadow = true;
-        floorPatch.userData.stage = "walls";
-        this.buildingGroup.add(floorPatch);
-
-        // store walkthrough waypoint at room centre, eye height
-        this.walkWaypoints.push({
-          x: cell.x + cell.w / 2, z: cell.z + cell.l / 2,
-          name: cell.room.name || cell.room.type,
-        });
-
-        // four edges -> dedup
-        const edges = [
-          { axis: "z", at: cell.x, from: cell.z, to: cell.z + cell.l },                 // left (const x)
-          { axis: "z", at: cell.x + cell.w, from: cell.z, to: cell.z + cell.l },          // right
-          { axis: "x", at: cell.z, from: cell.x, to: cell.x + cell.w },                  // bottom (const z)
-          { axis: "x", at: cell.z + cell.l, from: cell.x, to: cell.x + cell.w },          // top
-        ];
-        for (const e of edges) {
-          const key = `${e.axis}:${e.at.toFixed(2)}:${e.from.toFixed(2)}:${e.to.toFixed(2)}`;
-          if (edgeMap.has(key)) continue;
-          edgeMap.set(key, true);
-          if (isBoundary(e.at, null, e.axis)) continue; // skip walls on building boundary (handled by exterior)
-          // build a partition wall along this edge with a centred doorway gap
-          const len = Math.abs(e.to - e.from);
-          const mid = (e.from + e.to) / 2;
-          const segLen = Math.max(0.1, (len - doorW) / 2);
-          const makeSeg = (segCenter, segLength) => {
-            const geo = e.axis === "z"
-              ? new THREE.BoxGeometry(partThk, partH, segLength)
-              : new THREE.BoxGeometry(segLength, partH, partThk);
-            const m = new THREE.Mesh(geo, partWallMat);
-            const y = slabH + partH / 2;
-            if (e.axis === "z") m.position.set(e.at, y, segCenter);
-            else m.position.set(segCenter, y, e.at);
-            m.castShadow = true; m.receiveShadow = true; m.userData.stage = "walls";
-            this.buildingGroup.add(m);
-          };
-          if (len > doorW + 0.4) {
-            makeSeg(e.from + segLen / 2, segLen);
-            makeSeg(e.to - segLen / 2, segLen);
-            // lintel above doorway
-            const lintelGeo = e.axis === "z"
-              ? new THREE.BoxGeometry(partThk, partH - doorH, doorW)
-              : new THREE.BoxGeometry(doorW, partH - doorH, partThk);
-            const lintel = new THREE.Mesh(lintelGeo, partWallMat);
-            const ly = slabH + doorH + (partH - doorH) / 2;
-            if (e.axis === "z") lintel.position.set(e.at, ly, mid);
-            else lintel.position.set(mid, ly, e.at);
-            lintel.userData.stage = "walls";
-            this.buildingGroup.add(lintel);
-          } else {
-            makeSeg(mid, len); // too short for a door — solid
-          }
-        }
-      }
-    }
-
-    /* --- Staircase (between each storey) --- */
-    if (spec.staircaseType && spec.staircaseType !== "none" && floors > 1) {
-      const stairColor = spec.staircaseType === "steel_glass" ? 0x8a9099
-                       : spec.staircaseType === "concrete" ? 0xb8b4ad
-                       : 0x9c6b3f;
-      const stairMat = new THREE.MeshStandardMaterial({ color: stairColor, roughness: 0.7, metalness: spec.staircaseType === "steel_glass" ? 0.5 : 0.1 });
-      const railMat = new THREE.MeshStandardMaterial({ color: spec.staircaseType === "steel_glass" ? 0x6fa8d1 : 0x3a2a1a, roughness: 0.4, metalness: 0.3, transparent: spec.staircaseType === "steel_glass", opacity: spec.staircaseType === "steel_glass" ? 0.45 : 1 });
-      const stepWidth = 1.1;
-      const stepRun = 0.27;
-      const x0 = w / 2 - inset - 0.4; // place near right interior edge
-      const z0 = -l / 2 + inset + 0.6;
-      for (let f = 0; f < floors - 1; f++) {
-        const baseY = slabH + f * floorH;
-        const rise = floorH;
-        const nSteps = Math.max(12, Math.round(rise / 0.18));
-        const stepRise = rise / nSteps;
-        const runScale = Math.min(1, (l - 2 * inset - 1) / (nSteps * stepRun)); // fit within length
-        for (let i = 0; i < nSteps; i++) {
-          const h = (i + 1) * stepRise;
-          const step = new THREE.Mesh(new THREE.BoxGeometry(stepWidth, h, stepRun * runScale), stairMat);
-          step.position.set(x0 - stepWidth / 2, baseY + h / 2, z0 + (i + 0.5) * stepRun * runScale);
-          step.castShadow = true; step.receiveShadow = true;
-          step.userData.stage = "finishes";
-          this.buildingGroup.add(step);
-        }
-        // handrail along the flight
-        const runLen = nSteps * stepRun * runScale;
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.9, runLen), railMat);
-        rail.position.set(x0 - stepWidth + 0.05, baseY + rise / 2 + 0.5, z0 + runLen / 2);
-        rail.rotation.x = -Math.atan2(rise, runLen);
-        rail.userData.stage = "finishes";
-        this.buildingGroup.add(rail);
-      }
-    }
-
-    // tag roof meshes for walkthrough hide
-    this.buildingGroup.traverse((o) => {
-      if (o.userData && o.userData.stage === "roof") this.roofMeshes.push(o);
-    });
-
-    /* Stage indices for animation reveal */
+    this.buildingGroup.traverse((o) => { if (o.userData && o.userData.stage === "roof") this.roofMeshes.push(o); });
     this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
+    this._frameCamera(spec.widthM, spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
+    this.applyViewMode();
+    this._needsRender = true;
+  }
+
+  /* "finished" shows the house as built; "structural" fades every skin
+     surface (cladding, roof sheeting, glass) so the frame reads through. */
+  setViewMode(mode) {
+    this.viewMode = mode === "structural" ? "structural" : "finished";
+    this.applyViewMode();
+    this._needsRender = true;
+  }
+  applyViewMode() {
+    const xray = this.viewMode === "structural";
+    this.buildingGroup.traverse((o) => {
+      if (!o.isMesh || !o.userData.skin) return;
+      if (!o.userData._mat) o.userData._mat = o.material;
+      if (xray) {
+        if (!o.userData._xray) {
+          o.userData._xray = o.userData._mat.clone();
+          o.userData._xray.transparent = true; o.userData._xray.opacity = 0.18; o.userData._xray.depthWrite = false;
+        }
+        o.material = o.userData._xray; o.castShadow = false;
+      } else { o.material = o.userData._mat; o.castShadow = true; }
+    });
+  }
+
+  /* Orbit radius + height that frame the whole building whatever its size. */
+  _frameCamera(w, l, h) {
+    const diag = Math.sqrt((w || 10) ** 2 + (l || 10) ** 2);
+    this.frameRadius = Math.max(16, diag * 1.45 + h * 0.8);
+    this.frameHeight = Math.max(7, h * 1.6 + diag * 0.28);
+    this.frameLookY = Math.max(1.5, h * 0.45);
+  }
+
+  _clearGroup() {
+    const g = this.buildingGroup;
+    g.traverse((o) => {
+      if (!o.isMesh) return;
+      o.geometry?.dispose();
+      // textures are cached and shared — only dispose the x-ray clones
+      if (o.userData._xray) o.userData._xray.dispose();
+    });
+    while (g.children.length) g.remove(g.children[0]);
   }
 
   /* Empty the model entirely — materials-only mode shows just the site. */
   clearBuilding() {
     this.isTower = false;
-    while (this.buildingGroup.children.length) {
-      const c = this.buildingGroup.children[0];
-      this.buildingGroup.remove(c);
-      c.geometry?.dispose();
-      if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose()); else c.material?.dispose();
-    }
+    this._clearGroup();
     this.roofMeshes = [];
     this.walkWaypoints = [];
   }
@@ -746,12 +413,7 @@ export class Engine3D {
   buildTower(spec) {
     this.spec = spec;
     this.isTower = true;
-    while (this.buildingGroup.children.length) {
-      const c = this.buildingGroup.children[0];
-      this.buildingGroup.remove(c);
-      c.geometry?.dispose();
-      if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose()); else c.material?.dispose();
-    }
+    this._clearGroup();
     this.roofMeshes = [];
     this.walkWaypoints = [];
 
@@ -973,8 +635,8 @@ export class Engine3D {
     ];
   }
   _eyeY() {
-    const slabH = 0.4;
-    return slabH + 1.55;
+    const ffl = Math.max(0.15, (this.spec && this.spec.slabThicknessM) || 0.1);
+    return ffl + 1.55;
   }
 
   animate() {
@@ -1019,11 +681,11 @@ export class Engine3D {
         /* Low structures (carport spec has H) get a lower orbit + focus so
            they fill the frame instead of sitting under a high camera. */
         const low = this.spec && this.spec.H != null;
-        const r = 30 * zoom;
+        const r = (low ? 30 : (this.frameRadius || 30)) * zoom;
         this.camera.position.x = Math.cos(this.cameraAngle) * r;
         this.camera.position.z = Math.sin(this.cameraAngle) * r;
-        this.camera.position.y = (low ? 9 : 18) * tilt;
-        this.camera.lookAt(0, low ? Math.max(1.2, this.spec.H * 0.7) : 4, 0);
+        this.camera.position.y = (low ? 9 : (this.frameHeight || 18)) * tilt;
+        this.camera.lookAt(0, low ? Math.max(1.2, this.spec.H * 0.7) : (this.frameLookY || 4), 0);
       }
     }
     if (this.playing) {

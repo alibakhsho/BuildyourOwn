@@ -44,6 +44,7 @@ import SectionHeader from "./components/ui/SectionHeader.jsx";
 import TakeoffTable from "./components/ui/TakeoffTable.jsx";
 import BYOLogo from "./components/ui/BYOLogo.jsx";
 import HowItWorksIcon from "./components/ui/HowItWorksIcon.jsx";
+import CountUp from "./components/ui/CountUp.jsx";
 import { AccountButton, Onboarding } from "./components/AuthModal.jsx";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import {
@@ -119,6 +120,42 @@ const HOW_STEPS = [
   { n: "04", title: "Send the quote", body: "A client-ready quote with one GST-inclusive total. Print it, save it as a PDF, or hand it to the job.",
     icon: <path d="M6 12h36v24H6V12zm0 0l18 13 18-13M14 42h20" /> },
 ];
+
+/* By-the-numbers band. Real figures the app actually produces for the default
+   residential build, animated up on scroll-in so arriving at it feels like an
+   estimate assembling. Numbers are honest, not marketing invention:
+   A$640,750 is the default estimate total, 14 the priced trades, 382 the parts
+   in the 3D model, 0 the logins needed to start. */
+const PROOF_STATS = [
+  { to: 640750, prefix: "A$", label: "Sample estimate, priced live" },
+  { to: 14, label: "Trades costed individually" },
+  { to: 382, label: "Parts modelled in 3D" },
+  { to: 0, label: "Logins to get started" },
+];
+
+function ProofStrip() {
+  return (
+    <section aria-label="By the numbers"
+      style={{ background: "rgba(12, 15, 20, 0.9)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
+        borderTop: `1px solid rgba(255,255,255,0.08)`, borderBottom: `3px solid ${TOKENS.hivis}` }}>
+      <div style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px",
+        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 24 }}>
+        {PROOF_STATS.map((s, i) => (
+          <div key={s.label} style={{ textAlign: "center", padding: "6px 12px",
+            borderLeft: i === 0 ? "none" : `1px solid rgba(255,255,255,0.1)` }}>
+            <div className="ec-display" style={{ fontSize: "clamp(34px, 5vw, 52px)", lineHeight: 1, color: TOKENS.hivis, letterSpacing: "-0.02em" }}>
+              <CountUp to={s.to} prefix={s.prefix || ""} duration={1500 + i * 250} />
+            </div>
+            <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase",
+              color: "rgba(242,244,247,0.7)", marginTop: 10 }}>
+              {s.label}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function HowItWorksSection() {
   return (
@@ -2011,6 +2048,7 @@ export default function App() {
   const [ratesVersion, setRatesVersion] = useState(0); // bumped after equipment rate overrides change
   const [projectNo] = useState(genProjectNo);
   const [autoRotate, setAutoRotate] = useState(true);
+  const [viewMode, setViewMode] = useState("finished"); // 3D: finished | structural (skin faded)
   const [progress, setProgress] = useState(1); // start fully built
   const [walkMode, setWalkMode] = useState(false);
   const [walkRoom, setWalkRoom] = useState("");
@@ -2035,6 +2073,7 @@ export default function App() {
     } else {
       const eng = new Engine3D(node);
       engineRef.current = eng;
+      if (import.meta.env.DEV) window.__byoEngine = eng; // dev-only: headless 3D verification
       eng.onComplete = () => setProgress(1);
       eng.onWalkProgress = (t, name) => { setWalkT(t); setWalkRoom(name || ""); };
       eng.onModeChange = (m) => setWalkMode(m === "walk");
@@ -2569,7 +2608,7 @@ export default function App() {
               fontFamily: "'JetBrains Mono', monospace",
             }}>
               <span style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} className="ec-live" />
-              For homeowners · tradies · builders · developers
+              Free to use · no sign-up needed · homeowners, tradies &amp; builders
             </div>
           </div>
 
@@ -2668,6 +2707,9 @@ export default function App() {
           </svg>
         </div>
       </section>
+
+      {/* ============== BY THE NUMBERS — figures count up as you arrive ============== */}
+      <ProofStrip />
 
       {/* ============== HOW IT WORKS — flying step cards on dark glass ============== */}
       <HowItWorksSection />
@@ -3093,6 +3135,13 @@ export default function App() {
                       {stageLabel(progress)}
                     </span>
                   </div>
+                  <button className="ec-btn ec-btn-ghost" onClick={() => {
+                    const next = viewMode === "structural" ? "finished" : "structural";
+                    setViewMode(next);
+                    engineRef.current?.setViewMode(next);
+                  }}>
+                    {viewMode === "finished" ? "Show skeleton" : "Show finished"}
+                  </button>
                   <button className="ec-btn" onClick={toggleWalk} style={{ background: TOKENS.emberDeep, color: TOKENS.onEmber }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/><path d="M12 7v6m0 0l-3 7m3-7l3 7M8 9h8" strokeLinecap="round"/></svg>
                     Walk through

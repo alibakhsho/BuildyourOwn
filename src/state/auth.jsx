@@ -24,11 +24,14 @@ export const TIERS = {
   enterprise: { label: "Developer",  price: 599, projects: Infinity, planReads: Infinity, aiMessages: Infinity },
 };
 
+/* Three audiences for now. "developer" stays a valid value in the database
+   enum for the future, but it isn't offered at signup yet — its heavier tools
+   (high-rise, volume) are folded into Builder until there's a reason to
+   target developers directly. */
 export const SEGMENTS = [
   { id: "homeowner", label: "Homeowner", hint: "Planning a build or renovation" },
   { id: "tradie",    label: "Tradie",    hint: "Sole trader or subcontractor" },
-  { id: "builder",   label: "Builder",   hint: "Running multiple jobs" },
-  { id: "developer", label: "Developer", hint: "Volume residential or commercial" },
+  { id: "builder",   label: "Builder",   hint: "Running jobs, small to large" },
 ];
 
 export function AuthProvider({ children }) {
