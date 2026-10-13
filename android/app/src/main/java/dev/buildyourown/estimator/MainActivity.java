@@ -1,4 +1,4 @@
-package app.buildyourown.estimator;
+package dev.buildyourown.estimator;
 
 import com.getcapacitor.BridgeActivity;
 

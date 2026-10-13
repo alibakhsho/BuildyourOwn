@@ -19,7 +19,7 @@ export const isNative = Capacitor.isNativePlatform();
 /* Must match the URL scheme registered in AndroidManifest.xml and
    ios/App/App/Info.plist, and be listed as a redirect URL in the Supabase
    dashboard (Authentication → URL Configuration). */
-export const AUTH_CALLBACK = "app.buildyourown.estimator://auth-callback";
+export const AUTH_CALLBACK = "dev.buildyourown.estimator://auth-callback";
 
 /** Open an external URL (OAuth consent, docs) in the system browser. */
 export const openExternal = (url) => Browser.open({ url });
