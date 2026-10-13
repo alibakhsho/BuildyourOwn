@@ -27,6 +27,7 @@ import {
 import { getBlobURL, putBlob, downscaleForVision, getBlob, isHeic } from "../state/blobstore.js";
 import { createTakeoff, updateTakeoff, listTakeoffs, createDocument } from "../state/cm.js";
 import { readPlan } from "../ai/vision.js";
+import { isNative, takePhoto } from "../lib/native.js";
 
 const HANDLE_R = 4.5;      // vertex handle radius, screen px
 const HIT_TOL = 7;         // click tolerance, screen px
@@ -1148,6 +1149,26 @@ export function TakeoffSheets({ jobId, activeId, onOpen }) {
           drawing more than the other, and no single scale can correct for that.
         </div>
       </label>
+
+      {/* On a phone, shooting the sheet beats digging it out of the gallery. */}
+      {isNative && (
+        <button
+          type="button"
+          disabled={!!busy}
+          onClick={async () => {
+            try {
+              const file = await takePhoto();
+              if (file) onFiles([file]);
+            } catch (e) {
+              setErr(e.message || "Couldn't open the camera.");
+            }
+          }}
+          className="ec-display"
+          style={{ display: "block", width: "100%", padding: "14px 20px", marginBottom: 14, fontSize: 15, cursor: "pointer", border: `2px solid ${TOKENS.rule}`, background: TOKENS.paperLight }}
+        >
+          Take a photo of a plan sheet
+        </button>
+      )}
 
       {err && <Banner tone="error" onClose={() => setErr("")}>{err}</Banner>}
       {note && !err && <Banner tone="ok" onClose={() => setNote("")}>{note}</Banner>}

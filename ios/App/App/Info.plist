@@ -57,5 +57,12 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Shown by iOS when the app first asks; missing keys crash the app. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Take photos of plan sheets to measure and estimate from them.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose photos of plan sheets to measure and estimate from them.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save photos you take of plan sheets.</string>
 </dict>
 </plist>

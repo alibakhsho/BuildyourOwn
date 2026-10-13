@@ -12,6 +12,7 @@
 import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 
 export const isNative = Capacitor.isNativePlatform();
 
@@ -22,6 +23,31 @@ export const AUTH_CALLBACK = "app.buildyourown.estimator://auth-callback";
 
 /** Open an external URL (OAuth consent, docs) in the system browser. */
 export const openExternal = (url) => Browser.open({ url });
+
+/**
+ * Open the phone's camera and return the shot as a File, so it flows through
+ * the same upload path as a picked file. Null if the user backs out.
+ * correctOrientation bakes the EXIF rotation into the pixels — a sideways
+ * plan would otherwise be measured sideways.
+ */
+export async function takePhoto() {
+  let photo;
+  try {
+    photo = await Camera.getPhoto({
+      source: CameraSource.Camera,
+      resultType: CameraResultType.Uri,
+      quality: 90,
+      correctOrientation: true,
+      saveToGallery: false,
+    });
+  } catch (e) {
+    if (/cancel/i.test(e?.message || "")) return null;
+    throw e;
+  }
+  const blob = await (await fetch(photo.webPath)).blob();
+  const ext = photo.format === "jpeg" ? "jpg" : photo.format;
+  return new File([blob], `site-photo-${Date.now()}.${ext}`, { type: blob.type || `image/${photo.format}` });
+}
 
 /**
  * Listen for the deep link Supabase redirects to after Google sign-in, an
