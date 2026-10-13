@@ -651,7 +651,13 @@ export class Engine3D {
     // — render once to settle, then stop until something changes.
     const moving = this.mode === "walk" || this.autoRotate || this.playing;
     if (!moving) {
-      if (this._needsRender) { this.renderer.render(this.scene, this.camera); this._needsRender = false; }
+      // Idle still has to follow the user's drag/zoom — grabbing the model
+      // turns auto-rotate off, so this is the path manual orbiting runs on.
+      if (this._needsRender) {
+        if (this.mode !== "walk" && this._userOrbiting) this._updateOrbitCamera();
+        this.renderer.render(this.scene, this.camera);
+        this._needsRender = false;
+      }
       return;
     }
 
@@ -668,25 +674,7 @@ export class Engine3D {
 
     if (this.autoRotate || this._userOrbiting) {
       if (this.autoRotate) this.cameraAngle += 0.0025;
-      const zoom = this.zoomFactor || 1;
-      const tilt = this.tiltFactor != null ? this.tiltFactor : 1;
-      if (this.isTower && this.towerHeight) {
-        const h = this.towerHeight;
-        const r = Math.max(30, h * 1.1) * zoom;
-        this.camera.position.x = Math.cos(this.cameraAngle) * r;
-        this.camera.position.z = Math.sin(this.cameraAngle) * r;
-        this.camera.position.y = (h * 0.6 + 6) * tilt;
-        this.camera.lookAt(0, h * 0.45, 0);
-      } else {
-        /* Low structures (carport spec has H) get a lower orbit + focus so
-           they fill the frame instead of sitting under a high camera. */
-        const low = this.spec && this.spec.H != null;
-        const r = (low ? 30 : (this.frameRadius || 30)) * zoom;
-        this.camera.position.x = Math.cos(this.cameraAngle) * r;
-        this.camera.position.z = Math.sin(this.cameraAngle) * r;
-        this.camera.position.y = (low ? 9 : (this.frameHeight || 18)) * tilt;
-        this.camera.lookAt(0, low ? Math.max(1.2, this.spec.H * 0.7) : (this.frameLookY || 4), 0);
-      }
+      this._updateOrbitCamera();
     }
     if (this.playing) {
       this.progress += 0.0035;
@@ -698,6 +686,29 @@ export class Engine3D {
       this.setProgress(this.progress);
     }
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /* Place the orbit camera from cameraAngle / tiltFactor / zoomFactor. */
+  _updateOrbitCamera() {
+    const zoom = this.zoomFactor || 1;
+    const tilt = this.tiltFactor != null ? this.tiltFactor : 1;
+    if (this.isTower && this.towerHeight) {
+      const h = this.towerHeight;
+      const r = Math.max(30, h * 1.1) * zoom;
+      this.camera.position.x = Math.cos(this.cameraAngle) * r;
+      this.camera.position.z = Math.sin(this.cameraAngle) * r;
+      this.camera.position.y = (h * 0.6 + 6) * tilt;
+      this.camera.lookAt(0, h * 0.45, 0);
+    } else {
+      /* Low structures (carport spec has H) get a lower orbit + focus so
+         they fill the frame instead of sitting under a high camera. */
+      const low = this.spec && this.spec.H != null;
+      const r = (low ? 30 : (this.frameRadius || 30)) * zoom;
+      this.camera.position.x = Math.cos(this.cameraAngle) * r;
+      this.camera.position.z = Math.sin(this.cameraAngle) * r;
+      this.camera.position.y = (low ? 9 : (this.frameHeight || 18)) * tilt;
+      this.camera.lookAt(0, low ? Math.max(1.2, this.spec.H * 0.7) : (this.frameLookY || 4), 0);
+    }
   }
 
   setPaused(v) { this.paused = v; if (!v) this._needsRender = true; }
