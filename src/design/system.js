@@ -34,15 +34,15 @@
      "Deep" means "more emphatic", not "darker". */
 
 export const lightPalette = {
-  paper: "#EDEEF0",
-  paperLight: "#F6F7F8",
+  paper: "#F3F5F8",
+  paperLight: "#F8FAFC",
   card: "#FFFFFF",
-  ink: "#14171A",
-  inkSoft: "#3B414A",
+  ink: "#0F172A",
+  inkSoft: "#334155",
   // Measured on --paper: #6B7279 gives 4.2:1, under the 4.5 AA floor for the
   // 10–12px captions this carries most often.
-  steel: "#616870",
-  rule: "#D5D8DC",
+  steel: "#5B6678",
+  rule: "#E2E8F0",
   hivis: "#F5C518",
   hivisDeep: "#D9AC00",
   // Gold as TEXT on a paper surface. hivisDeep is a hover/fill colour and only
@@ -54,24 +54,24 @@ export const lightPalette = {
   // Ember as TEXT on paper — emberDeep is a fill/hover colour and only reaches
   // ~3.1:1 on --paper-light, which fails the 10px labels it was used for.
   emberInk: "#A85009",
-  alert: "#B8420C", // was #C8480E — 4.46:1 on --paper-light, a hair under AA
-  ok: "#3A7D44",
-  onHivis: "#14171A",
+  alert: "#B42318", // was #C8480E — 4.46:1 on --paper-light, a hair under AA
+  ok: "#157F3C",
+  onHivis: "#0F172A",
   // Muted companion to onHivis, for eyebrows/captions on a yellow surface.
   // Identical in both palettes for the same reason onHivis is: --hivis does
   // not change between themes, so what sits on it must not either. 6.4:1.
   onHivisSoft: "#3B414A",
-  onEmber: "#14171A",
-  emphasis: "#14171A",
+  onEmber: "#0F172A",
+  emphasis: "#0F172A",
   onEmphasis: "#F5C518",
   onEmphasisSoft: "#9AA1A9", // captions on an emphasis chip — --rule is invisible there in dark
-  grid: "rgba(20,23,26,0.045)",
+  grid: "rgba(15,23,42,0.035)",
   // The translucent layer the whole app sits on, over the ambient 3D scene.
   // Must be a token: as a hardcoded rgba it kept the light paper colour in
   // dark mode while every text token flipped to near-white, leaving the entire
   // UI at ~1.02:1 contrast. Alpha is part of the value so the scene shows
   // through; that rules out reusing --paper-light directly.
-  contentVeil: "rgba(246,247,248,0.90)",
+  contentVeil: "rgba(243,245,248,0.94)",
   // Same problem one level down: translucent card surfaces (viewport controls,
   // inline readouts) that sit over the scene and were hardcoded to white.
   cardVeil: "rgba(255,255,255,0.90)",
@@ -85,8 +85,13 @@ export const lightPalette = {
   // both themes — so these two do NOT flip. Inverting them would put white
   // text on a white drawing.
   labelWash: "rgba(255,255,255,0.94)",
-  labelInk: "#14171A",
-  shadowLift: "0 18px 40px rgba(15,17,20,0.18)",
+  labelInk: "#0F172A",
+  shadowLift: "0 1px 2px rgba(15,23,42,0.06), 0 16px 36px -8px rgba(15,23,42,0.18)",
+  // Soft layered elevation: a hairline contact shadow under a wide, faint ambient one.
+  shadowSm: "0 1px 2px rgba(15,23,42,0.05), 0 1px 3px rgba(15,23,42,0.04)",
+  shadowMd: "0 1px 2px rgba(15,23,42,0.06), 0 8px 24px -6px rgba(15,23,42,0.12)",
+  accentWash: "rgba(245,197,24,0.14)",   // selected / active backgrounds
+  focusRing: "rgba(245,197,24,0.55)",
 };
 
 /* Not an inversion of the light palette. Surfaces are a cool charcoal rather
@@ -94,15 +99,15 @@ export const lightPalette = {
    vibrating, and the accents are lifted because saturated colour loses
    apparent contrast against a dark ground. */
 export const darkPalette = {
-  paper: "#12161B",
-  paperLight: "#181D23",
-  card: "#1E242B",
-  ink: "#ECEFF2",
-  inkSoft: "#B4BCC5",
+  paper: "#0B1017",
+  paperLight: "#10161F",
+  card: "#151C26",
+  ink: "#E8EDF4",
+  inkSoft: "#B6C0CD",
   // Measured against --card (#1E242B): #7E8892 lands at 4.34:1, just under
   // the 4.5 AA floor for the 12px card descriptions this is used on.
-  steel: "#8C959F",
-  rule: "#2E353D",
+  steel: "#8D99A9",
+  rule: "#263142",
   hivis: "#F5C518",
   hivisDeep: "#FFD84D",
   hivisInk: "#FFD84D", // on dark surfaces the bright gold already reads
@@ -110,25 +115,29 @@ export const darkPalette = {
   ember: "#F79A33",
   emberDeep: "#FFB05C",
   emberInk: "#FFB05C", // already bright enough against dark surfaces
-  alert: "#FF6B3D",
-  ok: "#5BB56A",
+  alert: "#FF7A59",
+  ok: "#4CC38A",
   onHivis: "#14171A",
   onHivisSoft: "#3B414A", // see light palette — must not flip, --hivis doesn't
   onEmber: "#14171A",
-  emphasis: "#2A323B",
+  emphasis: "#1F2937",
   onEmphasis: "#FFD84D",
   onEmphasisSoft: "#A9B3BD",
   grid: "rgba(255,255,255,0.045)",
   // --paper (#12161B) at the same 0.90 alpha as light.
-  contentVeil: "rgba(18,22,27,0.90)",
-  cardVeil: "rgba(30,36,43,0.90)", // --card (#1E242B) at the same alpha
+  contentVeil: "rgba(11,16,23,0.94)",
+  cardVeil: "rgba(21,28,38,0.90)", // --card (#1E242B) at the same alpha
   warnWash: "#332B14",
   errorWash: "#3A2119",
   okWash: "#18301D",
   canvasMat: "#0C0F13",
   labelWash: "rgba(255,255,255,0.94)", // intentionally identical to light — see note above
   labelInk: "#14171A",
-  shadowLift: "0 18px 40px rgba(0,0,0,0.55)",
+  shadowLift: "0 1px 2px rgba(0,0,0,0.4), 0 18px 40px -8px rgba(0,0,0,0.6)",
+  shadowSm: "0 1px 2px rgba(0,0,0,0.35)",
+  shadowMd: "0 1px 2px rgba(0,0,0,0.4), 0 10px 28px -8px rgba(0,0,0,0.55)",
+  accentWash: "rgba(245,197,24,0.12)",
+  focusRing: "rgba(255,216,77,0.6)",
 };
 
 /**
@@ -165,22 +174,31 @@ export function cssVariables(theme) {
 }
 
 /* -------------------------------------------------------------------------
-   2. TYPOGRAPHY — three roles, no more. Display carries personality
-   (condensed, confident, uppercase-leaning); body is plain system-adjacent
-   Inter; mono is used liberally for anything numeric or structural (labels,
-   data, tags) — a quantity-surveyor register that matches the subject matter.
+   2. TYPOGRAPHY — one enterprise sans for everything (Plus Jakarta Sans),
+   the convention of modern construction platforms: legible at 12px in a
+   dense table, confident at 70px in a hero. Hierarchy comes from weight
+   and size, not from mixing families. Numbers always use tabular figures
+   so money lines up in columns. JetBrains Mono survives only for code and
+   the takeoff canvas labels.
    ------------------------------------------------------------------------- */
 export const typography = {
-  fontUrl: "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap",
+  fontUrl: "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap",
   roles: {
-    display: { family: "'Barlow Condensed', sans-serif", weight: 700, letterSpacing: "0.01em", className: "ec-display", use: "Headings, hero type, section titles" },
-    body: { family: "Inter, sans-serif", weight: 400, use: "Default body copy (no dedicated class — the unstyled default)" },
-    mono: { family: "'JetBrains Mono', monospace", weight: 400, featureSettings: '"tnum"', className: "ec-mono", use: "Data, quantities, tags, form inputs, timestamps — tabular figures on" },
+    display: { family: "'Plus Jakarta Sans', sans-serif", weight: 800, letterSpacing: "-0.02em", className: "ec-display", use: "Headings, hero type, section titles, headline figures" },
+    body: { family: "'Plus Jakarta Sans', sans-serif", weight: 400, use: "Default body copy (set on body, buttons and fields)" },
+    numeric: { family: "'Plus Jakarta Sans', sans-serif", featureSettings: '"tnum", "lnum"', className: "ec-mono", use: "Money, quantities, small data labels — tabular figures on (class name kept for compatibility)" },
+    code: { family: "'JetBrains Mono', monospace", className: "ec-code", use: "Scripts and code only" },
   },
-  eyebrow: { className: "ec-eyebrow", family: "mono", size: 10, letterSpacing: "0.18em", transform: "uppercase", color: "steel" },
-  // Observed scale (px) — display sizes cluster at these stops across hero/section/card headings
-  scale: { xs: 9, sm: 10, base: 11, md: 12, lg: 13, xl: 14, "2xl": 16, "3xl": 18, "4xl": 20, "5xl": 22, "6xl": 28, "7xl": 30, "8xl": 34, hero: "clamp(30px, 4.5vw, 48px)" },
+  eyebrow: { className: "ec-eyebrow", size: 11, weight: 700, letterSpacing: "0.08em", transform: "uppercase", color: "steel" },
+  label: { className: "ec-label", size: 12, weight: 600, transform: "none", color: "inkSoft" },
+  scale: { xs: 11, sm: 12, base: 14, md: 15, lg: 16, xl: 17, "2xl": 20, "3xl": 24, "4xl": 28, hero: "clamp(38px, 5.2vw, 70px)" },
 };
+
+/* Shape + motion conventions (see the .ec-* classes in App.jsx):
+   radius — cards 14px, buttons/fields 10px, tags & chips fully round;
+   elevation — shadowSm at rest, shadowMd on hover/raised (palette tokens);
+   motion — 150–300 ms ease-out [0.2, 0.8, 0.2, 1] for UI, springs only for
+   the sliding segmented-control pill; everything respects reduced motion. */
 
 /* -------------------------------------------------------------------------
    3. SPACING — an organic (not strict 4/8pt) scale, hand-tuned across a

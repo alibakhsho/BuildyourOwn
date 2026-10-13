@@ -145,7 +145,7 @@ export function MultiCostPlan({ estimate: e, currency }) {
   const saving = e.oneOffTotal - e.houseOnlyTotal;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-      <div className="ec-card" style={{ padding: 18, borderLeft: `4px solid ${TOKENS.hivis}` }}>
+      <div className="ec-card" style={{ padding: 18, background: `linear-gradient(160deg, ${TOKENS.accentWash}, transparent 60%), ${TOKENS.card}` }}>
         <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Why it's cheaper than {e.dwellings} one-off quotes</div>
         <div style={{ fontSize: 14, lineHeight: 1.6, color: TOKENS.inkSoft }}>
           Quoted one at a time these homes come to <strong>{money(e.oneOffTotal)}</strong>. As one project they cost <strong>{money(e.houseOnlyTotal)}</strong> before site works —

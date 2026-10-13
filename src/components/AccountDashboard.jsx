@@ -46,8 +46,8 @@ function Meter({ label, used, cap }) {
         <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: TOKENS.steel }}>{label}</span>
         <span className="ec-mono" style={{ fontSize: 11, fontWeight: 700 }}>{used}{finite ? ` / ${cap}` : " · unlimited"}</span>
       </div>
-      <div style={{ height: 6, background: TOKENS.rule, marginTop: 6 }}>
-        <div style={{ width: finite ? `${pct}%` : "100%", height: "100%", background: pct >= 100 ? TOKENS.alert : TOKENS.hivis, opacity: finite ? 1 : 0.35 }} />
+      <div style={{ height: 8, background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, borderRadius: 99, marginTop: 8, overflow: "hidden" }}>
+        <div style={{ width: finite ? `${Math.max(pct, 2)}%` : "100%", height: "100%", borderRadius: 99, background: pct >= 100 ? TOKENS.alert : TOKENS.hivis, opacity: finite ? 1 : 0.35, transition: "width .6s cubic-bezier(.2,.8,.2,1)" }} />
       </div>
     </div>
   );
@@ -63,7 +63,7 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
 
   if (!user) {
     return (
-      <div className="ec-card" style={{ padding: 22, marginBottom: 22, display: "flex", gap: 18, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", borderLeft: `4px solid ${TOKENS.hivis}` }}>
+      <div className="ec-card" style={{ padding: 22, marginBottom: 22, display: "flex", gap: 18, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", background: `linear-gradient(160deg, ${TOKENS.accentWash}, transparent 55%), ${TOKENS.card}` }}>
         <div style={{ maxWidth: 640 }}>
           <div className="ec-eyebrow" style={{ marginBottom: 6 }}>You're working as a guest</div>
           <div style={{ fontSize: 14, lineHeight: 1.55, color: TOKENS.inkSoft }}>
@@ -91,7 +91,7 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 22 }}>
       {/* Who + plan */}
-      <div className="ec-card" style={{ padding: 22, borderTop: `3px solid ${TOKENS.hivis}` }}>
+      <div className="ec-card" style={{ padding: 22, background: `linear-gradient(160deg, ${TOKENS.accentWash}, transparent 55%), ${TOKENS.card}` }}>
         <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Welcome back</div>
         <div className="ec-display" style={{ fontSize: 26, lineHeight: 1.05 }}>{name}</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>

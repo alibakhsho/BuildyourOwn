@@ -59,7 +59,7 @@ function HeroHouse() {
 
 const chip = {
   position: "absolute", background: "rgba(255,255,255,0.94)", color: "#14171A", padding: "10px 14px",
-  borderRadius: 12, boxShadow: "0 10px 30px rgba(20,23,26,0.16)", fontFamily: "'Inter', sans-serif",
+  borderRadius: 12, boxShadow: "0 10px 30px rgba(20,23,26,0.16)", fontFamily: "'Plus Jakarta Sans', sans-serif",
 };
 
 const AUDIENCES = [
@@ -85,21 +85,21 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
       <style>{`
         .lp-wrap { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
         .lp-hero { display: grid; grid-template-columns: 1.02fr 1fr; gap: 48px; align-items: center; padding: 40px 0 72px; }
-        .lp-h1 { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: clamp(44px, 6.2vw, 84px); line-height: 0.95; letter-spacing: -0.01em; margin: 0 0 20px; }
+        .lp-h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: clamp(38px, 5.2vw, 70px); line-height: 1.04; letter-spacing: -0.035em; margin: 0 0 20px; }
         .lp-lead { font-size: 18px; line-height: 1.6; color: #4A4F55; max-width: 34em; margin: 0 0 28px; }
-        .lp-cta { display: inline-flex; align-items: center; gap: 10px; padding: 16px 26px; border-radius: 999px; border: none; cursor: pointer; font: 600 15px 'Inter', sans-serif; }
+        .lp-cta { display: inline-flex; align-items: center; gap: 10px; padding: 16px 26px; border-radius: 999px; border: none; cursor: pointer; font: 600 15px 'Plus Jakarta Sans', sans-serif; }
         .lp-cta-main { background: #14171A; color: #fff; box-shadow: 0 10px 24px rgba(20,23,26,0.22); }
         .lp-cta-main:hover { background: #2a2f35; }
         .lp-cta-alt { background: transparent; color: #14171A; border: 1.5px solid rgba(20,23,26,0.25); }
         .lp-cta-alt:hover { border-color: #14171A; }
         .lp-stage { position: relative; aspect-ratio: 4 / 3.4; border-radius: 28px; overflow: hidden; background: linear-gradient(#b6cddf, #e9eee9); box-shadow: 0 30px 80px rgba(20,23,26,0.18); }
         .lp-section { padding: 80px 0; }
-        .lp-h2 { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: clamp(32px, 4vw, 48px); line-height: 1; margin: 0 0 14px; }
+        .lp-h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: clamp(28px, 3.4vw, 42px); line-height: 1.1; letter-spacing: -0.03em; margin: 0 0 14px; }
         .lp-aud { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
         .lp-card { background: #fff; border-radius: 20px; padding: 26px; border: 1px solid rgba(20,23,26,0.08); box-shadow: 0 6px 20px rgba(20,23,26,0.05); cursor: pointer; transition: transform .2s, box-shadow .2s; text-align: left; font: inherit; color: inherit; }
         .lp-card:hover { transform: translateY(-4px); box-shadow: 0 16px 36px rgba(20,23,26,0.1); }
         .lp-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; flex-wrap: wrap; }
-        .lp-nav a { color: #14171A; text-decoration: none; font: 500 14px 'Inter', sans-serif; opacity: .75; }
+        .lp-nav a { color: #14171A; text-decoration: none; font: 500 14px 'Plus Jakarta Sans', sans-serif; opacity: .75; }
         .lp-nav a:hover { opacity: 1; }
         @media (max-width: 900px) {
           .lp-hero { grid-template-columns: 1fr; gap: 28px; padding: 16px 0 48px; }
@@ -115,7 +115,7 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
         <div className="lp-top">
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <BYOLogo size={34} />
-            <span style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.02em" }}>BUILD YOUR OWN</span>
+            <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 800, fontSize: 20, letterSpacing: "0.02em" }}>BUILD YOUR OWN</span>
           </div>
           <nav className="lp-nav" style={{ display: "flex", gap: 26 }}>
             <a href="#how" onClick={(e) => { e.preventDefault(); document.getElementById("how")?.scrollIntoView({ behavior: "smooth" }); }}>How it works</a>
@@ -126,7 +126,7 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
             <div role="group" aria-label="Region" style={{ display: "flex", border: "1px solid rgba(20,23,26,0.2)", borderRadius: 999, overflow: "hidden" }}>
               {["AU", "US", "UK"].map((r) => (
                 <button key={r} onClick={() => setRegion(r)} aria-pressed={region === r}
-                  style={{ padding: "6px 11px", border: "none", cursor: "pointer", font: "600 11px 'JetBrains Mono', monospace",
+                  style={{ padding: "6px 11px", border: "none", cursor: "pointer", font: "600 11px 'Plus Jakarta Sans', sans-serif",
                     background: region === r ? "#14171A" : "transparent", color: region === r ? "#fff" : "#14171A" }}>{r}</button>
               ))}
             </div>
@@ -136,7 +136,7 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
         {/* ---- hero ---- */}
         <section className="lp-hero">
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 14px", borderRadius: 999, background: "rgba(245,197,24,0.22)", font: "600 12px 'Inter', sans-serif", marginBottom: 22 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 14px", borderRadius: 999, background: "rgba(245,197,24,0.22)", font: "600 12px 'Plus Jakarta Sans', sans-serif", marginBottom: 22 }}>
               <span style={{ width: 7, height: 7, borderRadius: 99, background: TOKENS.hivisDeep }} /> Free for homeowners · no sign-up to start
             </div>
             <h1 className="lp-h1">Know what your build will cost — <span style={{ color: "#C2570A" }}>before you break ground.</span></h1>
@@ -147,8 +147,8 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
               <button className="lp-cta lp-cta-main" onClick={onStart}>Price my build — it's free →</button>
               <button className="lp-cta lp-cta-alt" onClick={() => plansRef.current?.scrollIntoView({ behavior: "smooth" })}>For tradies &amp; builders</button>
             </div>
-            <div style={{ display: "flex", gap: 22, marginTop: 28, flexWrap: "wrap", font: "500 13px 'Inter', sans-serif", color: "#5A6067" }}>
-              <span>✓ AU, US &amp; UK rates</span><span>✓ GST shown, not hidden</span><span>✓ Works on your phone</span>
+            <div style={{ display: "flex", gap: 22, marginTop: 28, flexWrap: "wrap", font: "500 13px 'Plus Jakarta Sans', sans-serif", color: "#5A6067" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ color: "#157F3C", display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, marginTop: 0 }}><path d="M20 6L9 17l-5-5" /></svg></span>AU, US &amp; UK rates</span><span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ color: "#157F3C", display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, marginTop: 0 }}><path d="M20 6L9 17l-5-5" /></svg></span>GST shown, not hidden</span><span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ color: "#157F3C", display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, marginTop: 0 }}><path d="M20 6L9 17l-5-5" /></svg></span>Works on your phone</span>
             </div>
           </motion.div>
 
@@ -156,7 +156,7 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
             <div className="lp-stage"><HeroHouse /></div>
             <div style={{ ...chip, top: 20, left: -14 }} className="lp-chip-hide">
               <div style={{ fontSize: 11, color: "#6B7279", fontWeight: 600 }}>ESTIMATED TOTAL</div>
-              <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 800, fontSize: 26 }}>{currencySymbol(region)}{fmt(gross)}</div>
+              <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 800, fontSize: 26 }}>{currencySymbol(region)}{fmt(gross)}</div>
               <div style={{ fontSize: 11, color: "#6B7279" }}>{est.taxRate > 0 ? `incl. ${taxName}` : "before tax"} · priced live</div>
             </div>
             <div style={{ ...chip, bottom: 22, right: -12 }}>
@@ -176,10 +176,10 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
             {AUDIENCES.map((a, i) => (
               <motion.button key={a.id} className="lp-card" onClick={() => onPickAudience(a.id)}
                 initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.3 }} transition={{ delay: i * 0.08 }}>
-                <div style={{ font: "600 12px 'Inter', sans-serif", color: TOKENS.emberInk, marginBottom: 10 }}>{a.plan}</div>
-                <div style={{ fontFamily: "'Barlow Condensed', sans-serif", fontWeight: 700, fontSize: 26, lineHeight: 1.05, marginBottom: 10 }}>{a.title}</div>
+                <div style={{ font: "600 12px 'Plus Jakarta Sans', sans-serif", color: TOKENS.emberInk, marginBottom: 10 }}>{a.plan}</div>
+                <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 26, lineHeight: 1.05, marginBottom: 10 }}>{a.title}</div>
                 <p style={{ fontSize: 14.5, lineHeight: 1.6, color: "#4A4F55", margin: "0 0 18px" }}>{a.body}</p>
-                <span style={{ font: "600 14px 'Inter', sans-serif" }}>Start here →</span>
+                <span style={{ font: "600 14px 'Plus Jakarta Sans', sans-serif" }}>Start here →</span>
               </motion.button>
             ))}
           </div>
