@@ -38,13 +38,13 @@ export function getProject(id) {
   return readAll().find((p) => p.id === id) || null;
 }
 
-export function createProject({ name, userType = "homeowner", buildMode = "residential", region = "AU", spec, hrSpec, matSpec }) {
+export function createProject({ name, userType = "homeowner", buildMode = "residential", region = "AU", spec, hrSpec, matSpec, mdSpec }) {
   const now = Date.now();
   const p = {
     id: `prj_${now.toString(36)}${Math.floor(Math.random() * 1e4).toString(36)}`,
     name: name || "Untitled project",
     userType, buildMode, region,
-    spec: spec || null, hrSpec: hrSpec || null, matSpec: matSpec || null,
+    spec: spec || null, hrSpec: hrSpec || null, matSpec: matSpec || null, mdSpec: mdSpec || null,
     chats: {},
     createdAt: now, updatedAt: now,
   };

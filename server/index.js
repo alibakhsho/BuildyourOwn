@@ -16,6 +16,7 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 import { readPlanWithClaude, planReaderError } from "../api/_lib/plan-reader.js";
+import { checkAiAccess } from "../api/_lib/ai-access.js";
 import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../api/_lib/guard.js";
 import { mountAccounting } from "./accounting/routes.js";
 
@@ -47,6 +48,10 @@ app.post("/api/ai/chat", async (req, res) => {
     if (blocked.retryAfter) res.setHeader("Retry-After", String(blocked.retryAfter));
     return res.status(blocked.status).json({ error: blocked.error });
   }
+
+  // Plan check: AI is a paid feature. Runs before anything is spent.
+  const denied = await checkAiAccess(req, "chat");
+  if (denied) return res.status(denied.status).json({ error: denied.error, code: denied.code });
 
   const { system, messages, maxTokens = 1500, model } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
@@ -83,6 +88,10 @@ app.post("/api/ai/vision", async (req, res) => {
     if (blocked.retryAfter) res.setHeader("Retry-After", String(blocked.retryAfter));
     return res.status(blocked.status).json({ error: blocked.error });
   }
+
+  // Plan check: AI is a paid feature. Runs before anything is spent.
+  const denied = await checkAiAccess(req, "vision");
+  if (denied) return res.status(denied.status).json({ error: denied.error, code: denied.code });
 
   const { image, imageWidth, imageHeight, pxPerMetre, model } = req.body || {};
   if (!image?.data || !image?.mediaType) {

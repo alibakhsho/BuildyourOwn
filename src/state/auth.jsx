@@ -12,18 +12,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { supabase, isAuthConfigured, redirectTo } from "../lib/supabase.js";
 import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
+import { PLANS, entitlementsFor } from "../lib/entitlements.js";
 
 const AuthCtx = createContext(null);
 
-/* Plan entitlements. The server is the authority on what an account may do
-   — this table is only for rendering the UI (showing caps, disabling
-   buttons). Never let it be the sole gate on anything that costs money. */
-export const TIERS = {
-  free:       { label: "Homeowner",  price: 0,   projects: 3,        planReads: 2,   aiMessages: 20 },
-  pro:        { label: "Tradie",     price: 49,  projects: Infinity, planReads: 25,  aiMessages: Infinity },
-  business:   { label: "Builder",    price: 149, projects: Infinity, planReads: 100, aiMessages: Infinity },
-  enterprise: { label: "Developer",  price: 599, projects: Infinity, planReads: Infinity, aiMessages: Infinity },
-};
+/* Plans and what they unlock live in lib/entitlements.js, shared with the
+   AI routes so the server enforces exactly what the UI shows. TIERS is kept
+   as the label/limit table older screens read. */
+export const TIERS = Object.fromEntries(Object.entries(PLANS).map(([id, p]) => [id,
+  { label: p.label, price: p.price, projects: p.projects, planReads: p.planReads, aiMessages: p.ai ? Infinity : 0 }]));
 
 /* Three audiences for now. "developer" stays a valid value in the database
    enum for the future, but it isn't offered at signup yet — its heavier tools
@@ -78,7 +75,7 @@ export function AuthProvider({ children }) {
     let alive = true;
     supabase
       .from("profiles")
-      .select("id, email, full_name, company, segment, tier, plan_reads_used, period_started_at")
+      .select("id, email, full_name, company, segment, tier, ai_addon, plan_reads_used, period_started_at")
       .eq("id", userId)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -158,6 +155,10 @@ export function AuthProvider({ children }) {
       profile,
       tier: tierId,
       limits: TIERS[tierId] ?? TIERS.free,
+      // What this account (or a guest) may use — modes, AI, Site Office.
+      // With no accounts configured (local dev) there is nothing to check
+      // against — the server skips its check too — so everything is open.
+      can: isAuthConfigured ? entitlementsFor(session ? profile : null) : entitlementsFor({ tier: "enterprise" }),
       signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile,
     };
   }, [loading, session, profile, signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile]);

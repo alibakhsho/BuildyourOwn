@@ -96,6 +96,10 @@ ${actionProtocol(ctx.buildMode)}`;
 
 /* Compact, token-cheap context builders */
 export function summariseSpec(buildMode, spec, hrSpec, est) {
+  if (buildMode === "multi") {
+    const types = (spec?.types || []).map((t) => `${t.count}× ${t.name} (${t.spec?.widthM}×${t.spec?.lengthM}m, ${t.spec?.floors} storey)`).join("; ");
+    return `Multi-dwelling project of ${est?.dwellings || 0} homes: ${types}. Priced per house type with volume materials discount, a labour learning curve, shared prelims and per-lot site works. You can't edit house types directly — describe the change for the user.`;
+  }
   if (buildMode === "highrise") {
     const s = hrSpec || {};
     return `Tower: ${s.floors} floors × ${s.floorPlateM2}m² plate, ${s.floorHeightM}m floor-to-floor, ${s.basementLevels} basements, ${s.structureType} structure, ${s.facadeType} facade, ${s.occupancy} occupancy, site ${s.siteCondition}.`;
@@ -111,6 +115,8 @@ export function summariseSpec(buildMode, spec, hrSpec, est) {
 export function summariseEstimate(est, currency) {
   if (!est) return "No estimate yet.";
   const money = (v) => `${currency}${Math.round(v || 0).toLocaleString()}`;
+  if (est.mode === "multi")
+    return `Project total ${money(est.total)} for ${est.dwellings} dwellings (${money(est.perDwelling)} each, ${money(est.ratePerM2)}/m²). Houses ${money(est.materialsTotal + est.labourTotal + est.equipmentTotal)}, site works ${money(est.siteWorks)}, prelims ${money(est.prelims)}, margin ${money(est.margin)}. Volume discount ${Math.round(est.discount * 100)}%. Programme ${est.totalWeeks} weeks in ${est.waves} waves.`;
   if (est.mode === "highrise")
     return `Total ${money(est.total)} (${money(est.total / Math.max(1, est.takeoff?.gfaM2 || 1))}/m² GFA). Systems ${money(est.systemsTotal)}, prelims ${money(est.prelims)}, design ${money(est.designFees)}, contingency ${money(est.contingency)}. Programme ${est.timeline?.totalWeeks} weeks.`;
   if (est.mode === "materials")

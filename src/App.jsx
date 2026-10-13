@@ -44,9 +44,14 @@ import SectionHeader from "./components/ui/SectionHeader.jsx";
 import TakeoffTable from "./components/ui/TakeoffTable.jsx";
 import BYOLogo from "./components/ui/BYOLogo.jsx";
 import HowItWorksIcon from "./components/ui/HowItWorksIcon.jsx";
-import CountUp from "./components/ui/CountUp.jsx";
 import { AccountButton, Onboarding } from "./components/AuthModal.jsx";
 import AccountDashboard from "./components/AccountDashboard.jsx";
+import Landing from "./components/Landing.jsx";
+import { UpgradeModal, AiUpsell } from "./components/Plans.jsx";
+import { useAuth } from "./state/auth.jsx";
+import { MODE_LABEL, BUILD_MODE_IDS } from "./lib/entitlements.js";
+import { buildMultiEstimate } from "./logic/multi-dwelling.js";
+import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec } from "./modules/MultiDwelling.jsx";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import {
@@ -57,30 +62,6 @@ import {
 /* Human-readable message for AI failures, shared by every AI feature */
 const aiErrMsg = (e) => e?.message || "Couldn't reach the AI service — check your connection.";
 
-/* =========================================================================
-   Site toolkit — construction tools & materials as flying cards. Each card
-   flies in from an alternating direction with rotation, idles on a slow
-   float, and lifts/tilts on hover. Card silhouettes alternate between
-   rounded, chamfered (octagon clip) and notched shapes.
-   ========================================================================= */
-const TOOLKIT = [
-  { name: "Tower crane", blurb: "Vertical logistics, planned per programme week", tag: "PLANT",
-    icon: <path d="M6 44V16h4v28M4 44h8M8 16l2-8h24l-8 8M34 8v10m0 0l-2 6h4l-2-6zm-14-6v6" /> },
-  { name: "Excavator", blurb: "Cut, fill & trench — site-condition aware", tag: "PLANT",
-    icon: <path d="M6 32h20a3 3 0 0 1 0 6H6a3 3 0 0 1 0-6z M10 20h13v11H10z M20 22L33 16L37 25L31 28L34 32" /> },
-  { name: "Ready-mix concrete", blurb: "25–40 MPa, waste-adjusted order quantities", tag: "MATERIAL",
-    icon: <path d="M10 20l6-12h16l6 12M8 20h32l-4 22H12L8 20zm12 6l2 8m6-8l-2 8" /> },
-  { name: "Structural steel", blurb: "UBs, UCs & purlins from the catalogue", tag: "MATERIAL",
-    icon: <path d="M10 8h28M10 44h28M14 8v36m20-36v36M14 16h20M14 36h20" /> },
-  { name: "Timber framing", blurb: "MGP10 studs at 600 centres, plates & lintels", tag: "MATERIAL",
-    icon: <path d="M8 44V12m8 32V12m8 32V12m8 32V12m8 32V12M4 12h40M4 44h40M8 22l32 14" /> },
-  { name: "Scaffolding", blurb: "Perimeter access priced per m²-week", tag: "ACCESS",
-    icon: <path d="M10 4v40M38 4v40M10 12h28M10 26h28M10 40h28M10 12l28 14M38 12L10 26" /> },
-  { name: "Power tools", blurb: "Trade kits costed inside labour rates", tag: "TOOLS",
-    icon: <path d="M6 15h16v10h-6l-3 4v-4H6z M22 17.5h6v5h-6z M28 20h10 M11 25l3 11h8" /> },
-  { name: "Site safety", blurb: "PPE, hoarding & establishment lines", tag: "SAFETY",
-    icon: <path d="M24 6c8 0 14 5 14 12v4H10v-4c0-7 6-12 14-12zm-14 20h28v6H10zm10-20v8m8-8v8" /> },
-];
 const CARD_SHAPES = [
   { borderRadius: 6 },
   { clipPath: "polygon(10% 0, 90% 0, 100% 12%, 100% 88%, 90% 100%, 10% 100%, 0 88%, 0 12%)" },
@@ -123,41 +104,7 @@ const HOW_STEPS = [
     icon: <path d="M6 12h36v24H6V12zm0 0l18 13 18-13M14 42h20" /> },
 ];
 
-/* By-the-numbers band. Real figures the app actually produces for the default
-   residential build, animated up on scroll-in so arriving at it feels like an
-   estimate assembling. Numbers are honest, not marketing invention:
-   A$640,750 is the default estimate total, 14 the priced trades, 382 the parts
-   in the 3D model, 0 the logins needed to start. */
-const PROOF_STATS = [
-  { to: 640750, prefix: "A$", label: "Sample estimate, priced live" },
-  { to: 14, label: "Trades costed individually" },
-  { to: 382, label: "Parts modelled in 3D" },
-  { to: 0, label: "Logins to get started" },
-];
 
-function ProofStrip() {
-  return (
-    <section aria-label="By the numbers"
-      style={{ background: "rgba(12, 15, 20, 0.9)", backdropFilter: "blur(4px)", WebkitBackdropFilter: "blur(4px)",
-        borderTop: `1px solid rgba(255,255,255,0.08)`, borderBottom: `3px solid ${TOKENS.hivis}` }}>
-      <div style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px",
-        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 24 }}>
-        {PROOF_STATS.map((s, i) => (
-          <div key={s.label} style={{ textAlign: "center", padding: "6px 12px",
-            borderLeft: i === 0 ? "none" : `1px solid rgba(255,255,255,0.1)` }}>
-            <div className="ec-display" style={{ fontSize: "clamp(34px, 5vw, 52px)", lineHeight: 1, color: TOKENS.hivis, letterSpacing: "-0.02em" }}>
-              <CountUp to={s.to} prefix={s.prefix || ""} duration={1500 + i * 250} />
-            </div>
-            <div className="ec-mono" style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase",
-              color: "rgba(242,244,247,0.7)", marginTop: 10 }}>
-              {s.label}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 function HowItWorksSection() {
   return (
@@ -205,183 +152,9 @@ function HowItWorksSection() {
   );
 }
 
-function ToolkitSection() {
-  return (
-    <section style={{ maxWidth: 1480, margin: "0 auto", padding: "72px 24px 40px" }}>
-      <Reveal variant="fade-up">
-        <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Site toolkit</div>
-        <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 8 }}>
-          Tools &amp; materials, <span style={{ color: TOKENS.hivisInk }}>priced like they're on site</span>
-        </h2>
-        <p style={{ color: TOKENS.inkSoft, fontSize: 14, maxWidth: 640, marginBottom: 28 }}>
-          Every card maps to live catalogue lines — plant, materials, access and safety —
-          the same data the estimator prices from.
-        </p>
-      </Reveal>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
-        {TOOLKIT.map((t, i) => (
-          <motion.div key={t.name}
-            initial={{ opacity: 0, x: i % 2 ? 90 : -90, y: 40, rotate: i % 2 ? 6 : -6 }}
-            whileInView={{ opacity: 1, x: 0, y: 0, rotate: 0 }}
-            viewport={{ once: true, amount: 0.3 }}
-            transition={{ type: "spring", stiffness: 70, damping: 14, delay: (i % 4) * 0.08 }}
-            whileHover={{ y: -8, rotate: i % 2 ? -1.5 : 1.5, boxShadow: "0 18px 40px rgba(15,17,20,0.18)" }}
-            style={{
-              background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`,
-              padding: "22px 20px", position: "relative", overflow: "hidden",
-              ...CARD_SHAPES[i % CARD_SHAPES.length],
-            }}>
-            <span className="ec-mono" style={{ position: "absolute", top: 12, right: 14, fontSize: 9, letterSpacing: "0.16em", color: TOKENS.steel }}>{t.tag}</span>
-            <motion.svg width="48" height="48" viewBox="0 0 48 48" fill="none"
-              stroke={TOKENS.hivisDeep} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
-              animate={{ y: [0, -5, 0] }}
-              transition={{ duration: 3 + (i % 3), repeat: Infinity, ease: "easeInOut", delay: i * 0.3 }}
-              style={{ display: "block", marginBottom: 14 }}>
-              {t.icon}
-            </motion.svg>
-            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{t.name}</div>
-            <div style={{ fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.5 }}>{t.blurb}</div>
-          </motion.div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
-/* =========================================================================
-   MODULE: shader.js
-   WebGL2 shader hero — adapted from Matthias Hurrle's open shader work.
-   Renders a flowing warm-light field behind the hero copy.
-   ========================================================================= */
-const DEFAULT_SHADER_SOURCE = `#version 300 es
-precision highp float;
-out vec4 O;
-uniform vec2 resolution;
-uniform float time;
-#define FC gl_FragCoord.xy
-#define T time
-#define R resolution
-#define MN min(R.x,R.y)
-float rnd(vec2 p){p=fract(p*vec2(12.9898,78.233));p+=dot(p,p+34.56);return fract(p.x*p.y);}
-float noise(in vec2 p){vec2 i=floor(p),f=fract(p),u=f*f*(3.-2.*f);float a=rnd(i),b=rnd(i+vec2(1,0)),c=rnd(i+vec2(0,1)),d=rnd(i+1.);return mix(mix(a,b,u.x),mix(c,d,u.x),u.y);}
-float fbm(vec2 p){float t=.0,a=1.;mat2 m=mat2(1.,-.5,.2,1.2);for(int i=0;i<5;i++){t+=a*noise(p);p*=2.*m;a*=.5;}return t;}
-float clouds(vec2 p){float d=1.,t=.0;for(float i=.0;i<3.;i++){float a=d*fbm(i*10.+p.x*.2+.2*(1.+i)*p.y+d+i*i+p);t=mix(t,d,a);d=a;p*=2./(i+1.);}return t;}
-void main(void){
-  vec2 uv=(FC-.5*R)/MN,st=uv*vec2(2,1);
-  vec3 col=vec3(0);
-  float bg=clouds(vec2(st.x+T*.5,-st.y));
-  uv*=1.-.3*(sin(T*.2)*.5+.5);
-  for(float i=1.;i<12.;i++){
-    uv+=.1*cos(i*vec2(.1+.01*i,.8)+i*i+T*.5+.1*uv.x);
-    vec2 p=uv;
-    float d=length(p);
-    col+=.00125/d*(cos(sin(i)*vec3(1,2,3))+1.);
-    float b=noise(i+p+bg*1.731);
-    col+=.002*b/length(max(p,vec2(b*p.x*.02,p.y)));
-    col=mix(col,vec3(bg*.25,bg*.137,bg*.05),d);
-  }
-  O=vec4(col,1);
-}`;
 
-class ShaderRenderer {
-  constructor(canvas, scale) {
-    this.canvas = canvas;
-    this.scale = scale;
-    this.gl = canvas.getContext("webgl2");
-    if (!this.gl) return;
-    this.gl.viewport(0, 0, canvas.width * scale, canvas.height * scale);
-    this.vertexSrc = "#version 300 es\nprecision highp float;\nin vec4 position;\nvoid main(){gl_Position=position;}";
-    this.vertices = [-1, 1, -1, -1, 1, 1, 1, -1];
-    this.program = null; this.vs = null; this.fs = null; this.buffer = null;
-  }
-  compile(shader, source) {
-    const gl = this.gl;
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      console.error("Shader compile error:", gl.getShaderInfoLog(shader));
-    }
-  }
-  setup(source) {
-    if (!this.gl) return;
-    const gl = this.gl;
-    this.vs = gl.createShader(gl.VERTEX_SHADER);
-    this.fs = gl.createShader(gl.FRAGMENT_SHADER);
-    this.compile(this.vs, this.vertexSrc);
-    this.compile(this.fs, source);
-    this.program = gl.createProgram();
-    gl.attachShader(this.program, this.vs);
-    gl.attachShader(this.program, this.fs);
-    gl.linkProgram(this.program);
-    if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
-      console.error(gl.getProgramInfoLog(this.program));
-    }
-  }
-  init() {
-    if (!this.gl) return;
-    const gl = this.gl, program = this.program;
-    this.buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(this.vertices), gl.STATIC_DRAW);
-    const position = gl.getAttribLocation(program, "position");
-    gl.enableVertexAttribArray(position);
-    gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-    program.resolution = gl.getUniformLocation(program, "resolution");
-    program.time = gl.getUniformLocation(program, "time");
-  }
-  updateScale(scale) {
-    if (!this.gl) return;
-    this.scale = scale;
-    this.gl.viewport(0, 0, this.canvas.width * scale, this.canvas.height * scale);
-  }
-  render(now) {
-    if (!this.gl || !this.program) return;
-    const gl = this.gl, program = this.program;
-    gl.clearColor(0, 0, 0, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    gl.useProgram(program);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
-    gl.uniform2f(program.resolution, this.canvas.width, this.canvas.height);
-    gl.uniform1f(program.time, now * 1e-3);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }
-  dispose() {
-    if (!this.gl) return;
-    const gl = this.gl;
-    if (this.program) {
-      if (this.vs) { gl.detachShader(this.program, this.vs); gl.deleteShader(this.vs); }
-      if (this.fs) { gl.detachShader(this.program, this.fs); gl.deleteShader(this.fs); }
-      gl.deleteProgram(this.program);
-    }
-    if (this.buffer) gl.deleteBuffer(this.buffer);
-  }
-}
 
-function useShaderBackground() {
-  const canvasRef = useRef(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const dpr = Math.max(1, 0.5 * window.devicePixelRatio);
-    const renderer = new ShaderRenderer(canvas, dpr);
-    if (!renderer.gl) return; // WebGL2 unsupported — skip silently
-    renderer.setup(DEFAULT_SHADER_SOURCE);
-    renderer.init();
-    const resize = () => {
-      canvas.width = canvas.clientWidth * dpr;
-      canvas.height = canvas.clientHeight * dpr;
-      renderer.updateScale(dpr);
-    };
-    resize();
-    let frameId;
-    const loop = (now) => { renderer.render(now); frameId = requestAnimationFrame(loop); };
-    frameId = requestAnimationFrame(loop);
-    const ro = new ResizeObserver(resize);
-    ro.observe(canvas);
-    return () => { cancelAnimationFrame(frameId); ro.disconnect(); renderer.dispose(); };
-  }, []);
-  return canvasRef;
-}
 
 /* =========================================================================
    MODULE: reveal.js — scroll-driven animations
@@ -1127,7 +900,7 @@ const Reporter = {
     const lines = [];
     const rule = "=".repeat(78), half = "-".repeat(78);
     lines.push(rule);
-    lines.push("  HIGH-RISE / COMMERCIAL — FEASIBILITY COST REPORT");
+    lines.push("  DEVELOPER — APARTMENTS / MIXED-USE / TOWER FEASIBILITY REPORT");
     lines.push(`  Project No.: ${projectNo}   |   Region: ${region}   |   Date: ${new Date().toISOString().slice(0,10)}`);
     lines.push(rule);
     lines.push("");
@@ -1187,7 +960,7 @@ const Reporter = {
     lines.push(`Authority: ${code.authority}`);
     lines.push(`URL:       ${code.url}`);
     lines.push("");
-    lines.push("FEASIBILITY-GRADE ESTIMATE. High-rise costs depend on structural,");
+    lines.push("FEASIBILITY-GRADE ESTIMATE. Apartment and tower costs depend on structural,");
     lines.push("wind/seismic, fire-engineering and geotechnical design not modelled");
     lines.push("here. Engage a quantity surveyor, structural & fire engineers and a");
     lines.push("builder for tender-grade figures and code compliance.");
@@ -1411,41 +1184,7 @@ function buildTemplateSpecFromImport(lines, source) {
   };
 }
 
-/* ---- Landing: pick who you are → your workflow ---- */
-const USER_PATHS = [
-  { id: "homeowner", title: "Homeowner / Owner-builder", blurb: "Design a home, watch it rise in 3D, and know the cost before you break ground.", flow: "Estimate → 3D → Materials → Proposal", emoji: "🏡" },
-  { id: "tradie", title: "Builder / Tradie", blurb: "Quote any job line-by-line — walls, decks, fit-outs — and hand over a clean proposal.", flow: "Quote → Materials → Timeline → Proposal", emoji: "🔨" },
-  { id: "developer", title: "Developer", blurb: "Feasibility-grade tower estimates: systems, programme, design fees, $/m² GFA.", flow: "Estimate → Timeline → AI → Proposal", emoji: "🏙️" },
-];
 
-function UserPathsSection({ onPick }) {
-  return (
-    <section style={{ maxWidth: 1480, margin: "0 auto", padding: "24px 24px 88px" }}>
-      <Reveal variant="fade-up">
-        <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Your workflow</div>
-        <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 28 }}>
-          One workspace per project. <span style={{ color: TOKENS.hivisInk }}>No bouncing between pages.</span>
-        </h2>
-      </Reveal>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
-        {USER_PATHS.map((p, i) => (
-          <motion.div key={p.id}
-            initial={{ opacity: 0, y: 60, rotate: i % 2 ? 4 : -4 }} whileInView={{ opacity: 1, y: 0, rotate: 0 }}
-            viewport={{ once: true, amount: 0.3 }} transition={{ type: "spring", stiffness: 70, damping: 14, delay: i * 0.08 }}
-            whileHover={{ y: -8, boxShadow: "0 18px 40px rgba(15,17,20,0.18)" }}
-            onClick={() => onPick(p.id)}
-            style={{ background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, borderTop: `4px solid ${TOKENS.hivis}`, padding: "26px 22px", cursor: "pointer", ...CARD_SHAPES[i % CARD_SHAPES.length] }}>
-            <div style={{ marginBottom: 12, color: TOKENS.hivisInk }}><Icon name={`audience.${p.id}`} size={34} strokeWidth={1.9} /></div>
-            <div className="ec-display" style={{ fontSize: 20, marginBottom: 8 }}>{p.title}</div>
-            <p style={{ fontSize: 13, color: TOKENS.inkSoft, lineHeight: 1.55, marginBottom: 14 }}>{p.blurb}</p>
-            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", color: TOKENS.hivisInk }}>{p.flow}</div>
-            <div className="ec-mono" style={{ marginTop: 14, fontSize: 11, fontWeight: 700, color: TOKENS.ink }}>START A PROJECT →</div>
-          </motion.div>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 /* ---- Projects screen: every project is one workspace ---- */
 /* ---- Dashboard helpers: cost each project from its stored spec ---- */
@@ -1456,6 +1195,11 @@ function projectEstimate(p) {
       const e = HighRiseEstimator.buildEstimate(p.hrSpec, region);
       return { total: e.total || 0, gfaM2: e.takeoff?.gfaM2 || 0,
         comp: { Structure: e.systemsTotal || 0, "Design fees": e.designFees || 0, Prelims: e.prelims || 0, Margin: e.margin || 0, Contingency: e.contingency || 0 } };
+    }
+    if (p.buildMode === "multi" && p.mdSpec) {
+      const e = buildMultiEstimate(p.mdSpec, region);
+      return { total: e.total || 0, gfaM2: e.gfaM2 || 0,
+        comp: { Houses: e.materialsTotal + e.labourTotal + e.equipmentTotal, "Site works": e.siteWorks, Prelims: e.prelims, Margin: e.margin, Contingency: e.contingency } };
     }
     if (p.buildMode === "materials" && p.matSpec) {
       const e = MaterialsOnly.buildEstimate(p.matSpec, region);
@@ -1554,7 +1298,8 @@ const DASH_ICONS = {
 function ProjectsScreen({ onOpen, onNew, onOpenSiteOffice }) {
   const [projects, setProjects] = useState(listProjects);
   const [name, setName] = useState("");
-  const [type, setType] = useState("homeowner");
+  const [type, setType] = useState("residential");
+  const { can } = useAuth();
   const refresh = () => setProjects(listProjects());
   const sync = useCloudSync();
   const localOnly = new Set(sync.local || []);
@@ -1564,8 +1309,8 @@ function ProjectsScreen({ onOpen, onNew, onOpenSiteOffice }) {
     window.addEventListener("byo:projects-synced", on);
     return () => window.removeEventListener("byo:projects-synced", on);
   }, []);
-  const typeForMode = { residential: "homeowner", materials: "tradie", highrise: "developer" };
-  const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Custom Quote" };
+
+  const modeLabel = MODE_LABEL;
 
   const metrics = useMemo(() => {
     const est = {};
@@ -1594,8 +1339,8 @@ function ProjectsScreen({ onOpen, onNew, onOpenSiteOffice }) {
   const newProjectCard = (
     <div className="ec-card" style={{ padding: 18, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
       <input className="ec-input" placeholder="New project name…" value={name} onChange={(e) => setName(e.target.value)} style={{ flex: 1, minWidth: 200, maxWidth: 380 }} />
-      <select className="ec-select" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }}>
-        {USER_PATHS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+      <select className="ec-select" value={type} onChange={(e) => setType(e.target.value)} style={{ width: 220 }} aria-label="Project type">
+        {BUILD_MODES.map(([m, label]) => <option key={m} value={m}>{label}{can.canUseMode(m) ? "" : " — upgrade"}</option>)}
       </select>
       <button className="ec-btn ec-btn-hivis" onClick={() => onNew(type, name.trim() || "Untitled project")}>+ New project</button>
     </div>
@@ -1607,7 +1352,7 @@ function ProjectsScreen({ onOpen, onNew, onOpenSiteOffice }) {
       <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 24 }}>Your build pipeline at a glance.</h2>
 
       <AccountDashboard projectCount={projects.length} onOpenSiteOffice={onOpenSiteOffice}
-        onNew={(mode) => onNew(typeForMode[mode] || "homeowner", name.trim() || "Untitled project")} />
+        onNew={(mode) => onNew(mode, name.trim() || "Untitled project")} />
 
       {projects.length === 0 ? (
         <>
@@ -1620,7 +1365,7 @@ function ProjectsScreen({ onOpen, onNew, onOpenSiteOffice }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 20 }}>
             <StatTile i={0} label="Pipeline value" icon={DASH_ICONS.value} value={`${currency}${fmt(pipeline)}`} sub={mixed ? "Across mixed regions — indicative" : "Total estimated across all projects"} />
             <StatTile i={1} label="Active projects" icon={DASH_ICONS.count} value={projects.length} sub={modeSub} />
-            <StatTile i={2} label="Avg cost / m²" icon={DASH_ICONS.rate} value={avgRate > 0 ? `${currency}${fmt(avgRate)}` : "—"} sub="Residential & high-rise" />
+            <StatTile i={2} label="Avg cost / m²" icon={DASH_ICONS.rate} value={avgRate > 0 ? `${currency}${fmt(avgRate)}` : "—"} sub="Residential, multi-dwelling & developer" />
             <StatTile i={3} label="Portfolio floor area" icon={DASH_ICONS.area} value={totalGfa > 0 ? `${fmt(totalGfa)} m²` : "—"} sub="Combined GFA" />
           </div>
 
@@ -1679,11 +1424,7 @@ function ProjectsScreen({ onOpen, onNew, onOpenSiteOffice }) {
 
 /* Build modes, defined once. The Projects picker and the read-only badge
    shown inside a project both read from here, so they cannot drift apart. */
-const BUILD_MODES = [
-  ["residential", "Residential"],
-  ["highrise", "High-rise"],
-  ["materials", "Custom Quote"],
-];
+const BUILD_MODES = ["residential", "materials", "multi", "highrise"].map((m) => [m, MODE_LABEL[m]]);
 const buildModeLabel = (m) => (BUILD_MODES.find(([id]) => id === m) || [, m])[1];
 
 /* ---- Workflow stepper: the workspace's linear flow ---- */
@@ -1708,6 +1449,7 @@ const PAGE_HEAD = {
 function stageTabs(stage, buildMode) {
   const imports = [{ id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "cadbim", label: "Import CAD / BIM" }];
   const codes = { id: "codes", label: "Codes & compliance" };
+  if (buildMode === "multi") return stage === "materials" ? [{ id: "estimate", label: "Project cost plan" }] : stage === "timeline" ? [{ id: "timeline", label: "Programme" }] : [];
   if (stage === "estimate") return buildMode === "highrise" ? [codes] : buildMode === "materials" ? imports : [...imports, codes];
   if (stage === "materials") return [
     { id: "estimate", label: buildMode === "highrise" ? "Elemental cost plan" : buildMode === "materials" ? "Quote breakdown" : "Cost breakdown" },
@@ -1901,7 +1643,15 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
   const est = estimate || {};
   const [sent, setSent] = useState(null);
   const money = (v) => `${currency}${fmt(v || 0)}`;
-  const rows = buildMode === "materials"
+  const rows = buildMode === "multi"
+    ? [
+        ...(est.types || []).map((t) => [`${t.name} — ${fmt(t.gfaM2)} m²`, `${t.count} homes`, money(t.buildCost)]),
+        ...(est.siteLines || []).map((l) => [l.label, `${l.qty} ${l.unit}`, money(l.total)]),
+        ["Preliminaries — whole project", "", money(est.prelims)],
+        ["Builder's margin", "", money(est.margin)],
+        ["Contingency", "", money(est.contingency)],
+      ]
+    : buildMode === "materials"
     ? (est.lines || []).map((l) => [l.label, `${l.qty} ${l.unit || ""}`, money(l.total)])
     : buildMode === "highrise"
     ? (est.systemLines || []).map((l) => [l.label, `${fmt(l.qty)} ${l.unit || ""}`, money(l.total)])
@@ -1971,6 +1721,8 @@ function ProposalSection({ projectName, estimate, currency, region, buildMode, p
             ? `Feasibility estimate for a ${est.spec?.floors}-storey ${est.spec?.occupancy || ""} tower, ${fmt(est.takeoff?.gfaM2 || 0)} m² GFA, prepared from parametric system rates.`
             : buildMode === "materials"
             ? `Itemised quotation covering ${(est.lines || []).length} lines of materials, labour and trade works as listed below.`
+            : buildMode === "multi"
+            ? `Construction of ${est.dwellings} dwellings across ${(est.types || []).length} house type${(est.types || []).length === 1 ? "" : "s"} (${fmt(est.gfaM2 || 0)} m² GFA in total), including per-lot civil, services, fencing and landscaping, delivered in ${est.waves} stage${est.waves === 1 ? "" : "s"} over about ${est.totalWeeks} weeks.`
             : `Construction of a ${est.spec?.widthM}×${est.spec?.lengthM} m, ${est.spec?.floors}-storey residence (${fmt(est.takeoff?.gfaM2 || 0)} m² GFA) including structure, envelope, services and finishes as itemised below.`}
         </p>
 
@@ -2039,6 +1791,11 @@ export default function App() {
   const [spec, setSpec] = useState(DEFAULT_SPEC);
   const [hrSpec, setHrSpec] = useState(DEFAULT_HR_SPEC);
   const [matSpec, setMatSpec] = useState(DEFAULT_MAT_SPEC);
+  const [mdSpec, setMdSpec] = useState(defaultMultiSpec);
+  /* Plan gating. `upgrade` holds the feature someone just reached for that
+     their plan doesn't include (a build mode, "ai" or "siteOffice"). */
+  const { can } = useAuth();
+  const [upgrade, setUpgrade] = useState(null);
   const [tab, setTab] = useState("estimate");
 
   /* ---- Workspace navigation: landing → projects → project workspace ----
@@ -2054,6 +1811,8 @@ export default function App() {
   const [stage, setStage] = useState("estimate");      // workflow stage id
 
   const openProject = useCallback((p) => {
+    const mode = p.buildMode || "residential";
+    if (!can.canUseMode(mode)) { setUpgrade(mode); return; }
     setProjectId(p.id); setProjectName(p.name);
     setUserType(p.userType || null);
     setBuildMode(p.buildMode || "residential");
@@ -2061,23 +1820,27 @@ export default function App() {
     if (p.spec) setSpec(p.spec);
     if (p.hrSpec) setHrSpec(p.hrSpec);
     if (p.matSpec) setMatSpec(p.matSpec);
+    setMdSpec(p.mdSpec || defaultMultiSpec());
     setStage("estimate");
     setTab("estimate");
     setScreen("workspace");
     window.scrollTo({ top: 0 });
-  }, []);
+  }, [can]);
 
-  const newProject = useCallback((userType, name) => {
-    const buildModeFor = { homeowner: "residential", developer: "highrise", tradie: "materials" };
-    const p = createProject({ name, userType, buildMode: buildModeFor[userType] || "residential", region });
+  /* Accepts a build mode, or a legacy audience id from the landing cards. */
+  const newProject = useCallback((modeOrType, name) => {
+    const fromType = { homeowner: "residential", developer: "highrise", tradie: "materials", builder: "multi" };
+    const buildMode = BUILD_MODE_IDS.includes(modeOrType) ? modeOrType : (fromType[modeOrType] || "residential");
+    if (!can.canUseMode(buildMode)) { setUpgrade(buildMode); return; }
+    const p = createProject({ name, userType: modeOrType, buildMode, region, mdSpec: buildMode === "multi" ? defaultMultiSpec() : undefined });
     openProject(p);
-  }, [region, openProject]);
+  }, [region, openProject, can]);
 
   /* Autosave the open project whenever its data changes (debounced) */
   useEffect(() => {
     if (!projectId) return;
     const t = setTimeout(() => {
-      saveProject(projectId, { spec, hrSpec, matSpec, region, buildMode, name: projectName });
+      saveProject(projectId, { spec, hrSpec, matSpec, mdSpec, region, buildMode, name: projectName });
     }, 700);
     return () => clearTimeout(t);
   }, [projectId, spec, hrSpec, matSpec, region, buildMode, projectName]);
@@ -2093,7 +1856,6 @@ export default function App() {
   const viewportRef = useRef(null);
   const engineRef = useRef(null);
   const ioRef = useRef(null);
-  const shaderCanvasRef = useShaderBackground();
 
   /* Create the Three.js engine the first time the viewport container actually
      lands in the DOM, via a callback ref — NOT a one-shot mount effect. The
@@ -2161,7 +1923,11 @@ export default function App() {
     const eng = engineRef.current;
     if (!eng) return;
     if (eng.mode === "walk") { eng.stopWalk(); setWalkMode(false); }
-    if (buildMode === "highrise") {
+    if (buildMode === "multi") {
+      eng.isTower = false;
+      eng.buildEstate(mdSpec.types);
+      eng.setProgress(progress);
+    } else if (buildMode === "highrise") {
       eng.isTower = true;
       eng.buildTower(hrSpec);
       setProgress(1);
@@ -2175,9 +1941,9 @@ export default function App() {
       eng.buildFromSpec(spec);
       eng.setProgress(progress);
     }
-  }, [spec, hrSpec, matSpec, buildMode, engineReady]);
+  }, [spec, hrSpec, matSpec, mdSpec, buildMode, engineReady]);
 
-  useEffect(() => { if (buildMode === "residential") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
+  useEffect(() => { if (buildMode === "residential" || buildMode === "multi") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
 
   /* The current page's secondary tabs, and which one is showing. A stale
@@ -2189,10 +1955,11 @@ export default function App() {
 
   /* Estimate (memoised) — switches engine by mode */
   const estimate = useMemo(
-    () => buildMode === "highrise" ? HighRiseEstimator.buildEstimate(hrSpec, region)
+    () => buildMode === "multi" ? buildMultiEstimate(mdSpec, region)
+      : buildMode === "highrise" ? HighRiseEstimator.buildEstimate(hrSpec, region)
       : buildMode === "materials" ? MaterialsOnly.buildEstimate(matSpec, region)
       : Estimator.buildEstimate(spec, region),
-    [spec, hrSpec, matSpec, buildMode, region, ratesVersion]
+    [spec, hrSpec, matSpec, mdSpec, buildMode, region, ratesVersion]
   );
 
   /* Track estimate completion when total changes meaningfully */
@@ -2370,7 +2137,16 @@ export default function App() {
      Phones: use the native share sheet (Save to Files, Notes, message, etc.).
      Desktop: download a .txt. Always offer copy-to-clipboard as a fallback. */
   const buildReportText = () => (
-    buildMode === "highrise" ? Reporter.buildHighRise(estimate, projectNo)
+    buildMode === "multi" ? [
+      `MULTI-DWELLING ESTIMATE — ${projectName} (${projectNo})`,
+      `${estimate.dwellings} dwellings · ${fmt(estimate.gfaM2)} m² GFA · ${estimate.totalWeeks} weeks`, "",
+      ...(estimate.types || []).map((t) => `${t.count} × ${t.name}  ${fmt(t.gfaM2)} m²  ${currency}${fmt(t.buildCost)}`), "",
+      ...(estimate.siteLines || []).map((l) => `${l.label}  ${currency}${fmt(l.total)}`), "",
+      `Preliminaries  ${currency}${fmt(estimate.prelims)}`, `Margin  ${currency}${fmt(estimate.margin)}`, `Contingency  ${currency}${fmt(estimate.contingency)}`,
+      `PROJECT TOTAL (ex ${estimate.taxLabel})  ${currency}${fmt(estimate.total)}`,
+      `Per dwelling  ${currency}${fmt(estimate.perDwelling)}`,
+    ].join("\n")
+    : buildMode === "highrise" ? Reporter.buildHighRise(estimate, projectNo)
     : buildMode === "materials" ? Reporter.buildMaterials(estimate, projectNo)
     : Reporter.build(estimate, projectNo)
   );
@@ -2602,167 +2378,16 @@ export default function App() {
         }
       `}</style>
 
-      {screen === "landing" && <>
-      {/* ============== HERO ============== */}
-      <section style={{ position: "relative", width: "100%", height: "100vh", overflow: "hidden", background: "#000" }}>
-        <canvas ref={shaderCanvasRef} className="ec-hero-canvas" style={{ touchAction: "none" }} />
-        <div className="ec-hero-vignette" />
-        <div className="ec-hero-bottom-fade" />
-
-        {/* Top hero bar — minimal, transparent over shader */}
-        <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, padding: "20px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }} className="ec-fade-down">
-            <BYOLogo size={34} />
-            <div className="ec-display" style={{ fontSize: 18, color: "#fff", letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
-          </div>
-          <div className="ec-fade-down ec-delay-1" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <AccountButton tone="dark" onSignedIn={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }} />
-            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.16em", color: "rgba(255,255,255,0.7)" }}>REGION</div>
-            <div style={{ display: "flex", border: "1px solid rgba(255,255,255,0.35)", borderRadius: 2, overflow: "hidden" }}>
-              {["AU","US","UK"].map((r) => (
-                <button key={r} onClick={() => setRegion(r)} className="ec-mono"
-                  style={{
-                    padding: "6px 11px",
-                    background: region === r ? TOKENS.hivis : "transparent",
-                    color: region === r ? TOKENS.onHivis : "rgba(255,255,255,0.9)",
-                    border: "none", cursor: "pointer",
-                    fontSize: 11, letterSpacing: "0.12em", fontWeight: 500,
-                  }}>{r}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Centered copy */}
-        {/* top padding clears the top bar, which wraps to two rows on phones */}
-        <div className="ec-hero-copy" style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "96px 24px 24px", textAlign: "center" }}>
-          {/* Trust badge */}
-          <div className="ec-fade-down ec-delay-1 ec-hero-badge" style={{ marginBottom: 28 }}>
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 10,
-              padding: "8px 18px",
-              background: "rgba(245, 197, 24, 0.12)",
-              border: "1px solid rgba(245, 197, 24, 0.45)",
-              backdropFilter: "blur(8px)",
-              WebkitBackdropFilter: "blur(8px)",
-              borderRadius: 100,
-              fontSize: 12, letterSpacing: "0.06em",
-              color: "rgba(255, 230, 160, 0.95)",
-              fontFamily: "'JetBrains Mono', monospace",
-            }}>
-              <span style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} className="ec-live" />
-              Free to use · no sign-up needed · homeowners, tradies &amp; builders
-            </div>
-          </div>
-
-          {/* Headline */}
-          <h1 className="ec-display ec-fade-up ec-delay-2" style={{
-            fontSize: "clamp(48px, 9vw, 132px)",
-            lineHeight: 0.92,
-            margin: 0,
-            color: "#fff",
-            letterSpacing: "-0.01em",
-            maxWidth: 1100,
-          }}>
-            Estimates &amp; quotes.
-          </h1>
-          <h1 className="ec-display ec-fade-up ec-delay-3" style={{
-            fontSize: "clamp(48px, 9vw, 132px)",
-            lineHeight: 0.92,
-            margin: "0.06em 0 0",
-            background: "linear-gradient(90deg, #FFE5A0 0%, #F5C518 40%, #F58E1A 70%, #D96E0A 100%)",
-            WebkitBackgroundClip: "text",
-            backgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            color: "transparent",
-            letterSpacing: "-0.01em",
-            maxWidth: 1100,
-          }}>
-            In seconds.
-          </h1>
-
-          <p className="ec-fade-up ec-delay-4" style={{
-            marginTop: 28, maxWidth: 720,
-            fontSize: "clamp(15px, 1.4vw, 19px)",
-            lineHeight: 1.55,
-            color: "rgba(255, 240, 220, 0.85)",
-            fontWeight: 400,
-          }}>
-            Takeoffs in seconds — from your spreadsheet, your SketchUp model, or a photo of the build plans. Priced line by line against live material and labour rates, ready to send as a quote. For the homeowner pricing a reno, the tradie quoting a job, and the builder running six of them at once.
-          </p>
-
-          <div className="ec-fade-up ec-delay-4" style={{ marginTop: 36, display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
-            <div style={{ width: "100%", display: "flex", justifyContent: "center", marginTop: 6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 999, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.9)", fontSize: 12, letterSpacing: "0.05em", fontFamily: "'JetBrains Mono', monospace" }}>
-                <span style={{ width: 8, height: 8, borderRadius: "999px", background: TOKENS.hivis, display: "inline-block" }} />
-                Works instantly on your phone · free account keeps your projects on every device
-              </div>
-            </div>
-            <button onClick={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
-              style={{
-                padding: "14px 28px",
-                background: "linear-gradient(90deg, #F5C518 0%, #F58E1A 100%)",
-                color: TOKENS.ink,
-                border: "none",
-                borderRadius: 100,
-                fontFamily: "'Barlow Condensed', sans-serif",
-                fontWeight: 700,
-                fontSize: 16,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                boxShadow: "0 10px 30px -10px rgba(245, 142, 26, 0.6)",
-                transition: "transform 0.2s, box-shadow 0.2s",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 14px 36px -8px rgba(245, 142, 26, 0.7)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 10px 30px -10px rgba(245, 142, 26, 0.6)"; }}>
-              Start estimating →
-            </button>
-            <button onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}
-              style={{
-                padding: "14px 28px",
-                background: "rgba(255,255,255,0.06)",
-                color: "rgba(255,255,255,0.95)",
-                border: "1px solid rgba(255,255,255,0.35)",
-                borderRadius: 100,
-                fontFamily: "'Barlow Condensed', sans-serif",
-                fontWeight: 600,
-                fontSize: 16,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
-                transition: "background 0.2s, border-color 0.2s",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.55)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.35)"; }}>
-              How it works
-            </button>
-          </div>
-        </div>
-
-        {/* Scroll indicator */}
-        <div style={{ position: "absolute", bottom: 32, left: "50%", transform: "translateX(-50%)", zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", gap: 8, pointerEvents: "none" }} className="ec-scroll-bob">
-          <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.2em", color: "rgba(255,255,255,0.6)" }}>SCROLL</span>
-          <svg width="14" height="20" viewBox="0 0 14 20" fill="none" stroke="rgba(255,255,255,0.6)" strokeWidth="1.5">
-            <path d="M7 2v14M2 11l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </div>
-      </section>
-
-      {/* ============== BY THE NUMBERS — figures count up as you arrive ============== */}
-      <ProofStrip />
-
-      {/* ============== HOW IT WORKS — flying step cards on dark glass ============== */}
-      <HowItWorksSection />
-
-      {/* ============== SITE TOOLKIT — flying tool/material cards ============== */}
-      <ToolkitSection />
-
-      {/* ============== USER PATHS — pick who you are, get your workflow ============== */}
-      <UserPathsSection onPick={(t) => { setScreen("projects"); window.scrollTo({ top: 0 }); }} />
-      </>}
+      {screen === "landing" && (
+        <Landing region={region} setRegion={setRegion}
+          onStart={() => newProject("residential", "My build")}
+          onPickAudience={(id) => {
+            if (id === "homeowner") { newProject("residential", "My build"); return; }
+            setScreen("projects"); window.scrollTo({ top: 0 });
+          }}
+          onSignedIn={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
+          howItWorks={<HowItWorksSection />} />
+      )}
 
       {screen !== "landing" && <>
       {/* ====== STICKY TOPBAR: header + workflow stepper pinned together ====== */}
@@ -2790,8 +2415,8 @@ export default function App() {
                 from Projects because it answers a different question — not
                 "what will this cost" but "how is this job actually going". */}
             <button className={"ec-btn ec-btn-ghost" + (screen === "manage" ? " ec-btn-ghost-on" : "")}
-              onClick={() => { setManageJobId(null); setScreen("manage"); }}>
-              Site Office
+              onClick={() => { if (!can.siteOffice) { setUpgrade("siteOffice"); return; } setManageJobId(null); setScreen("manage"); }}>
+              Site Office{can.siteOffice ? "" : " 🔒"}
             </button>
             {screen === "workspace" && (
               <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
@@ -2807,10 +2432,9 @@ export default function App() {
             {screen === "projects" && (
               <>
                 <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-                  {BUILD_MODES
-                    .filter(([m]) => userType !== "homeowner" || m !== "highrise")
-                    .map(([m, label]) => (
-                    <button key={m} onClick={() => { setBuildMode(m); setTab("estimate"); }}
+                  {BUILD_MODES.map(([m, label]) => (
+                    <button key={m} title={can.canUseMode(m) ? label : `${label} — upgrade to unlock`}
+                      onClick={() => { if (!can.canUseMode(m)) { setUpgrade(m); return; } setBuildMode(m); setTab("estimate"); }}
                       className="ec-mono"
                       style={{
                         padding: "6px 12px",
@@ -2818,7 +2442,8 @@ export default function App() {
                         color: buildMode === m ? TOKENS.onEmber : TOKENS.emberInk,
                         border: "none", cursor: "pointer",
                         fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
-                      }}>{label}</button>
+                        opacity: can.canUseMode(m) ? 1 : 0.55,
+                      }}>{label}{can.canUseMode(m) ? "" : " 🔒"}</button>
                   ))}
                 </div>
                 <div style={{ display: "flex", border: `1px solid ${TOKENS.ink}` }}>
@@ -2870,6 +2495,7 @@ export default function App() {
       {/* Post-signup "how will you use BYO" page. Self-gating: renders only for
           a signed-in user who hasn't picked a segment yet. */}
       <Onboarding />
+      {upgrade && <UpgradeModal feature={upgrade} onClose={() => setUpgrade(null)} />}
 
       {/* ====== WORKFLOW STEPPER (workspace) — pinned under the header ====== */}
       {screen === "workspace" && (
@@ -2883,7 +2509,7 @@ export default function App() {
       {/* ============== PROJECTS SCREEN ============== */}
       {screen === "projects" && (
         <ProjectsScreen onOpen={openProject} onNew={newProject}
-          onOpenSiteOffice={() => { setManageJobId(null); setScreen("manage"); window.scrollTo({ top: 0 }); }} />
+          onOpenSiteOffice={() => { if (!can.siteOffice) { setUpgrade("siteOffice"); return; } setManageJobId(null); setScreen("manage"); window.scrollTo({ top: 0 }); }} />
       )}
 
       {/* ============== CONSTRUCTION MANAGEMENT ============== */}
@@ -2979,7 +2605,9 @@ export default function App() {
           <motion.div key={"panel-" + buildMode}
             initial={{ opacity: 0, x: -14 }} animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.2, ease: "easeOut" }}>
-          {buildMode === "materials" ? (
+          {buildMode === "multi" ? (
+            <MultiDwellingPanel mdSpec={mdSpec} setMdSpec={setMdSpec} estimate={estimate} currency={currencySymbol(region)} />
+          ) : buildMode === "materials" ? (
             <MaterialsPanel lines={matSpec.lines} setLines={(l) => setMatSpec({ lines: l })} region={region} currency={currencySymbol(region)} summary={estimate} />
           ) : buildMode === "highrise" ? (
             <HighRisePanel hrSpec={hrSpec} updateHr={updateHr} estimate={estimate} clearSection={clearSection} />
@@ -3115,6 +2743,10 @@ export default function App() {
                     Add quote items to see the 3D model
                   </div>
                 )
+              ) : buildMode === "multi" ? (
+                <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
+                  {estimate.dwellings} dwellings{estimate.dwellings > 24 ? " · first 24 shown" : ""} · {fmt(estimate.gfaM2 || 0)} m²
+                </div>
               ) : buildMode === "highrise" ? (
                 <>
                   <div className="ec-mono" style={{ fontSize: 11, background: TOKENS.cardVeil, padding: "4px 8px", color: TOKENS.ink }}>
@@ -3203,7 +2835,14 @@ export default function App() {
           {(stage === "estimate" || stage === "materials") && (
           <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: stage === "estimate" ? 16 : 0 }}>
             <StaggerReveal variant="fade-up" stagger={0.06}>
-              {buildMode === "materials" ? [
+              {buildMode === "multi" ? [
+                <CostCard key="t" label="Project total" value={`${currency}${fmt(grossOf(estimate))}`} hivis sub={inclusiveNote(estimate, currency)} />,
+                <CostCard key="d" label="Per dwelling" value={`${currency}${fmt(estimate.perDwelling)}`} sub={`${estimate.dwellings} homes · ex tax`} />,
+                <CostCard key="s" label="Saving vs one-off" value={`${currency}${fmt(Math.max(0, estimate.oneOffTotal - estimate.houseOnlyTotal))}`} sub="Houses only, same specs" />,
+                <CostCard key="w" label="Site works" value={`${currency}${fmt(estimate.siteWorks)}`} />,
+                <CostCard key="p" label="Programme" value={`${estimate.totalWeeks} wks`} sub={`${estimate.waves} wave${estimate.waves === 1 ? "" : "s"}`} />,
+                <CostCard key="r" label={`${currency}/m² GFA`} value={`${currency}${fmt(estimate.ratePerM2)}`} />,
+              ] : buildMode === "materials" ? [
                 <CostCard key="t" label="Quote total" value={`${currency}${fmt(grossOf(estimate))}`} hivis sub={inclusiveNote(estimate, currency)} />,
                 <CostCard key="m" label="Materials" value={`${currency}${fmt((estimate.byKind || {}).material || 0)}`} />,
                 <CostCard key="l" label="Labour" value={`${currency}${fmt((estimate.byKind || {}).labour || 0)}`} />,
@@ -3247,8 +2886,10 @@ export default function App() {
               <motion.div key={stage + "-" + activeTab + "-" + buildMode}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}>
-            {activeTab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
-            {activeTab === "timeline" && buildMode !== "materials" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
+            {activeTab === "estimate" && buildMode === "multi" && <MultiCostPlan estimate={estimate} currency={currency} />}
+            {activeTab === "timeline" && buildMode === "multi" && <MultiProgramme estimate={estimate} />}
+            {activeTab === "estimate" && buildMode !== "multi" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
+            {activeTab === "timeline" && buildMode !== "materials" && buildMode !== "multi" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
             {activeTab === "spreadsheet" && buildMode === "residential" && <SpreadsheetTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
             {activeTab === "spreadsheet" && buildMode === "materials" && <SpreadsheetTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {activeTab === "sketchup" && buildMode === "residential" && <SketchUpTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
@@ -3264,16 +2905,18 @@ export default function App() {
       )}
 
       {/* ============== AI CREW STAGE ============== */}
-      {screen === "workspace" && stage === "ai" && (
+      {screen === "workspace" && stage === "ai" && !can.ai && <AiUpsell />}
+      {screen === "workspace" && stage === "ai" && can.ai && (
         <AICrewSection projectId={projectId} projectName={projectName} buildMode={buildMode} region={region}
-          spec={spec} hrSpec={hrSpec} estimate={estimate} currency={currency}
+          spec={buildMode === "multi" ? mdSpec : spec} hrSpec={hrSpec} estimate={estimate} currency={currency}
           onSpecPatch={(patch) => {
             if (buildMode === "highrise") updateHr(patch);
-            else if (buildMode === "materials") return; // no building spec to patch in quote mode
+            else if (buildMode === "materials" || buildMode === "multi") return; // no single building spec to patch
             else update(patch);
           }}
           onAddQuoteLines={(lines) => {
             const mk = (l) => ({ id: nextId(), kind: l.kind || "element", label: l.label || "AI line", qty: +l.qty || 1, unit: l.unit || "ea", rate: +l.rate || 0, useCustomRate: true });
+            if (buildMode === "multi") return; // project extras aren't modelled per type yet
             if (buildMode === "materials") setMatSpec((s) => ({ lines: [...(s.lines || []), ...lines.map(mk)] }));
             else setSpec((s) => ({ ...s, extras: [...(s.extras || []), ...lines.map(mk)] }));
           }} />
@@ -4224,7 +3867,7 @@ Rules:
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
-        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberInk, fontWeight: 700, marginBottom: 4 }}>HIGH-RISE / COMMERCIAL ENGINE</div>
+        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.emberInk, fontWeight: 700, marginBottom: 4 }}>DEVELOPER ENGINE — APARTMENTS, MIXED-USE &amp; TOWERS</div>
         <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: 0, lineHeight: 1.5 }}>
           Costed by structural & façade systems per m² GFA, with a per-floor structural cycle. Feasibility-grade — not a tender figure.
         </p>

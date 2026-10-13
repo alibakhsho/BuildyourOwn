@@ -6,6 +6,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { readPlanWithClaude, planReaderError } from "../_lib/plan-reader.js";
 import { preflight, LIMITS, clampModel } from "../_lib/guard.js";
+import { checkAiAccess } from "../_lib/ai-access.js";
 
 const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim());
 
@@ -31,6 +32,10 @@ export default async function handler(req, res) {
     if (blocked.retryAfter) res.setHeader("Retry-After", String(blocked.retryAfter));
     return res.status(blocked.status).json({ error: blocked.error });
   }
+
+  // Plan check: AI is a paid feature. Runs before anything is spent.
+  const denied = await checkAiAccess(req, "vision");
+  if (denied) return res.status(denied.status).json({ error: denied.error, code: denied.code });
 
   const { image, imageWidth, imageHeight, pxPerMetre, model } = req.body || {};
   if (!image?.data || !image?.mediaType) {

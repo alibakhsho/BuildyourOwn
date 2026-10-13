@@ -243,6 +243,54 @@ export class Engine3D {
     this._needsRender = true;
   }
 
+  /* Multi-dwelling: lay each house type out on its own lots along a street,
+     using the same house builder as a single home, so every dwelling is as
+     accurate as the one-off model. Rendering is capped (MAX_DRAWN) — a
+     60-lot estate would be ~23k meshes — and the summary says how many of
+     the total are drawn. */
+  buildEstate(types) {
+    this.spec = { estate: true };
+    this.isTower = false;
+    this._clearGroup();
+    const MAX_DRAWN = 24, PER_ROW = 6, SIDE_GAP = 3, STREET = 14;
+    const lots = [];
+    for (const t of types || []) for (let i = 0; i < Math.round(+t.count || 0); i++) lots.push(t.spec);
+    const drawn = lots.slice(0, MAX_DRAWN);
+    const lotW = (s) => s.widthM + (s.hasGarage ? 6.4 : 0) + SIDE_GAP;
+    const rows = [];
+    for (let i = 0; i < drawn.length; i += PER_ROW) rows.push(drawn.slice(i, i + PER_ROW));
+    let z = 0, maxW = 0, maxH = 0;
+    rows.forEach((row, r) => {
+      const width = row.reduce((a, s) => a + lotW(s), 0);
+      const depth = Math.max(...row.map((s) => s.lengthM));
+      let x = -width / 2;
+      // even rows face +z, odd rows face the same street from the other side
+      const face = r % 2 === 0 ? 1 : -1;
+      row.forEach((s) => {
+        const g = new THREE.Group();
+        buildHouse(g, s);
+        const lw = lotW(s);
+        g.position.set(x + lw / 2 + (s.hasGarage ? 3.2 : 0), 0, z);
+        if (face < 0) g.rotation.y = Math.PI;
+        this.buildingGroup.add(g);
+        x += lw;
+        maxH = Math.max(maxH, (s.wallHeightM || 2.7) * (s.floors || 1));
+      });
+      maxW = Math.max(maxW, width);
+      z -= depth + (r % 2 === 0 ? STREET : 8);
+    });
+    // centre the estate on the origin
+    this.buildingGroup.children.forEach((g) => { g.position.z -= z / 2; });
+    this.walkWaypoints = [];
+    this.roofMeshes = [];
+    this.buildingGroup.traverse((o) => { if (o.userData && o.userData.stage === "roof") this.roofMeshes.push(o); });
+    this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
+    this.buildSummary = { dwellings: lots.length, drawn: drawn.length };
+    this._frameCamera(maxW, Math.abs(z), maxH);
+    this.applyViewMode();
+    this._needsRender = true;
+  }
+
   /* "finished" shows the house as built; "structural" fades every skin
      surface (cladding, roof sheeting, glass) so the frame reads through. */
   setViewMode(mode) {
@@ -268,9 +316,17 @@ export class Engine3D {
   /* Orbit radius + height that frame the whole building whatever its size. */
   _frameCamera(w, l, h) {
     const diag = Math.sqrt((w || 10) ** 2 + (l || 10) ** 2);
-    this.frameRadius = Math.max(16, diag * 1.45 + h * 0.8);
-    this.frameHeight = Math.max(7, h * 1.6 + diag * 0.28);
+    // a single house needs room around it; a whole street fills the frame
+    const k = diag > 60 ? 0.95 : 1.45;
+    this.frameRadius = Math.max(16, diag * k + h * 0.8);
+    this.frameHeight = Math.max(7, h * 1.6 + diag * (diag > 60 ? 0.4 : 0.28));
     this.frameLookY = Math.max(1.5, h * 0.45);
+    // keep fog behind the subject: a big estate seen from far away must not
+    // disappear into haze (fog used to end at a fixed 175 m)
+    this.scene.fog.near = Math.max(62, this.frameRadius * 1.2);
+    this.scene.fog.far = Math.max(175, this.frameRadius * 3);
+    this.camera.far = Math.max(500, this.frameRadius * 5);
+    this.camera.updateProjectionMatrix();
   }
 
   _clearGroup() {

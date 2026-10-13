@@ -18,16 +18,13 @@ import AuthModal from "./AuthModal.jsx";
 
 /* Which shortcuts each plan gets. Everything works for everyone today —
    this is about surfacing the right thing first, not gating. */
-const SHORTCUTS = {
-  free:       ["residential"],
-  pro:        ["residential", "materials"],
-  business:   ["residential", "materials", "site"],
-  enterprise: ["residential", "materials", "highrise", "site"],
-};
+/* Shortcuts follow the plan: one per build mode it unlocks, plus Site
+   Office where included (see lib/entitlements.js). */
 const SHORTCUT_LABEL = {
   residential: "New house estimate",
   materials: "New custom quote",
-  highrise: "New high-rise cost plan",
+  multi: "New multi-dwelling quote",
+  highrise: "New developer feasibility",
   site: "Open Site Office",
 };
 
@@ -57,7 +54,7 @@ function Meter({ label, used, cap }) {
 }
 
 export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice }) {
-  const { enabled, loading, user, profile, tier, limits } = useAuth();
+  const { enabled, loading, user, profile, tier, limits, can } = useAuth();
   const sync = useCloudSync();
   const [modal, setModal] = useState(null);
 
@@ -86,7 +83,7 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
   const tierInfo = TIERS[tier] || TIERS.free;
   const localOnly = sync.local?.length || 0;
   const cloudCount = Math.max(0, projectCount - localOnly);
-  const shortcuts = SHORTCUTS[tier] || SHORTCUTS.free;
+  const shortcuts = [...can.modes, ...(can.siteOffice ? ["site"] : [])];
   const syncText = sync.status === "syncing" ? "Syncing…"
     : sync.status === "error" ? `Sync problem: ${sync.error || "try again"}`
     : sync.lastSync ? `Saved to your account · ${ago(sync.lastSync)}` : "Connecting…";
@@ -111,7 +108,9 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
       <div className="ec-card" style={{ padding: 22, display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="ec-eyebrow">Your plan</div>
         <Meter label="Projects in the cloud" used={cloudCount} cap={limits.projects} />
-        <Meter label="AI plan reads" used={profile?.plan_reads_used || 0} cap={limits.planReads} />
+        {can.ai
+          ? <Meter label="AI plan reads" used={profile?.plan_reads_used || 0} cap={can.planReads} />
+          : <div style={{ fontSize: 12, color: TOKENS.steel }}>AI assistant: not on your plan.</div>}
         {localOnly > 0 && (
           <div style={{ fontSize: 12, lineHeight: 1.5, color: TOKENS.inkSoft }}>
             {localOnly} project{localOnly > 1 ? "s are" : " is"} saved on this device only — your plan keeps {limits.projects} in the cloud.

@@ -14,6 +14,7 @@
    surfaced in the UI as a suggestion to check, never applied silently.
    ========================================================================= */
 
+import { aiHeaders } from "./client.js";
 import { blobToDataURL } from "../state/blobstore.js";
 
 const BASE = import.meta.env?.VITE_AI_BACKEND || "";
@@ -34,7 +35,7 @@ export async function readPlan(blob, ctx = {}) {
   try {
     resp = await fetch(`${BASE}/api/ai/vision`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await aiHeaders(),
       body: JSON.stringify({
         image: { mediaType, data: base64 },
         // The model needs the pixel dimensions to return polygons in the

@@ -5,7 +5,25 @@
    In dev, Vite proxies /api to the backend (see vite.config.js). To point
    at a deployed backend, set VITE_AI_BACKEND to its origin.
    ========================================================================= */
+import { supabase } from "../lib/supabase.js";
+
 const BASE = import.meta.env?.VITE_AI_BACKEND || ""; // "" = same origin (Vite proxy)
+
+/* AI is a paid feature, checked on the server against the signed-in
+   user's plan — so every AI request carries the session token. */
+export async function aiHeaders() {
+  const h = { "Content-Type": "application/json" };
+  try {
+    const { data } = (await supabase?.auth.getSession()) || {};
+    if (data?.session?.access_token) h.Authorization = `Bearer ${data.session.access_token}`;
+  } catch { /* signed out / auth not configured — the server decides */ }
+  return h;
+}
+
+/* An error the UI can turn into an upgrade or sign-in prompt. */
+export class AiAccessError extends Error {
+  constructor(message, code) { super(message); this.code = code; }
+}
 
 /* Model tiers — keep the cheap model on high-frequency structured tasks
    (spec/param extraction, job decomposition, build sequencing) and reserve
@@ -26,15 +44,16 @@ export async function chat({ system, messages, maxTokens = 1500, model, tier }) 
   try {
     resp = await fetch(`${BASE}/api/ai/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await aiHeaders(),
       body: JSON.stringify({ system, messages, maxTokens, model: resolvedModel }),
     });
   } catch {
     throw new Error("Couldn't reach the AI backend — is it running? Start it with `npm run server`.");
   }
   if (!resp.ok) {
-    let msg = `AI service error (${resp.status}).`;
-    try { const j = await resp.json(); if (j?.error) msg = j.error; } catch { /* keep default */ }
+    let msg = `AI service error (${resp.status}).`, code;
+    try { const j = await resp.json(); if (j?.error) msg = j.error; code = j?.code; } catch { /* keep default */ }
+    if (code) throw new AiAccessError(msg, code);
     throw new Error(msg);
   }
   const data = await resp.json();

@@ -12,6 +12,7 @@
    unchanged.
    ========================================================================= */
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { colors as TOKENS } from "../design/system.js";
 import { useAuth, SEGMENTS, TIERS } from "../state/auth.jsx";
 
@@ -309,7 +310,7 @@ export function Onboarding() {
     finally { setBusy(false); }
   };
 
-  return (
+  return createPortal(
     <div style={{ position: "fixed", inset: 0, zIndex: 210, display: "grid", placeItems: "center",
       background: "rgba(10,12,16,0.6)", backdropFilter: "blur(4px)", padding: 20, overflowY: "auto" }}>
       <div role="dialog" aria-modal="true"
@@ -349,7 +350,8 @@ export function Onboarding() {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -359,8 +361,11 @@ const LBL = { display: "flex", flexDirection: "column", gap: 4 };
 const LINK = { border: "none", background: "none", color: TOKENS.steel, cursor: "pointer", textDecoration: "underline", fontSize: 11, fontFamily: "inherit" };
 const MSG = (c) => ({ fontSize: 11, lineHeight: 1.4, color: c, padding: "8px 10px", border: `1px solid ${c}`, background: "transparent" });
 
+/* Portalled to <body>: the sticky header uses backdrop-filter, which makes
+   it the containing block for position:fixed — a modal opened from the
+   header would otherwise be clipped to the header strip. */
 function Backdrop({ children, onClose }) {
-  return (
+  return createPortal(
     <div onClick={onClose}
       style={{ position: "fixed", inset: 0, zIndex: 200, display: "grid", placeItems: "center",
         background: "rgba(10,12,16,0.55)", backdropFilter: "blur(3px)", padding: 20 }}>
@@ -372,6 +377,7 @@ function Backdrop({ children, onClose }) {
             cursor: "pointer", fontSize: 16, color: TOKENS.steel, lineHeight: 1 }}>×</button>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

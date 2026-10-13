@@ -6,6 +6,7 @@
    runs once deployed. Same request/response shape, so ai/client.js is unchanged.
    ========================================================================= */
 import Anthropic from "@anthropic-ai/sdk";
+import { checkAiAccess } from "../_lib/ai-access.js";
 import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../_lib/guard.js";
 
 // Must track server/index.js — this is the DEV/PROD pair for the same route,
@@ -29,6 +30,10 @@ export default async function handler(req, res) {
     if (blocked.retryAfter) res.setHeader("Retry-After", String(blocked.retryAfter));
     return res.status(blocked.status).json({ error: blocked.error });
   }
+
+  // Plan check: AI is a paid feature. Runs before anything is spent.
+  const denied = await checkAiAccess(req, "chat");
+  if (denied) return res.status(denied.status).json({ error: denied.error, code: denied.code });
 
   const { system, messages, maxTokens = 1500, model } = req.body || {};
   if (!Array.isArray(messages) || messages.length === 0) {
