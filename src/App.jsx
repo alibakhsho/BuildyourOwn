@@ -51,7 +51,9 @@ import { UpgradeModal, AiUpsell } from "./components/Plans.jsx";
 import { useAuth } from "./state/auth.jsx";
 import { MODE_LABEL, BUILD_MODE_IDS } from "./lib/entitlements.js";
 import { buildMultiEstimate } from "./logic/multi-dwelling.js";
-import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec } from "./modules/MultiDwelling.jsx";
+import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, houseType } from "./modules/MultiDwelling.jsx";
+import DescribeCard from "./components/DescribeCard.jsx";
+import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import {
@@ -2193,6 +2195,43 @@ export default function App() {
   };
 
   const updateHr = useCallback((patch) => setHrSpec((s) => ({ ...s, ...patch })), []);
+
+  /* "Describe your project" → project data. The reader (built-in engine or
+     AI) only identified features; WallBuilder / the house builder / the
+     developer clamps turn them into priced inputs here. Returns a one-line
+     summary for the card. */
+  const scopeToLines = (items) => (items || []).flatMap((it) => {
+    const pr = WallBuilder.getPreset(it.preset);
+    if (!pr) return [];
+    const opts = pr.dim === "wall"
+      ? { lengthM: +it.lengthM || 3, heightM: +it.heightM || 2.4, finish: it.finish || "paint", sides: +it.sides || 2, insulated: true, labour: !!it.labour,
+          addonList: (it.addons || []).filter((a) => a && a.id).map((a) => ({ id: a.id, qty: +a.qty || 1 })) }
+      : { dim: +it.dim || 0, variant: it.variant || (pr.variants ? pr.variants[0].id : undefined), labour: !!it.labour, addonList: [] };
+    return WallBuilder.presetToLines(it.preset, opts, region, nextId);
+  });
+  const applyDescribe = (r) => {
+    if (r.kind === "scope") {
+      const lines = scopeToLines(r.items);
+      setMatSpec((m) => ({ lines: [...(m.lines || []), ...lines] }));
+      return `Added ${lines.length} priced line${lines.length === 1 ? "" : "s"}.`;
+    }
+    if (r.kind === "developer") {
+      const patch = cleanDeveloper(r.features);
+      updateHr(patch);
+      return `Filled in ${Object.keys(patch).length} building settings.`;
+    }
+    if (r.kind === "multi") {
+      const types = r.types.map((t, i) => {
+        const base = houseType(t.name || `Type ${String.fromCharCode(65 + i)}`);
+        return { ...base, count: t.count, spec: houseSpecFromFeatures(t.features || {}, base.spec) };
+      });
+      setMdSpec((m) => ({ ...m, types }));
+      return `Set up ${types.length} house type${types.length === 1 ? "" : "s"}, ${types.reduce((a, t) => a + t.count, 0)} dwellings.`;
+    }
+    const extras = scopeToLines(r.extras);
+    setSpec((sp) => ({ ...houseSpecFromFeatures(r.features || {}, sp), extras: [...(sp.extras || []), ...extras] }));
+    return `Updated the house${extras.length ? ` and added ${extras.length} extra line${extras.length === 1 ? "" : "s"}` : ""}.`;
+  };
   const currency = currencySymbol(region);
 
   return (
@@ -2571,6 +2610,11 @@ export default function App() {
           <Reveal variant="slide-left">
             <div className="ec-eyebrow" style={{ marginBottom: 8 }}>01 — Configure</div>
             <h2 className="ec-display" style={{ fontSize: 28, lineHeight: 1, marginBottom: 12 }}>Building specification</h2>
+            {/* Start of the workflow: describe it, then fine-tune below. On a
+                plan without AI this runs on the built-in engine — no credits. */}
+            {!(buildMode === "residential" && spec.importedLines && spec.importedLines.length > 0) && (
+              <DescribeCard key={buildMode} mode={buildMode} useAi={can.ai} onApply={applyDescribe} />
+            )}
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <button onClick={clearAll}
                 className="ec-mono"
@@ -3234,83 +3278,6 @@ function MaterialsPanel({ lines: linesProp, setLines: setLinesProp, region, curr
     setShowBuild(false); setBAddonQty({});
   };
 
-  /* ---- AI: describe the job in plain words → structured preset instructions ----
-     The AI ONLY classifies the request into our presets + dimensions. It never
-     invents prices — our engine prices every line from the catalogue. */
-  const [aiText, setAiText] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState("");
-  const [aiNote, setAiNote] = useState("");
-
-  const runAI = async () => {
-    if (!aiText.trim() || aiBusy) return;
-    setAiBusy(true); setAiError(""); setAiNote("");
-    const presetSpec = WallBuilder.presets.map((p) => {
-      const v = p.variants ? ` variants:[${p.variants.map((x) => x.id).join(", ")}]` : "";
-      return `- "${p.id}" (${p.label}): dim=${p.dim}${v}`;
-    }).join("\n");
-    const addonSpec = WallBuilder.addons.map((a) => `"${a.id}" (${a.label})`).join(", ");
-    const sys = `You convert a homeowner/tradie's plain-English building request into structured JSON for an estimator. You ONLY classify into the presets below — you never invent prices or materials.
-
-Available presets:
-${presetSpec}
-
-Available wall add-ons (only for the timber_wall preset): ${addonSpec}
-
-Rules:
-- For "timber_wall" (dim=wall): provide lengthM and heightM in metres (default height 2.4 if not stated). finish is one of paint|render|tile|none. sides is 1 or 2 (default 2).
-- For presets with dim=area: provide "dim" as the area in m².
-- For presets with dim=length: provide "dim" as the length in metres.
-- If a preset has variants, optionally pick one variant id.
-- Set "labour": true only if the user implies they want labour/installation included; otherwise false.
-- Convert feet/inches to metres.
-- COMPOSITE STRUCTURES (cabin, shed, garage, granny flat, studio, bungalow, room): DECOMPOSE into multiple preset items. Example — "3x3 cabin with tin roof": four walls = 4 timber_wall items (or one timber_wall of total perimeter length 12m), plus roofing (dim ≈ footprint × 1.15 for pitch, variant colorbond for "tin"), plus concreting for the slab if implied. Add what you assumed to "note".
-- MULTIPLE SEPARATE STRUCTURES in one request (e.g. "a studio AND an outdoor kitchen AND a separate toilet/shower block"): treat each structure independently and decompose EACH into its own walls + roof + slab items. An "outdoor kitchen" ≈ a bench/cabinetry run (kitchen_bench) + a small slab + optional roof. A "toilet/shower block" or "amenities" ≈ a small timber_wall structure + slab + roofing + tiling + waterproofing. Do your best with sensible default sizes when not given, and list every assumption in "note". NEVER fail on a multi-structure request — break it down as far as you can.
-- "tin roof" / "metal roof" → roofing variant "colorbond". "weatherboard"/"weather board"/"weatherproof board" → the walls are clad; note that cladding is approximated by the wall finish.
-- NEVER refuse a buildable small structure — decompose it. Only use "note" for parts with no reasonable preset.
-- Respond with ONLY a JSON object, no markdown fences, no prose before or after:
-{"items":[{"preset":"<id>","lengthM":<n>,"heightM":<n>,"dim":<n>,"finish":"<s>","sides":<n>,"variant":"<id>","labour":<bool>,"addons":[{"id":"<addonId>","qty":<n>}],"label":"<short human label>"}],"note":"<assumptions or unmapped parts, or empty>"}`;
-
-    try {
-      const textOut = (await aiChat({
-        system: sys, maxTokens: 1500, tier: "fast",
-        messages: [{ role: "user", content: `Request: "${aiText.trim()}"` }],
-      })).trim();
-      // Robust JSON extraction: find the outermost {...} block even if prose surrounds it
-      let parsed = null;
-      const start = textOut.indexOf("{");
-      const end = textOut.lastIndexOf("}");
-      if (start >= 0 && end > start) {
-        try { parsed = JSON.parse(textOut.slice(start, end + 1)); } catch (e2) { /* fall through */ }
-      }
-      if (!parsed) {
-        setAiError("The AI's answer didn't come back in a readable format. Hit Generate again — it usually works on a retry.");
-        setAiBusy(false); return;
-      }
-      const items = Array.isArray(parsed.items) ? parsed.items : [];
-      if (!items.length) { setAiError("I couldn't map that to a job I can price. Try naming a wall, deck, fence, roof, slab, flooring, painting, drywall, or cabinetry with a size."); setAiBusy(false); return; }
-
-      let allLines = [];
-      for (const it of items) {
-        const p = WallBuilder.getPreset(it.preset);
-        if (!p) continue;
-        const addonList = Array.isArray(it.addons) ? it.addons.filter((a) => a && a.id).map((a) => ({ id: a.id, qty: +a.qty || 1 })) : [];
-        const opts = p.dim === "wall"
-          ? { lengthM: +it.lengthM || 3, heightM: +it.heightM || 2.4, finish: it.finish || "paint", sides: +it.sides || 2, insulated: it.insulated !== false, labour: !!it.labour, addonList }
-          : { dim: +it.dim || 0, variant: it.variant || (p.variants ? p.variants[0].id : undefined), labour: !!it.labour, addonList };
-        const newLines = WallBuilder.presetToLines(it.preset, opts, region, nextId);
-        allLines = allLines.concat(newLines);
-      }
-      if (!allLines.length) { setAiError("I understood the request but couldn't generate priced lines. Try being a bit more specific about sizes."); setAiBusy(false); return; }
-      setLines([...lines, ...allLines]);
-      setAiText("");
-      if (parsed.note) setAiNote(parsed.note);
-    } catch (e) {
-      setAiError(aiErrMsg(e) + " The manual builder below always works.");
-    }
-    setAiBusy(false);
-  };
-
   const matCats = useMemo(() => {
     const g = {};
     for (const m of Materials.catalog) { (g[m.category] = g[m.category] || []).push(m); }
@@ -3490,28 +3457,6 @@ Respond as ONLY JSON, no markdown:
           <button className="ec-btn ec-btn-ghost" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11 }} onClick={addLabour}>+ Labour</button>
           <button className="ec-btn" style={{ justifyContent: "center", padding: "8px 6px", fontSize: 11, background: TOKENS.emberDeep, color: TOKENS.onEmber }} onClick={addElement}>+ Job/Trade</button>
         </div>
-
-        {/* ---- AI: describe the job in plain words ---- */}
-        <div style={{ marginTop: 12, padding: 12, border: `1px solid ${TOKENS.ink}`, background: TOKENS.card }}>
-          <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.ink, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ background: TOKENS.hivis, color: TOKENS.onHivis, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
-            DESCRIBE YOUR JOB
-          </div>
-          <p style={{ fontSize: 11, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
-            Type it like you'd say it. e.g. <span style={{ color: TOKENS.ink }}>"a partition wall 4m by 2.4 painted both sides with 2 power points, and a 20m² merbau deck"</span>
-          </p>
-          <textarea className="ec-input" rows={3} value={aiText} placeholder="What do you want to build or add?"
-            onChange={(e) => setAiText(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runAI(); }}
-            style={{ width: "100%", resize: "vertical", marginBottom: 8, fontFamily: "inherit", fontSize: 13, lineHeight: 1.4 }} />
-          <button className="ec-btn ec-btn-hivis" style={{ width: "100%", justifyContent: "center" }} onClick={runAI} disabled={aiBusy || !aiText.trim()}>
-            {aiBusy ? "Working it out…" : "✦ Generate estimate"}
-          </button>
-          {aiError && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8, lineHeight: 1.45 }}>{aiError}</div>}
-          {aiNote && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.emberInk, marginTop: 8, lineHeight: 1.45 }}>Note: {aiNote}</div>}
-        </div>
-
-        <div className="ec-mono" style={{ textAlign: "center", fontSize: 9, color: TOKENS.steel, letterSpacing: "0.1em", margin: "12px 0 0" }}>— OR BUILD IT MANUALLY —</div>
 
         <button className="ec-btn ec-btn-ghost" style={{ width: "100%", justifyContent: "center", marginTop: 8 }} onClick={() => setShowBuild((v) => !v)}>
           {showBuild ? "× Close" : (embed ? "▦ What do you want to add?" : "▦ What do you want to build?")}
@@ -3801,69 +3746,6 @@ function ImportedPanel({ spec, estimate, currency, onClear, onUnlock }) {
 function HighRisePanel({ hrSpec, updateHr, estimate, clearSection }) {
   const t = estimate.takeoff;
 
-  /* AI: describe the tower → fill the parameters (engine still does the maths). */
-  const [aiText, setAiText] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState("");
-  const [aiNote, setAiNote] = useState("");
-
-  const runHrAI = async () => {
-    if (!aiText.trim() || aiBusy) return;
-    setAiBusy(true); setAiError(""); setAiNote("");
-    const sys = `You convert a plain-English description of a high-rise/commercial building into structured parameters for an estimator. You ONLY set parameters — you never invent costs.
-
-Fields and allowed values:
-- floorPlateM2: number, 300–5000 (floor plate area in m²)
-- floors: integer, 5–120 (storeys above ground)
-- floorHeightM: number, 3.0–6.0 (floor-to-floor height in metres; default 3.6)
-- basementLevels: integer, 0–8
-- structureType: one of "rc" (reinforced concrete), "steel", "composite"
-- facadeType: one of "curtain_wall", "precast", "brick", "render"
-- occupancy: one of "office", "residential", "hotel", "mixed", "retail"
-- passengerLifts: integer 0–20
-- goodsLifts: integer 0–6
-- hasEscalators: boolean
-- siteCondition: one of "flat", "sloping", "difficult"
-
-Rules:
-- Convert feet to metres. Infer sensible values only when strongly implied; otherwise omit the field so the current value stays.
-- "office tower" → occupancy office; "apartments"/"units" → residential; "hotel" → hotel.
-- Respond with ONLY a JSON object, no markdown, no prose:
-{"spec":{<only the fields you're confident about>},"note":"<anything you couldn't map, or empty>"}`;
-    try {
-      const textOut = (await aiChat({
-        system: sys, maxTokens: 500, tier: "fast",
-        messages: [{ role: "user", content: `Description: "${aiText.trim()}"` }],
-      })).trim();
-      let parsed = null;
-      const jStart = textOut.indexOf("{"); const jEnd = textOut.lastIndexOf("}");
-      if (jStart >= 0 && jEnd > jStart) { try { parsed = JSON.parse(textOut.slice(jStart, jEnd + 1)); } catch (e2) { /* noop */ } }
-      if (!parsed) { setAiError("The AI's answer didn't come back readable — hit the button again, it usually works on retry."); setAiBusy(false); return; }
-      const s = parsed.spec || {};
-      // clamp to the field ranges so nothing invalid reaches the engine
-      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-      const patch = {};
-      if (s.floorPlateM2 != null) patch.floorPlateM2 = clamp(+s.floorPlateM2, 300, 5000);
-      if (s.floors != null) patch.floors = clamp(Math.round(+s.floors), 5, 120);
-      if (s.floorHeightM != null) patch.floorHeightM = clamp(+s.floorHeightM, 3, 6);
-      if (s.basementLevels != null) patch.basementLevels = clamp(Math.round(+s.basementLevels), 0, 8);
-      if (["rc", "steel", "composite"].includes(s.structureType)) patch.structureType = s.structureType;
-      if (["curtain_wall", "precast", "brick", "render"].includes(s.facadeType)) patch.facadeType = s.facadeType;
-      if (["office", "residential", "hotel", "mixed", "retail"].includes(s.occupancy)) patch.occupancy = s.occupancy;
-      if (s.passengerLifts != null) patch.passengerLifts = clamp(Math.round(+s.passengerLifts), 0, 20);
-      if (s.goodsLifts != null) patch.goodsLifts = clamp(Math.round(+s.goodsLifts), 0, 6);
-      if (typeof s.hasEscalators === "boolean") patch.hasEscalators = s.hasEscalators;
-      if (["flat", "sloping", "difficult"].includes(s.siteCondition)) patch.siteCondition = s.siteCondition;
-      if (!Object.keys(patch).length) { setAiError("I couldn't pull tower details from that. This box is for multi-storey buildings — for a studio, cabin, deck or renovation, use the Quote tab. Try e.g. \"20-storey office tower, 1,200m² floor plate, 3 basements\"."); setAiBusy(false); return; }
-      updateHr(patch);
-      setAiText("");
-      if (parsed.note) setAiNote(parsed.note);
-    } catch (e) {
-      setAiError(aiErrMsg(e) + " You can always fill the fields below by hand.");
-    }
-    setAiBusy(false);
-  };
-
   return (
     <>
       <div style={{ padding: 12, border: `1px solid ${TOKENS.emberDeep}`, background: "rgba(245,142,26,0.06)", marginBottom: 12 }}>
@@ -3873,29 +3755,9 @@ Rules:
         </p>
       </div>
 
-      {/* AI: describe the tower → fills the fields below */}
-      <div style={{ marginBottom: 12, padding: 12, border: `1px solid ${TOKENS.ink}`, background: TOKENS.card }}>
-        <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.12em", color: TOKENS.ink, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ background: TOKENS.hivis, color: TOKENS.onHivis, padding: "1px 5px", borderRadius: 2, fontSize: 9 }}>AI</span>
-          DESCRIBE THE TOWER
-        </div>
-        <p style={{ fontSize: 11, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
-          e.g. <span style={{ color: TOKENS.ink }}>"a 20-storey office tower, 1,200m² floor plate, 3 basement levels, concrete structure, curtain wall façade"</span> — it fills the fields, you can adjust anything after.
-        </p>
-        <textarea className="ec-input" rows={3} value={aiText} placeholder="Describe the building…"
-          onChange={(e) => setAiText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runHrAI(); }}
-          style={{ width: "100%", resize: "vertical", marginBottom: 8, fontFamily: "inherit", fontSize: 13, lineHeight: 1.4 }} />
-        <button className="ec-btn ec-btn-hivis" style={{ width: "100%", justifyContent: "center" }} onClick={runHrAI} disabled={aiBusy || !aiText.trim()}>
-          {aiBusy ? "Working it out…" : "✦ Fill the fields"}
-        </button>
-        {aiError && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8, lineHeight: 1.45 }}>{aiError}</div>}
-        {aiNote && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.emberInk, marginTop: 8, lineHeight: 1.45 }}>Note: {aiNote}</div>}
-      </div>
-
       <InputCard title="Massing" badge={`${fmt(t.gfaM2)} m² GFA`} onClear={() => clearSection("massing")}>
-        <SliderField label="Floor plate" value={hrSpec.floorPlateM2} unit="m²" min={300} max={5000} step={50} onChange={(v) => updateHr({ floorPlateM2: v })} />
-        <SliderField label="Floors (above ground)" value={hrSpec.floors} unit="" min={5} max={120} step={1} onChange={(v) => updateHr({ floors: v })} />
+        <SliderField label="Floor plate" value={hrSpec.floorPlateM2} unit="m²" min={150} max={5000} step={50} onChange={(v) => updateHr({ floorPlateM2: v })} />
+        <SliderField label="Floors (above ground)" value={hrSpec.floors} unit="" min={2} max={120} step={1} onChange={(v) => updateHr({ floors: v })} />
         <SliderField label="Floor-to-floor" value={hrSpec.floorHeightM} unit="m" min={3.0} max={6.0} step={0.1} onChange={(v) => updateHr({ floorHeightM: v })} />
         <InputRow>
           <Field label="Basement levels"><input className="ec-input" type="number" min="0" max="8" step="1" value={hrSpec.basementLevels} onChange={(e) => updateHr({ basementLevels: +e.target.value })} /></Field>
