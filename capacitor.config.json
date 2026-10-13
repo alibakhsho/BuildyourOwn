@@ -1,0 +1,10 @@
+{
+  "appId": "app.buildyourown.estimator",
+  "appName": "Build Your Own",
+  "webDir": "dist",
+  "server": {
+    "hostname": "app.buildyourown.local",
+    "androidScheme": "https",
+    "iosScheme": "capacitor"
+  }
+}

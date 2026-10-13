@@ -5,7 +5,7 @@
    ========================================================================= */
 import Anthropic from "@anthropic-ai/sdk";
 import { readPlanWithClaude, planReaderError } from "../_lib/plan-reader.js";
-import { preflight, LIMITS, clampModel } from "../_lib/guard.js";
+import { nativeCors, preflight, LIMITS, clampModel } from "../_lib/guard.js";
 import { checkAiAccess } from "../_lib/ai-access.js";
 
 const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim());
@@ -19,6 +19,7 @@ export const config = {
 };
 
 export default async function handler(req, res) {
+  if (nativeCors(req, res)) return; // the phone app's CORS preflight
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   if (!hasKey()) {
     return res.status(503).json({

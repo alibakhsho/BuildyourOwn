@@ -15,3 +15,6 @@ server/.tokens.json
 # `git add .` can't publish a login-less dashboard of invented numbers to the
 # deployed site. Delete this line once it reads real data behind real auth.
 admin-panel/
+
+# Mobile build config holds only the public backend URL (see the file).
+!.env.mobile

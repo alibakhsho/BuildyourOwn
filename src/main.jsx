@@ -5,6 +5,8 @@ import "./styles/tailwind.css";
 import { applyTheme, initialTheme } from "./design/theme.js";
 import { trackPageView } from "./lib/analytics.js";
 import { AuthProvider } from "./state/auth.jsx";
+import { supabase } from "./lib/supabase.js";
+import { isNative, initNativeAuth } from "./lib/native.js";
 
 // Applied before the first paint so a dark-mode user never sees a white flash.
 applyTheme(initialTheme());
@@ -12,7 +14,12 @@ applyTheme(initialTheme());
 // Track page views for analytics funnel
 trackPageView();
 
-if ("serviceWorker" in navigator) {
+// Finishes Google / email-link sign-ins that return to the app by deep link.
+initNativeAuth(supabase);
+
+// The app bundle already ships offline inside the phone; a service worker
+// there would only cache stale copies across app updates.
+if (!isNative && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });

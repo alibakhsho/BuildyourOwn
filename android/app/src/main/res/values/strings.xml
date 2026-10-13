@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Build Your Own</string>
+    <string name="title_activity_main">Build Your Own</string>
+    <string name="package_name">app.buildyourown.estimator</string>
+    <string name="custom_url_scheme">app.buildyourown.estimator</string>
+</resources>

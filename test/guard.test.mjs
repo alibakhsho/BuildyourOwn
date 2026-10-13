@@ -38,6 +38,13 @@ ok("foreign origin rejected",
 // be refused rather than waved through for lacking a header.
 ok("no origin header at all is refused", allowedOrigin(req({ host: "byo.app" })), false);
 ok("garbage origin is refused", allowedOrigin(req({ host: "byo.app", origin: "not a url" })), false);
+// The iOS (capacitor://) and Android (https://) app, in production.
+ok("native app origin allowed (iOS)",
+  allowedOrigin(req({ host: "byo.app", origin: "capacitor://app.buildyourown.local" })), true);
+ok("native app origin allowed (Android)",
+  allowedOrigin(req({ host: "byo.app", origin: "https://app.buildyourown.local" })), true);
+ok("lookalike of the native host is refused",
+  allowedOrigin(req({ host: "byo.app", origin: "https://app.buildyourown.local.evil.com" })), false);
 process.env.BYO_ALLOWED_ORIGINS = "byo.app, staging.byo.app";
 ok("configured allowlist admits listed host",
   allowedOrigin(req({ host: "whatever", origin: "https://staging.byo.app" })), true);

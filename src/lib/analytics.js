@@ -25,6 +25,10 @@
      quote_downloaded    — downloaded a proposal/quote
    ========================================================================= */
 
+// "" in the browser (same origin); the deployed backend in the native app,
+// which has no /api of its own.
+const BASE = import.meta.env?.VITE_AI_BACKEND || "";
+
 const IS_DEV = typeof window !== "undefined" &&
   (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 
@@ -57,7 +61,7 @@ export function track(event, props = {}) {
   /* 3. Beacon to our own endpoint (fire-and-forget, non-blocking) */
   if (typeof navigator !== "undefined" && navigator.sendBeacon) {
     try {
-      navigator.sendBeacon("/api/events", JSON.stringify(payload));
+      navigator.sendBeacon(`${BASE}/api/events`, JSON.stringify(payload));
     } catch { /* noop — analytics should never break the app */ }
   }
 }

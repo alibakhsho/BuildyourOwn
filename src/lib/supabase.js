@@ -11,6 +11,7 @@
    for anyone who has not set Supabase up yet.
    ========================================================================= */
 import { createClient } from "@supabase/supabase-js";
+import { isNative, AUTH_CALLBACK } from "./native.js";
 
 const rawUrl = (import.meta.env?.VITE_SUPABASE_URL || "").trim();
 // Supabase renamed `anon` to `publishable`; accept either so an older
@@ -62,6 +63,8 @@ export const supabase = (() => {
 /* Where Google should send the user back to. Uses the live origin so the
    same build works on localhost, a preview URL and production without a
    rebuild — each of these must also be listed as a redirect URL in the
-   Supabase dashboard under Authentication → URL Configuration. */
+   Supabase dashboard under Authentication → URL Configuration. The native
+   app's origin is a fake local host, so it returns via a deep link instead. */
 export const redirectTo = () =>
-  typeof window !== "undefined" ? window.location.origin : undefined;
+  isNative ? AUTH_CALLBACK
+  : typeof window !== "undefined" ? window.location.origin : undefined;

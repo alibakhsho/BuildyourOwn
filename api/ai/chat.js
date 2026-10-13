@@ -7,7 +7,7 @@
    ========================================================================= */
 import Anthropic from "@anthropic-ai/sdk";
 import { checkAiAccess } from "../_lib/ai-access.js";
-import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../_lib/guard.js";
+import { nativeCors, preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../_lib/guard.js";
 
 // Must track server/index.js — this is the DEV/PROD pair for the same route,
 // and they drifted: this one was left on a model id that no longer exists, so
@@ -16,6 +16,7 @@ const DEFAULT_MODEL = process.env.BYO_AI_MODEL || "claude-opus-5";
 const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim());
 
 export default async function handler(req, res) {
+  if (nativeCors(req, res)) return; // the phone app's CORS preflight
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }

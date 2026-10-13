@@ -11,6 +11,7 @@
    ========================================================================= */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { supabase, isAuthConfigured, redirectTo } from "../lib/supabase.js";
+import { isNative, openExternal } from "../lib/native.js";
 import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
 import { PLANS, entitlementsFor } from "../lib/entitlements.js";
 
@@ -111,11 +112,14 @@ export function AuthProvider({ children }) {
 
   const signInWithGoogle = useCallback(async () => {
     if (!isAuthConfigured) throw new Error("Sign-in isn't configured yet.");
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: redirectTo() },
+      // In the app, Google won't sign in inside the webview: get the URL
+      // and open it in the system browser; lib/native.js catches the return.
+      options: { redirectTo: redirectTo(), skipBrowserRedirect: isNative },
     });
     if (error) throw new Error(error.message);
+    if (isNative && data?.url) await openExternal(data.url);
   }, []);
 
   const signOut = useCallback(async () => {

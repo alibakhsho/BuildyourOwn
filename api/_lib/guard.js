@@ -65,6 +65,12 @@ const isDeployed = () => !!process.env.VERCEL;
 
 const LOCAL_HOSTS = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 
+/* The iOS/Android app serves its bundle from this made-up host (set in
+   capacitor.config.json) — https://… on Android, capacitor://… on iOS. No
+   website can claim it as its origin, so it is as safe to trust as our own
+   domain; like any Origin check it does nothing against curl. */
+export const NATIVE_APP_HOST = "app.buildyourown.local";
+
 /** Hosts allowed to call the AI routes. Defaults to the request's own host,
  *  so it works on any Vercel preview URL without configuration. */
 export function allowedOrigin(req) {
@@ -74,6 +80,7 @@ export function allowedOrigin(req) {
   if (!raw) return false;                       // no browser context — refuse
   let host;
   try { host = new URL(raw).host.toLowerCase(); } catch { return false; }
+  if (host === NATIVE_APP_HOST) return true;
   if (configured.length) return configured.includes(host);
   const self = String(req.headers?.host || "").toLowerCase();
   if (self && host === self) return true;
@@ -82,6 +89,24 @@ export function allowedOrigin(req) {
   // branch cannot exist in production.
   if (!isDeployed() && LOCAL_HOSTS.test(host)) return true;
   return false;
+}
+
+/** The native app calls the API cross-origin, so the browser engine inside
+ *  it needs CORS headers — but only that origin gets them; the website stays
+ *  same-origin. Returns true when it fully answered a preflight. */
+export function nativeCors(req, res) {
+  const origin = req.headers?.origin || "";
+  let host = "";
+  try { host = new URL(origin).host.toLowerCase(); } catch { return false; }
+  if (host !== NATIVE_APP_HOST) return false;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Vary", "Origin");
+  if (req.method !== "OPTIONS") return false;
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Max-Age", "86400");
+  res.status(204).end();
+  return true;
 }
 
 /* ---- Rate limiting --------------------------------------------------- */

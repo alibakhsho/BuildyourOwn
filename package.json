@@ -9,10 +9,16 @@
     "preview": "vite preview",
     "test": "node test/takeoff.test.mjs && node test/cm.test.mjs && node test/exif.test.mjs && node test/model-parity.test.mjs && node test/guard.test.mjs && node test/house-geometry.test.mjs && node test/cloud-sync.test.mjs && node test/multi-dwelling.test.mjs && node test/entitlements.test.mjs",
     "server": "node server/index.js",
-    "dev:all": "concurrently -n web,ai -c cyan,yellow \"vite\" \"node server/index.js\""
+    "dev:all": "concurrently -n web,ai -c cyan,yellow \"vite\" \"node server/index.js\"",
+    "build:mobile": "vite build --mode mobile && cap sync",
+    "android": "npm run build:mobile && cap open android",
+    "ios": "npm run build:mobile && cap open ios"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
+    "@capacitor/app": "^7.1.2",
+    "@capacitor/browser": "^7.0.5",
+    "@capacitor/core": "^7.6.9",
     "@radix-ui/react-avatar": "^1.2.6",
     "@radix-ui/react-collapsible": "^1.1.20",
     "@radix-ui/react-dropdown-menu": "^2.1.24",
@@ -36,6 +42,9 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/ios": "^7.6.9",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^9.1.0",
