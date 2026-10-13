@@ -12,15 +12,18 @@
    ========================================================================= */
 import { createClient } from "@supabase/supabase-js";
 import { isNative, AUTH_CALLBACK } from "./native.js";
+import { PUBLIC_SUPABASE } from "./public-config.js";
 
-const rawUrl = (import.meta.env?.VITE_SUPABASE_URL || "").trim();
+// Env var wins when set (even to "" — that turns accounts off for local
+// dev); otherwise the committed public project settings.
+const rawUrl = (import.meta.env?.VITE_SUPABASE_URL ?? PUBLIC_SUPABASE.url).trim();
 // Supabase renamed `anon` to `publishable`; accept either so an older
 // project's keys keep working. .trim() defends against a stray newline or
 // space pasted into the Vercel env field, a common cause of a broken client.
 const key = (
   import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY ||
   import.meta.env?.VITE_SUPABASE_ANON_KEY ||
-  ""
+  PUBLIC_SUPABASE.publishableKey
 ).trim();
 
 // A malformed URL (wrong value pasted, quotes, the dashboard URL instead of

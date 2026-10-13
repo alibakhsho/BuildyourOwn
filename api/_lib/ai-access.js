@@ -13,11 +13,20 @@
    SUPABASE_URL + SUPABASE_PUBLISHABLE_KEY (or the VITE_ ones) to enforce.
    ========================================================================= */
 import { entitlementsFor, AI_ADDON } from "../../src/lib/entitlements.js";
+import { PUBLIC_SUPABASE } from "../../src/lib/public-config.js";
 
-const env = (k) => (process.env[k] || process.env[`VITE_${k}`] || "").trim();
+/* Env wins when set (an empty SUPABASE_URL switches the check off for local
+   dev); otherwise the committed public project — so production is always
+   enforced, even with no Supabase variables configured on Vercel. */
+const pick = (...keys) => {
+  for (const k of keys) if (process.env[k] !== undefined) return process.env[k].trim();
+  return undefined;
+};
+const supaUrl = () => pick("SUPABASE_URL", "VITE_SUPABASE_URL") ?? PUBLIC_SUPABASE.url;
+const supaKey = () => pick("SUPABASE_PUBLISHABLE_KEY", "VITE_SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY", "VITE_SUPABASE_ANON_KEY") || PUBLIC_SUPABASE.publishableKey;
 
 export function aiAccessConfigured() {
-  return !!(env("SUPABASE_URL") && (env("SUPABASE_PUBLISHABLE_KEY") || env("SUPABASE_ANON_KEY")));
+  return !!(supaUrl() && supaKey());
 }
 
 /* Tiny cache so a chat session doesn't hit Supabase twice per message. */
@@ -30,8 +39,8 @@ const TTL_MS = 60_000;
  */
 export async function checkAiAccess(req, kind = "chat") {
   if (!aiAccessConfigured()) return null;
-  const url = env("SUPABASE_URL").replace(/\/$/, "");
-  const key = env("SUPABASE_PUBLISHABLE_KEY") || env("SUPABASE_ANON_KEY");
+  const url = supaUrl().replace(/\/$/, "");
+  const key = supaKey();
 
   const auth = String(req.headers?.authorization || "");
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
