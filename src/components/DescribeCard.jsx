@@ -102,12 +102,18 @@ export default function DescribeCard({ mode, useAi, onApply }) {
   };
 
   return (
-    <div style={{ marginBottom: 16, padding: 14, border: `1.5px solid ${TOKENS.hivisDeep}`, background: TOKENS.card }}>
+    <div style={{ marginBottom: 16, padding: 16, borderRadius: 14, border: `1px solid color-mix(in srgb, ${TOKENS.hivis} 55%, ${TOKENS.rule})`,
+      background: `linear-gradient(180deg, ${TOKENS.accentWash}, transparent 70%), ${TOKENS.card}`, boxShadow: TOKENS.shadowMd }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
-        <div className="ec-display" style={{ fontSize: 17, letterSpacing: "0.02em" }}>{copy.title}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span aria-hidden="true" style={{ display: "grid", placeItems: "center", width: 30, height: 30, borderRadius: 9, background: TOKENS.hivis, color: TOKENS.onHivis }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
+          </span>
+          <div className="ec-display" style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.01em" }}>{copy.title}</div>
+        </div>
         <span className="ec-mono" title={useAi ? "Uses the AI assistant on your plan" : "Runs on our own engine — free, instant, no AI credits"}
-          style={{ fontSize: 9, letterSpacing: "0.1em", padding: "2px 6px", background: useAi ? TOKENS.hivis : "transparent", color: useAi ? TOKENS.onHivis : TOKENS.steel, border: useAi ? "none" : `1px solid ${TOKENS.rule}` }}>
-          {useAi ? "AI" : "BUILT-IN · FREE"}
+          style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", padding: "3px 10px", borderRadius: 999, background: useAi ? TOKENS.emphasis : TOKENS.paperLight, color: useAi ? TOKENS.onEmphasis : TOKENS.steel, border: useAi ? "none" : `1px solid ${TOKENS.rule}` }}>
+          {useAi ? "AI" : "Built-in · free"}
         </span>
       </div>
       <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>

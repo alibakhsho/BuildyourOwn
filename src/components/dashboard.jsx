@@ -91,7 +91,7 @@ export function Dashboard({ onOpenJob, onSeeAll, onNewJob }) {
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="month" axisLine={false} tickLine={false}
-                    tick={{ fill: T.steel, fontSize: 10, fontFamily: "JetBrains Mono, monospace" }} />
+                    tick={{ fill: T.steel, fontSize: 10, fontFamily: "Plus Jakarta Sans, sans-serif" }} />
                   <YAxis hide />
                   <Tooltip
                     cursor={{ stroke: T.rule }}
@@ -112,7 +112,7 @@ export function Dashboard({ onOpenJob, onSeeAll, onNewJob }) {
               <BarChart data={m.stages} layout="vertical" margin={{ top: 0, right: 8, bottom: 0, left: 0 }}>
                 <XAxis type="number" hide />
                 <YAxis type="category" dataKey="name" width={74} axisLine={false} tickLine={false}
-                  tick={{ fill: T.steel, fontSize: 10, fontFamily: "JetBrains Mono, monospace" }} />
+                  tick={{ fill: T.steel, fontSize: 10, fontFamily: "Plus Jakarta Sans, sans-serif" }} />
                 <Tooltip
                   cursor={{ fill: T.paperLight }}
                   formatter={(v, _k, p) => [`${v} job${v === 1 ? "" : "s"} · ${cur}${fmt(p.payload.value)}`, "Stage"]}

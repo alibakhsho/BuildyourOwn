@@ -21,7 +21,7 @@ import {
 } from "./data/pricing-providers.js";
 import { RESIDENTIAL_PRESETS } from "./presets/residential-presets.js";
 import { HIGHRISE_PRESETS } from "./presets/highrise-presets.js";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, MotionConfig } from "framer-motion";
 import BackgroundScene from "./engine/BackgroundScene.jsx";
 import { chat as aiChat } from "./ai/client.js";
 import { listProjects, createProject, saveProject, deleteProject, duplicateProject, getProject } from "./state/projects.js";
@@ -64,11 +64,6 @@ import {
 /* Human-readable message for AI failures, shared by every AI feature */
 const aiErrMsg = (e) => e?.message || "Couldn't reach the AI service — check your connection.";
 
-const CARD_SHAPES = [
-  { borderRadius: 6 },
-  { clipPath: "polygon(10% 0, 90% 0, 100% 12%, 100% 88%, 90% 100%, 10% 100%, 0 88%, 0 12%)" },
-  { borderRadius: "4px 28px 4px 28px" },
-];
 
 /* ---- Tax presentation -------------------------------------------------
    Estimates are computed EXCLUSIVE of tax; `estimate.total` is always the
@@ -96,59 +91,69 @@ const inclusiveNote = (est, currency) =>
 /* The order is the real workflow, and it now opens where the work actually
    starts — with whatever the client already has in their hand. */
 const HOW_STEPS = [
-  { n: "01", title: "Bring your takeoff", body: "Drop in a spreadsheet, a SketchUp export, or a photo of the build plans. No file? Type the dimensions instead.",
+  { n: "01", title: "Describe it, or bring your plans", body: "Type the job the way you'd say it, or drop in a spreadsheet, SketchUp export or plan photo. No file needed.",
     icon: <path d="M24 30V6m0 24l-8-8m8 8l8-8M8 34v8h32v-8" /> },
-  { n: "02", title: "Watch it rise", body: "The 3D skeleton rebuilds the moment a slider moves. Play the construction sequence stage by stage.",
+  { n: "02", title: "Watch it go up in 3D", body: "The model rebuilds the moment anything changes — windows, rooms, roof and solar all match the estimate.",
     icon: <path d="M10 42V22m14 20V12m14 30V28M6 42h36M10 22l14-10 14 16" /> },
   { n: "03", title: "See every line priced", body: "Materials, trade-by-trade labour, equipment hire and margin — itemised against live AU, US or UK rates.",
     icon: <path d="M8 8h24l8 8v24H8V8zm24 0v8h8M14 22h20M14 29h20M14 36h12" /> },
-  { n: "04", title: "Send the quote", body: "A client-ready quote with one GST-inclusive total. Print it, save it as a PDF, or hand it to the job.",
+  { n: "04", title: "Send it, then run the job", body: "A client-ready quote with one tax-inclusive total — then hand it to Site Office for budgets, POs and claims.",
     icon: <path d="M6 12h36v24H6V12zm0 0l18 13 18-13M14 42h20" /> },
 ];
 
 
 
 function HowItWorksSection() {
+  /* A connected process, not four floating cards: numbered nodes joined by a
+     line that draws in as the band scrolls into view. Motion is functional
+     (it shows sequence) and runs once; reduced motion skips it via
+     MotionConfig. */
+  const ease = [0.2, 0.8, 0.2, 1];
   return (
-    <section id="how" style={{ background: "rgba(18, 22, 28, 0.82)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)", borderTop: `3px solid ${TOKENS.hivis}`, borderBottom: `1px solid rgba(255,255,255,0.08)` }}>
-      <div style={{ maxWidth: 1480, margin: "0 auto", padding: "72px 24px 64px" }}>
+    <section id="how" style={{ background: "#0F172A", color: "#F1F5F9" }}>
+      <div style={{ maxWidth: 1240, margin: "0 auto", padding: "88px 24px 80px" }}>
         <Reveal variant="fade-up">
-          <div className="ec-eyebrow" style={{ marginBottom: 8, color: TOKENS.hivis }}>How it works</div>
-          <h2 className="ec-display" style={{ fontSize: "clamp(30px, 4.5vw, 48px)", lineHeight: 1, margin: 0, color: "#f2f4f7", maxWidth: 760 }}>
-            Four steps from <span style={{ color: TOKENS.hivis }}>idea</span> to a defendable number.
+          <div className="ec-eyebrow" style={{ marginBottom: 10, color: TOKENS.hivis }}>How it works</div>
+          <h2 className="ec-display" style={{ fontSize: "clamp(28px, 3.6vw, 44px)", lineHeight: 1.1, margin: 0, maxWidth: 760, letterSpacing: "-0.03em" }}>
+            Four steps from an idea to a number you can defend.
           </h2>
-          <p style={{ marginTop: 14, fontSize: 15, lineHeight: 1.6, color: "rgba(242,244,247,0.66)", maxWidth: 620, marginBottom: 36 }}>
-            No login, no upload, no waiting. Type in your dimensions and watch everything else compute live.
+          <p style={{ marginTop: 14, fontSize: 16, lineHeight: 1.6, color: "rgba(241,245,249,0.72)", maxWidth: 620, marginBottom: 44 }}>
+            No login and no waiting — everything recalculates live as you work.
           </p>
         </Reveal>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
-          {HOW_STEPS.map((s, i) => (
-            <motion.div key={s.n}
-              initial={{ opacity: 0, x: i % 2 ? 90 : -90, y: 40, rotate: i % 2 ? 6 : -6 }}
-              whileInView={{ opacity: 1, x: 0, y: 0, rotate: 0 }}
-              viewport={{ once: true, amount: 0.3 }}
-              transition={{ type: "spring", stiffness: 70, damping: 14, delay: (i % 4) * 0.08 }}
-              whileHover={{ y: -8, rotate: i % 2 ? -1.5 : 1.5, boxShadow: "0 18px 40px rgba(0,0,0,0.45)" }}
-              style={{
-                background: "rgba(255,255,255,0.055)", border: "1px solid rgba(255,255,255,0.13)",
-                padding: "24px 20px", position: "relative", overflow: "hidden",
-                ...CARD_SHAPES[i % CARD_SHAPES.length],
-              }}>
-              <span className="ec-mono" style={{ position: "absolute", top: 12, right: 14, fontSize: 11, letterSpacing: "0.18em", color: TOKENS.hivis, fontWeight: 700 }}>{s.n}</span>
-              <motion.svg width="48" height="48" viewBox="0 0 48 48" fill="none"
-                stroke={TOKENS.hivis} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
-                animate={{ y: [0, -5, 0] }}
-                transition={{ duration: 3 + (i % 3), repeat: Infinity, ease: "easeInOut", delay: i * 0.3 }}
-                style={{ display: "block", marginBottom: 14 }}>
-                {s.icon}
-              </motion.svg>
-              <h3 className="ec-display" style={{ fontSize: 21, margin: "0 0 6px", color: "#f2f4f7", letterSpacing: "0.01em" }}>{s.title}</h3>
-              {/* 0.62 alpha measured 4.31:1 on this band — just under the 4.5
-                  AA floor for 13px body copy. 0.72 clears it at 5.2:1. */}
-              <p style={{ fontSize: 13, lineHeight: 1.55, color: "rgba(242,244,247,0.72)", margin: 0 }}>{s.body}</p>
-            </motion.div>
-          ))}
+        <div style={{ position: "relative" }}>
+          {/* the process line behind the step numbers (desktop) */}
+          <motion.div aria-hidden="true" className="how-line"
+            initial={{ scaleX: 0 }} whileInView={{ scaleX: 1 }} viewport={{ once: true, amount: 0.4 }}
+            transition={{ duration: 1.1, ease }}
+            style={{ position: "absolute", left: 22, right: 22, top: 21, height: 2, transformOrigin: "left",
+              background: `linear-gradient(90deg, ${TOKENS.hivis}, rgba(245,197,24,0.25))` }} />
+          <div className="how-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18 }}>
+            {HOW_STEPS.map((s, i) => (
+              <motion.div key={s.n}
+                initial={{ opacity: 0, y: 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.3 }}
+                transition={{ duration: 0.45, ease, delay: 0.15 + i * 0.12 }}>
+                <div style={{ position: "relative", width: 44, height: 44, borderRadius: 999, display: "grid", placeItems: "center",
+                  background: "#0F172A", border: `2px solid ${TOKENS.hivis}`, color: TOKENS.hivis, fontWeight: 800, fontSize: 14, marginBottom: 20 }}>
+                  {s.n}
+                </div>
+                <div className="how-card" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 16, padding: "22px 20px", height: "calc(100% - 64px)" }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, display: "grid", placeItems: "center", background: "rgba(245,197,24,0.12)", marginBottom: 16 }}>
+                    <svg width="26" height="26" viewBox="0 0 48 48" fill="none" stroke={TOKENS.hivis} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{s.icon}</svg>
+                  </div>
+                  <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 8px", letterSpacing: "-0.01em" }}>{s.title}</h3>
+                  <p style={{ fontSize: 14, lineHeight: 1.6, color: "rgba(241,245,249,0.72)", margin: 0 }}>{s.body}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
         </div>
+        <style>{`
+          .how-card { transition: border-color .25s ease, background .25s ease, transform .25s cubic-bezier(.2,.8,.2,1); }
+          .how-card:hover { border-color: rgba(245,197,24,0.45); background: rgba(255,255,255,0.06); transform: translateY(-3px); }
+          @media (max-width: 900px) { .how-grid { grid-template-columns: 1fr 1fr !important; } .how-line { display: none; } }
+          @media (max-width: 560px) { .how-grid { grid-template-columns: 1fr !important; } }
+        `}</style>
       </div>
     </section>
   );
@@ -1223,12 +1228,12 @@ const CHART_COLORS = ["#D9A514", "#C25A1C", "#5B7C99", "#8A8F98", "#3A4652", "#B
 function StatTile({ label, value, sub, icon, i }) {
   return (
     <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.35 }}
-      className="ec-card" style={{ padding: "18px 20px", borderTop: `3px solid ${TOKENS.hivis}` }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <span className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.14em", color: TOKENS.steel, textTransform: "uppercase" }}>{label}</span>
-        <span style={{ color: TOKENS.hivisInk, display: "flex" }}>{icon}</span>
+      className="ec-card" style={{ padding: "18px 20px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <span className="ec-eyebrow">{label}</span>
+        <span style={{ color: TOKENS.hivisInk, display: "grid", placeItems: "center", width: 34, height: 34, borderRadius: 10, background: TOKENS.accentWash }}>{icon}</span>
       </div>
-      <div className="ec-display" style={{ fontSize: 30, lineHeight: 1.1, marginTop: 10 }}>{value}</div>
+      <div className="ec-display ec-mono" style={{ fontSize: 28, lineHeight: 1.1, marginTop: 12 }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: TOKENS.inkSoft, marginTop: 4 }}>{sub}</div>}
     </motion.div>
   );
@@ -1393,26 +1398,33 @@ function ProjectsScreen({ onOpen, onNew, onOpenSiteOffice }) {
           <div className="ec-eyebrow" style={{ marginBottom: 12 }}>All projects</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
             {projects.map((p, i) => (
-              <motion.div key={p.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 8) * 0.04 }}
-                className="ec-card" style={{ padding: 18, cursor: "pointer", borderTop: `3px solid ${TOKENS.hivis}` }}
-                onClick={() => onOpen(getProject(p.id) || p)}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-                  <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
-                  <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel, textAlign: "right" }}>
+              <motion.div key={p.id} initial={{ opacity: 0, y: 16, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ delay: Math.min(i, 8) * 0.05, duration: 0.32, ease: [0.2, 0.8, 0.2, 1] }}
+                className="ec-card is-interactive" role="button" tabIndex={0} aria-label={`Open ${p.name}`}
+                style={{ padding: 18, cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}
+                onClick={() => onOpen(getProject(p.id) || p)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(getProject(p.id) || p); } }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 600, color: TOKENS.inkSoft, background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, padding: "3px 10px", borderRadius: 999 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: 99, background: { residential: TOKENS.hivisDeep, materials: TOKENS.ember, multi: TOKENS.ok, highrise: TOKENS.steel }[p.buildMode] || TOKENS.steel }} />
                     {modeLabel[p.buildMode] || p.buildMode}
-                    {localOnly.has(p.id) && <><br /><span title="Your plan's cloud slots are full — this one is saved in this browser only">THIS DEVICE ONLY</span></>}
                   </span>
+                  {localOnly.has(p.id) && (
+                    <span title="Your plan's cloud slots are full — this one is saved in this browser only"
+                      style={{ fontSize: 11, fontWeight: 600, color: TOKENS.emberInk }}>This device only</span>
+                  )}
                 </div>
-                <div className="ec-display" style={{ fontSize: 22, color: TOKENS.hivisInk, marginTop: 8 }}>
+                <div className="ec-display" style={{ fontSize: 17, fontWeight: 700, marginTop: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                <div className="ec-display ec-mono" style={{ fontSize: 24, marginTop: 2 }}>
                   {est[p.id]?.total > 0 ? `${currencySymbol(p.region || "AU")}${fmt(est[p.id].total)}` : "—"}
                 </div>
-                <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 4 }}>
+                <div style={{ fontSize: 12, color: TOKENS.steel }}>
                   {est[p.id]?.gfaM2 > 0 ? `${fmt(est[p.id].gfaM2)} m² · ` : ""}{p.region} · updated {new Date(p.updatedAt).toLocaleDateString()}
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px" }}
+                <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${TOKENS.rule}` }}>
+                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 12.5, minHeight: 34, padding: "5px 12px" }}
                     onClick={(e) => { e.stopPropagation(); duplicateProject(p.id); refresh(); }}>Duplicate</button>
-                  <button className="ec-btn ec-btn-ghost" style={{ fontSize: 10, padding: "4px 10px", color: TOKENS.emberInk }}
+                  <button className="ec-btn ec-btn-ghost ec-btn-danger" style={{ fontSize: 12.5, minHeight: 34, padding: "5px 12px" }}
                     onClick={(e) => { e.stopPropagation(); if (confirm(`Delete "${p.name}"?`)) { deleteProject(p.id); refresh(); } }}>Delete</button>
                 </div>
               </motion.div>
@@ -1462,28 +1474,30 @@ function stageTabs(stage, buildMode) {
 }
 
 function WorkflowStepper({ stage, onStage, buildMode }) {
-  /* Not a linear stepper — a jump-anywhere tab row. Every section works
-     independently at any point, so there's no numbering, no connector line,
-     and no "completed" state; only the active section is highlighted. */
+  /* Not a linear stepper — a jump-anywhere segmented control. Every page
+     works independently, so there's no numbering or "completed" state; the
+     active page gets a raised pill that slides between tabs (shared
+     layoutId), the way enterprise tools signal "you are here". */
   const stages = WORKFLOW.filter((s) => !(buildMode === "materials" && s.id === "timeline"));
   return (
-    <div style={{ maxWidth: 1480, margin: "0 auto", padding: "16px 24px 0" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
+    <div style={{ maxWidth: 1480, margin: "0 auto", padding: "10px 24px 12px" }}>
+      <div role="tablist" aria-label="Project pages" className="ec-segment">
         {stages.map((s) => {
           const active = s.id === stage;
           return (
-            <motion.button key={s.id} whileHover={{ y: -2 }} onClick={() => onStage(s.id)}
-              className="ec-mono" aria-current={active ? "page" : undefined}
-              style={{
-                flexShrink: 0, display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
-                padding: "8px 14px", fontSize: 11, letterSpacing: "0.08em", fontWeight: 700,
-                border: `1px solid ${active ? TOKENS.emphasis : TOKENS.rule}`,
-                background: active ? TOKENS.emphasis : TOKENS.paperLight,
-                color: active ? TOKENS.onEmphasis : TOKENS.ink,
-              }}>
-              <Icon name={`workflow.${s.id}`} size={15} strokeWidth={2.2} />
-              {s.label}
-            </motion.button>
+            <button key={s.id} role="tab" aria-selected={active} onClick={() => onStage(s.id)}
+              className={"ec-segment-btn" + (active ? " is-active" : "")}>
+              {active && (
+                <motion.span layoutId="ws-stage-pill" className="ec-segment-pill"
+                  transition={{ type: "spring", stiffness: 520, damping: 40, mass: 0.8 }} />
+              )}
+              <span style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 7 }}>
+                <span style={{ display: "inline-flex", color: active ? TOKENS.hivisInk : "inherit" }}>
+                  <Icon name={`workflow.${s.id}`} size={16} strokeWidth={2} />
+                </span>
+                {s.label}
+              </span>
+            </button>
           );
         })}
       </div>
@@ -1605,7 +1619,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
               }}>{m.content}</div>
               {(m.actions || []).map((a, j) => (
                 <button key={j} className="ec-btn ec-btn-hivis" style={{ marginTop: 6, fontSize: 11 }} onClick={() => applyAction(a)}>
-                  ⚡ Apply: {a.label || a.type}
+                  Apply: {a.label || a.type}
                 </button>
               ))}
             </motion.div>
@@ -1625,7 +1639,7 @@ function AICrewSection({ projectId, projectName, buildMode, region, spec, hrSpec
               value={input} onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
               style={{ flex: 1, minWidth: 0, border: "none", background: "transparent", outline: "none",
-                fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: TOKENS.ink, padding: "0 4px" }} />
+                fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, color: TOKENS.ink, padding: "0 4px" }} />
             <motion.button type="button" whileTap={{ scale: 0.9 }} disabled={busy} onClick={() => send()} aria-label="Send message"
               style={{ width: 38, height: 38, flexShrink: 0, borderRadius: 13, border: "none", cursor: busy ? "default" : "pointer",
                 background: input.trim() && !busy ? "linear-gradient(90deg, #F5C518 0%, #F58E1A 100%)" : TOKENS.rule,
@@ -1838,14 +1852,25 @@ export default function App() {
     openProject(p);
   }, [region, openProject, can]);
 
-  /* Autosave the open project whenever its data changes (debounced) */
+  /* Autosave the open project whenever its data changes (debounced).
+     Only while the project is actually open: projectId outlives the
+     workspace, and saving from the Dashboard used to write the Dashboard's
+     region / build-mode switches into whichever project was opened last.
+     Leaving the workspace flushes a pending save rather than dropping it. */
+  const pendingSave = useRef(null);
   useEffect(() => {
-    if (!projectId) return;
-    const t = setTimeout(() => {
-      saveProject(projectId, { spec, hrSpec, matSpec, mdSpec, region, buildMode, name: projectName });
-    }, 700);
+    if (!projectId || screen !== "workspace") return;
+    const payload = { spec, hrSpec, matSpec, mdSpec, region, buildMode, name: projectName };
+    pendingSave.current = { id: projectId, payload };
+    const t = setTimeout(() => { saveProject(projectId, payload); pendingSave.current = null; }, 700);
     return () => clearTimeout(t);
-  }, [projectId, spec, hrSpec, matSpec, region, buildMode, projectName]);
+  }, [projectId, screen, spec, hrSpec, matSpec, mdSpec, region, buildMode, projectName]);
+  useEffect(() => {
+    if (screen === "workspace" || !pendingSave.current) return;
+    const { id, payload } = pendingSave.current;
+    pendingSave.current = null;
+    saveProject(id, payload);
+  }, [screen]);
   const [ratesVersion, setRatesVersion] = useState(0); // bumped after equipment rate overrides change
   const [projectNo] = useState(genProjectNo);
   const [autoRotate, setAutoRotate] = useState(true);
@@ -2235,9 +2260,10 @@ export default function App() {
   const currency = currencySymbol(region);
 
   return (
-    <div style={{ minHeight: "100vh", color: TOKENS.ink, fontFamily: "'Inter', sans-serif" }}>
+    <MotionConfig reducedMotion="user">
+    <div style={{ minHeight: "100vh", color: TOKENS.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       {/* Ambient 3D: structure endlessly assembling & breaking apart behind the app */}
-      <BackgroundScene opacity={0.45} />
+      <BackgroundScene opacity={0.16} />
       {/* Content layer — translucent paper so the scene ghosts through between cards */}
       <div style={{ position: "relative", zIndex: 1, background: TOKENS.contentVeil }}>
       {/* Inline style block for fonts + custom colors (Tailwind core only supports utility classes) */}
@@ -2267,96 +2293,125 @@ export default function App() {
           color: var(--ink);
         }
         html { scroll-behavior: smooth; }
-        body { background: var(--paper); overflow-x: hidden; }
+        body { background: var(--paper); overflow-x: hidden; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
         html { overflow-x: hidden; max-width: 100%; }
-        .ec-display { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: 0.01em; }
-        .ec-mono { font-family: 'JetBrains Mono', monospace; font-feature-settings: "tnum"; }
-        .ec-eyebrow { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--steel); }
+        body, button, input, select, textarea { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+
+        /* ---- Type: one enterprise sans (Plus Jakarta Sans) for everything.
+           Numbers use tabular figures so columns of money line up. ---- */
+        .ec-display { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-weight: 800; letter-spacing: -0.02em; }
+        .ec-mono { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; font-feature-settings: "tnum", "lnum"; font-variant-numeric: tabular-nums; }
+        .ec-code { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+        .ec-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--steel); }
         .ec-rule { border-top: 1px solid var(--rule); }
-        .ec-rule-strong { border-top: 2px solid var(--ink); }
+        .ec-rule-strong { border-top: 1px solid var(--rule); }
         .ec-paper {
           background-image:
             linear-gradient(var(--grid) 1px, transparent 1px),
             linear-gradient(90deg, var(--grid) 1px, transparent 1px);
           background-size: 24px 24px;
         }
+
+        /* ---- Surfaces: soft layered elevation, 14px corners. Interactive
+           cards lift on hover; static ones only sharpen their edge. ---- */
         .ec-card {
           background: var(--card);
           border: 1px solid var(--rule);
-          transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+          border-radius: 14px;
+          box-shadow: var(--shadow-sm);
+          transition: border-color .2s ease, box-shadow .25s ease, transform .25s cubic-bezier(.2,.8,.2,1);
         }
-        .ec-card:hover { border-color: var(--ink); }
+        .ec-card:hover { box-shadow: var(--shadow-md); }
+        .ec-card[role="button"]:hover, .ec-card.is-interactive:hover, .ec-card[style*="cursor: pointer"]:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--hivis) 55%, var(--rule)); }
+
         .ec-tag {
           display: inline-flex; align-items: center; gap: 6px;
-          padding: 2px 8px;
-          background: var(--ink); color: var(--paper);
-          font-family: 'JetBrains Mono', monospace; font-size: 10px;
-          letter-spacing: 0.12em; text-transform: uppercase;
+          padding: 3px 10px;
+          border-radius: 999px;
+          background: var(--emphasis); color: var(--on-emphasis);
+          font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
         }
         /* --on-hivis, not --ink: safety yellow is a light colour in BOTH
            themes, so its text stays near-black. Using --ink here would flip
            to near-white on dark and give yellow-on-white. */
         .ec-tag-hivis { background: var(--hivis); color: var(--on-hivis); }
+
+        /* ---- Fields ---- */
         .ec-input, .ec-select {
           width: 100%;
-          background: var(--paper-light);
+          background: var(--card);
           border: 1px solid var(--rule);
-          padding: 9px 11px;
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 13px;
+          border-radius: 10px;
+          padding: 10px 12px;
+          min-height: 42px;
+          font-size: 14px;
+          font-variant-numeric: tabular-nums;
           color: var(--ink);
           outline: none;
-          transition: border-color 0.15s, background 0.15s;
+          box-shadow: inset 0 1px 1px rgba(15,23,42,0.03);
+          transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
         }
-        .ec-input:hover, .ec-select:hover { background: var(--card); }
-        .ec-input:focus, .ec-select:focus { border-color: var(--ink); background: var(--card); }
+        .ec-input::placeholder { color: var(--steel); opacity: .85; }
+        .ec-input:hover, .ec-select:hover { border-color: color-mix(in srgb, var(--ink) 25%, var(--rule)); }
+        .ec-input:focus, .ec-select:focus { border-color: var(--hivis-deep); box-shadow: 0 0 0 3px var(--focus-ring); }
         .ec-label {
-          font-family: 'JetBrains Mono', monospace;
-          font-size: 10px;
-          letter-spacing: 0.14em;
-          text-transform: uppercase;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.01em;
           color: var(--ink-soft);
-          margin-bottom: 5px;
+          margin-bottom: 6px;
           display: block;
         }
+        input[type=range] { accent-color: var(--hivis-deep); }
+
+        /* ---- Buttons: 10px corners, sentence case, press feedback ---- */
         .ec-btn {
-          display: inline-flex; align-items: center; gap: 6px;
+          display: inline-flex; align-items: center; gap: 8px;
+          min-height: 40px;
           padding: 9px 16px;
-          background: var(--ink); color: var(--paper);
-          font-family: 'Barlow Condensed', sans-serif;
+          border-radius: 10px;
+          background: var(--emphasis); color: #fff;
           font-weight: 600;
           font-size: 14px;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          border: none;
+          letter-spacing: 0;
+          border: 1px solid transparent;
           cursor: pointer;
-          transition: background 0.18s, transform 0.18s;
+          box-shadow: var(--shadow-sm);
+          transition: background .18s ease, box-shadow .2s ease, transform .12s ease, border-color .18s ease, color .18s ease;
         }
-        .ec-btn:hover { background: #000; }
-        .ec-btn:active { transform: translateY(1px); }
+        .ec-btn:hover { background: color-mix(in srgb, var(--emphasis) 86%, #000); box-shadow: var(--shadow-md); }
+        .ec-btn:active { transform: scale(0.98); }
+        .ec-btn:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; transform: none; }
         .ec-btn-hivis { background: var(--hivis); color: var(--on-hivis); }
         .ec-btn-hivis:hover { background: var(--hivis-deep); }
-        .ec-btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
-        .ec-btn-ghost:hover { background: var(--ink); color: var(--paper); }
+        .ec-btn-ghost { background: var(--card); color: var(--ink); border: 1px solid var(--rule); }
+        .ec-btn-ghost:hover { background: var(--paper-light); border-color: color-mix(in srgb, var(--ink) 30%, var(--rule)); }
+        .ec-btn-danger { color: var(--alert); }
+        .ec-btn-danger:hover { color: var(--alert); border-color: var(--alert); background: var(--error-wash); }
+        .ec-btn-hivis:disabled { background: color-mix(in srgb, var(--hivis) 38%, var(--card)); color: var(--on-hivis); opacity: .75; }
         /* Pressed/selected ghost button. This exists as a class because doing
            it with an inline colour beat the :hover rule above on specificity
            — hovering an unselected nav button gave it an ink background while
            the inline colour kept the label ink too, i.e. invisible. */
         .ec-btn-ghost-on,
-        .ec-btn-ghost-on:hover { background: var(--ink); color: var(--paper); }
-        /* The strip scrolls sideways rather than wrapping. Each tab must keep
-           its natural width — flex items shrink by default, and combined with
-           white-space:nowrap that squeezed every box to ~50px while the text
-           kept full width, so labels overlapped their neighbours and the tap
-           target no longer matched the words you were aiming at. */
-        .ec-tabstrip { display: flex; gap: 0; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scroll-snap-type: x proximity; }
-        /* Hide the scrollbar without losing the scroll — the underline rule is
-           the visual boundary here and a gutter breaks it. */
-        .ec-tabstrip { scrollbar-width: none; -ms-overflow-style: none; }
+        .ec-btn-ghost-on:hover { background: var(--accent-wash); color: var(--ink); border-color: color-mix(in srgb, var(--hivis) 60%, var(--rule)); }
+
+        /* ---- Tabs: the strip scrolls sideways rather than wrapping. Each tab
+           keeps its natural width — flex items shrink by default, and with
+           white-space:nowrap that squeezed every box while the text kept full
+           width, so labels overlapped their neighbours. ---- */
+        .ec-tabstrip { display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scrollbar-width: none; -ms-overflow-style: none; }
         .ec-tabstrip::-webkit-scrollbar { display: none; }
-        .ec-tab { flex: 0 0 auto; scroll-snap-align: start; display: flex; align-items: center; min-height: 44px; padding: 11px 18px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--steel); cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.18s, border-bottom-color 0.18s; white-space: nowrap; -webkit-tap-highlight-color: transparent; user-select: none; }
+        .ec-tab { position: relative; flex: 0 0 auto; scroll-snap-align: start; display: flex; align-items: center; min-height: 44px; padding: 10px 14px; font-weight: 600; font-size: 14px; color: var(--steel); cursor: pointer; border-bottom: 2px solid transparent; transition: color .18s ease, border-bottom-color .18s ease; white-space: nowrap; -webkit-tap-highlight-color: transparent; user-select: none; }
         .ec-tab:hover { color: var(--ink); }
         .ec-tab-active { color: var(--ink); border-bottom-color: var(--hivis); }
+        /* Workspace segmented control */
+        .ec-segment { display: inline-flex; gap: 2px; padding: 4px; max-width: 100%; overflow-x: auto; scrollbar-width: none; background: var(--paper-light); border: 1px solid var(--rule); border-radius: 12px; }
+        .ec-segment::-webkit-scrollbar { display: none; }
+        .ec-segment-btn { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; min-height: 38px; padding: 8px 14px; border: none; background: transparent; border-radius: 9px; font-size: 13.5px; font-weight: 600; color: var(--steel); cursor: pointer; transition: color .18s ease; white-space: nowrap; }
+        .ec-segment-btn:hover { color: var(--ink); }
+        .ec-segment-btn.is-active { color: var(--ink); }
+        .ec-segment-pill { position: absolute; inset: 0; background: var(--card); border: 1px solid var(--rule); border-radius: 9px; box-shadow: var(--shadow-sm); }
         .ec-link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--hivis); text-decoration-thickness: 2px; text-underline-offset: 3px; }
         .ec-link:hover { text-decoration-color: var(--ink); }
 
@@ -2367,7 +2422,12 @@ export default function App() {
         html.byo-hammer.byo-hammer-down, html.byo-hammer.byo-hammer-down * {
           cursor: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyOCIgaGVpZ2h0PSIyOCIgdmlld0JveD0iMCAwIDI4IDI4Ij48ZyB0cmFuc2Zvcm09InJvdGF0ZSgtMTYgMTQgMTQpIj48cmVjdCB4PSI0IiB5PSI3IiB3aWR0aD0iMTUiIGhlaWdodD0iNiIgcng9IjEuNiIgZmlsbD0iIzNCNDE0QSIgc3Ryb2tlPSIjMTQxNzFBIiBzdHJva2Utd2lkdGg9IjEuMyIvPjxyZWN0IHg9IjEwIiB5PSIxMi41IiB3aWR0aD0iNCIgaGVpZ2h0PSIxNCIgcng9IjEuMyIgZmlsbD0iI0Q5QUMwMCIgc3Ryb2tlPSIjMTQxNzFBIiBzdHJva2Utd2lkdGg9IjEuMyIvPjwvZz48L3N2Zz4=") 8 9, auto !important;
         }
-        /* keep text fields usable — real text cursor when typing */
+        /* Interactive elements keep the standard pointer: the hammer must not
+           hide what's clickable. */
+        html.byo-hammer a, html.byo-hammer button:not(:disabled), html.byo-hammer select,
+        html.byo-hammer [role="button"], html.byo-hammer [role="tab"], html.byo-hammer label,
+        html.byo-hammer .ec-tab, html.byo-hammer [style*="cursor: pointer"] { cursor: pointer !important; }
+                /* keep text fields usable — real text cursor when typing */
         html.byo-hammer input:not([type=range]):not([type=checkbox]):not([type=radio]),
         html.byo-hammer textarea,
         html.byo-hammer [contenteditable="true"] { cursor: text !important; }
@@ -2408,7 +2468,7 @@ export default function App() {
         @keyframes blink { 50% { opacity: 0.3; } }
         .ec-live { animation: blink 1.4s infinite; }
         /* keyboard focus */
-        button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--hivis); outline-offset: 2px; }
+        button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible, [role="button"]:focus-visible, [role="tab"]:focus-visible { outline: 2px solid var(--hivis-deep); outline-offset: 2px; box-shadow: 0 0 0 4px var(--focus-ring); }
         /* phones: the trust badge repeats the line under the buttons — drop it so the hero fits */
         @media (max-width: 560px) { .ec-hero-badge { display: none !important; } }
         @media (prefers-reduced-motion: reduce) {
@@ -2455,7 +2515,7 @@ export default function App() {
                 "what will this cost" but "how is this job actually going". */}
             <button className={"ec-btn ec-btn-ghost" + (screen === "manage" ? " ec-btn-ghost-on" : "")}
               onClick={() => { if (!can.siteOffice) { setUpgrade("siteOffice"); return; } setManageJobId(null); setScreen("manage"); }}>
-              Site Office{can.siteOffice ? "" : " 🔒"}
+              Site Office{can.siteOffice ? null : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-label="Locked" style={{ marginLeft: 6, opacity: 0.8 }}><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>}
             </button>
             {screen === "workspace" && (
               <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
@@ -2470,32 +2530,14 @@ export default function App() {
           <div className="hdr-actions" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             {screen === "projects" && (
               <>
-                <div style={{ display: "flex", border: `1px solid ${TOKENS.emberDeep}`, borderRadius: 2, overflow: "hidden" }}>
-                  {BUILD_MODES.map(([m, label]) => (
-                    <button key={m} title={can.canUseMode(m) ? label : `${label} — upgrade to unlock`}
-                      onClick={() => { if (!can.canUseMode(m)) { setUpgrade(m); return; } setBuildMode(m); setTab("estimate"); }}
-                      className="ec-mono"
-                      style={{
-                        padding: "6px 12px",
-                        background: buildMode === m ? TOKENS.emberDeep : "transparent",
-                        color: buildMode === m ? TOKENS.onEmber : TOKENS.emberInk,
-                        border: "none", cursor: "pointer",
-                        fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
-                        opacity: can.canUseMode(m) ? 1 : 0.55,
-                      }}>{label}{can.canUseMode(m) ? "" : " 🔒"}</button>
-                  ))}
-                </div>
-                <div style={{ display: "flex", border: `1px solid ${TOKENS.ink}` }}>
+                <div className="ec-segment" role="group" aria-label="Region">
                   {["AU","US","UK"].map((r) => (
-                    <button key={r} onClick={() => setRegion(r)}
-                      className="ec-mono"
-                      style={{
-                        padding: "5px 10px",
-                        background: region === r ? TOKENS.ink : "transparent",
-                        color: region === r ? TOKENS.paper : TOKENS.ink,
-                        border: "none", cursor: "pointer",
-                        fontSize: 10, letterSpacing: "0.12em",
-                      }}>{r}</button>
+                    <button key={r} onClick={() => setRegion(r)} aria-pressed={region === r}
+                      className={"ec-segment-btn" + (region === r ? " is-active" : "")}
+                      style={{ minHeight: 34, padding: "6px 11px", fontSize: 12.5 }}>
+                      {region === r && <motion.span layoutId="hdr-region-pill" className="ec-segment-pill" transition={{ type: "spring", stiffness: 520, damping: 40 }} />}
+                      <span style={{ position: "relative" }}>{r}</span>
+                    </button>
                   ))}
                 </div>
               </>
@@ -2574,7 +2616,9 @@ export default function App() {
 
       {/* ============== MAIN GRID (estimator tool) ============== */}
       {screen === "workspace" && !["ai", "proposal"].includes(stage) && (
-      <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", display: "grid", gridTemplateColumns: stage === "estimate" ? "minmax(320px, 380px) 1fr" : "1fr", gap: 28 }} className={"grid-responsive" + (stage === "three_d" ? " stage-3d" : "")}>
+      <motion.main key={"page-" + stage} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.26, ease: [0.2, 0.8, 0.2, 1] }}
+        id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", display: "grid", gridTemplateColumns: stage === "estimate" ? "minmax(320px, 380px) 1fr" : "1fr", gap: 28 }} className={"grid-responsive" + (stage === "three_d" ? " stage-3d" : "")}>
         <style>{`
           main.grid-responsive { box-sizing: border-box; }
           main.grid-responsive * { min-width: 0; }
@@ -2615,27 +2659,21 @@ export default function App() {
             {!(buildMode === "residential" && spec.importedLines && spec.importedLines.length > 0) && (
               <DescribeCard key={buildMode} mode={buildMode} useAi={can.ai} onApply={applyDescribe} />
             )}
-            <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-              <button onClick={clearAll}
-                className="ec-mono"
-                style={{ flex: 1, padding: "8px 10px", border: `1px solid ${TOKENS.alert}`, background: "transparent", color: TOKENS.alert, cursor: "pointer", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = TOKENS.alert; e.currentTarget.style.color = "#fff"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = TOKENS.alert; }}>
-                ⨯ Clear all figures
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <button onClick={resetDefaults} className="ec-btn ec-btn-ghost" style={{ flex: 1, justifyContent: "center", fontSize: 13 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>
+                Reset to sample
               </button>
-              <button onClick={resetDefaults}
-                className="ec-mono"
-                style={{ flex: 1, padding: "8px 10px", border: `1px solid ${TOKENS.ink}`, background: "transparent", color: TOKENS.ink, cursor: "pointer", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = TOKENS.ink; e.currentTarget.style.color = "#fff"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = TOKENS.ink; }}>
-                ↺ Reset to sample
+              <button onClick={clearAll} className="ec-btn ec-btn-ghost ec-btn-danger" style={{ flex: 1, justifyContent: "center", fontSize: 13 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+                Clear all figures
               </button>
             </div>
             {buildMode !== "materials" && (
-              <select className="ec-input ec-mono" defaultValue=""
-                style={{ width: "100%", marginBottom: 16, fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase" }}
+              <select className="ec-select" defaultValue="" aria-label="Load a building preset"
+                style={{ width: "100%", marginBottom: 16 }}
                 onChange={(e) => { applyPreset(e.target.value); e.target.value = ""; }}>
-                <option value="" disabled>▤ Load a building preset…</option>
+                <option value="" disabled>Load a building preset…</option>
                 {(buildMode === "highrise" ? HIGHRISE_PRESETS : RESIDENTIAL_PRESETS).map((p) => (
                   <option key={p.id} value={p.id}>{p.label}</option>
                 ))}
@@ -2945,7 +2983,7 @@ export default function App() {
               </motion.div>
           </div>
         </section>
-      </main>
+      </motion.main>
       )}
 
       {/* ============== AI CREW STAGE ============== */}
@@ -2992,6 +3030,7 @@ export default function App() {
       </footer>
       </div>
     </div>
+    </MotionConfig>
   );
 }
 
@@ -3023,7 +3062,7 @@ function RoomScheduleCard({ spec, setSpec }) {
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
               <input className="ec-input" style={{ flex: 1 }} value={r.name} onChange={(e) => updateRoom(r.id, { name: e.target.value })} />
               <button onClick={() => removeRoom(r.id)} title="Remove room"
-                style={{ width: 34, flexShrink: 0, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", fontSize: 16 }}>×</button>
+                style={{ width: 34, flexShrink: 0, border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.alert, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 16 }}>×</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
               <select className="ec-select" value={r.type} onChange={(e) => updateRoom(r.id, { type: e.target.value, floorFinish: ROOM_DEFAULT_FINISH[e.target.value] || r.floorFinish })}>
@@ -3167,13 +3206,11 @@ function ThemeToggle({ theme, onToggle }) {
   return (
     <button
       onClick={onToggle}
-      className="ec-mono"
+      className="ec-btn ec-btn-ghost"
       title={`Switch to ${goingDark ? "dark" : "light"} mode`}
       aria-label={`Switch to ${goingDark ? "dark" : "light"} mode`}
       style={{
-        display: "flex", alignItems: "center", gap: 6, cursor: "pointer",
-        padding: "5px 10px", fontSize: 10, letterSpacing: "0.1em", fontWeight: 700,
-        border: `1px solid ${TOKENS.rule}`, background: TOKENS.card, color: TOKENS.inkSoft,
+        width: 40, height: 40, padding: 0, justifyContent: "center", color: TOKENS.inkSoft,
       }}
     >
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -3187,7 +3224,6 @@ function ThemeToggle({ theme, onToggle }) {
           </>
         )}
       </svg>
-      {goingDark ? "DARK" : "LIGHT"}
     </button>
   );
 }
@@ -3468,7 +3504,7 @@ Respond as ONLY JSON, no markdown:
               <span className="ec-label">I want to build…</span>
               <select className="ec-select" value={buildId} onChange={(e) => { setBuildId(e.target.value); setBVariant(""); setBAddonQty({}); }}>
                 {WallBuilder.presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-                <option value="custom">✏️ Something else (type your own)</option>
+                <option value="custom">Something else (type your own)</option>
               </select>
             </label>
             {buildPreset && buildPreset.note && (
@@ -3577,7 +3613,7 @@ Respond as ONLY JSON, no markdown:
       {lines.length > 0 && (
         <div style={{ marginTop: 12, marginBottom: 12 }}>
           <button className="ec-btn ec-btn-ghost" style={{ width: "100%", justifyContent: "center" }} onClick={runSteps} disabled={stepsBusy}>
-            {stepsBusy ? "Working out the sequence…" : "✦ Show me the build steps"}
+            {stepsBusy ? "Working out the sequence…" : "Show me the build steps"}
           </button>
           {stepsErr && <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.alert, marginTop: 8 }}>{stepsErr}</div>}
           {steps && (
@@ -4148,7 +4184,7 @@ function TimelineTab({ estimate }) {
                 }} />
                 <div style={{
                   position: "absolute", top: 2, left: `calc(${leftPct}% + 6px)`,
-                  fontFamily: "'JetBrains Mono', monospace", fontSize: 10, color: TOKENS.ink, fontWeight: 600,
+                  fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 10, color: TOKENS.ink, fontWeight: 600,
                 }}>
                   W{s.startWeek}–{s.endWeek}
                 </div>
@@ -4757,7 +4793,7 @@ function SuppliersTab({ region, estimate }) {
         {materialQueries.map((m) => (
           <button key={m.label} onClick={() => setQuery(m.label)}
             style={{
-              padding: "6px 10px", fontFamily: "'JetBrains Mono', monospace", fontSize: 11,
+              padding: "6px 10px", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11,
               border: `1px solid ${TOKENS.rule}`, background: query === m.label ? TOKENS.hivis : TOKENS.card,
               color: query === m.label ? TOKENS.onHivis : TOKENS.ink, cursor: "pointer", letterSpacing: "0.02em",
             }}>

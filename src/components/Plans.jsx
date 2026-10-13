@@ -49,8 +49,8 @@ export function PlanCards({ current, highlight, onChoose, tone = "light" }) {
             <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0, opacity: 0.8 }}>{p.blurb}</p>
             <ul style={{ listStyle: "none", padding: 0, margin: "4px 0 0", display: "flex", flexDirection: "column", gap: 7 }}>
               {FEATURES[id].map((f) => (
-                <li key={f} style={{ fontSize: 13, display: "flex", gap: 8, alignItems: "baseline" }}>
-                  <span style={{ color: TOKENS.hivisDeep || TOKENS.hivis, fontWeight: 700 }}>✓</span>{f}
+                <li key={f} style={{ fontSize: 13.5, display: "flex", gap: 9, alignItems: "flex-start", lineHeight: 1.45 }}>
+                  <span style={{ color: TOKENS.ok, display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }}><path d="M20 6L9 17l-5-5" /></svg></span>{f}
                 </li>
               ))}
             </ul>

@@ -10,7 +10,7 @@ export default function Toggle({ label, value, onChange }) {
         flex: 1, padding: "8px 10px", border: `1px solid ${value ? TOKENS.ink : TOKENS.rule}`,
         background: value ? TOKENS.ink : TOKENS.paperLight,
         color: value ? TOKENS.paper : TOKENS.ink,
-        fontFamily: "'JetBrains Mono', monospace", fontSize: 11, letterSpacing: "0.1em",
+        fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11, letterSpacing: "0.1em",
         textTransform: "uppercase", cursor: "pointer",
       }}>
       {value ? "✓ " : ""}{label}
