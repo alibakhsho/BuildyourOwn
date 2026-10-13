@@ -8,11 +8,25 @@
    ========================================================================= */
 
 const LS = "byo.projects.v1";
+const LS_TOMBS = "byo.projects.deleted.v1"; // { [id]: deletedAt } — so deletes reach the cloud too
 
-function readAll() {
+/* Change feed. The cloud mirror (state/cloud-sync.js) listens here, so
+   every save/create/delete is pushed without touching the call sites. */
+const listeners = new Set();
+export function onProjectsChanged(fn) { listeners.add(fn); return () => listeners.delete(fn); }
+function emit(kind, id) { listeners.forEach((fn) => { try { fn(kind, id); } catch {} }); }
+
+export function readTombstones() {
+  try { return JSON.parse(localStorage.getItem(LS_TOMBS)) || {}; } catch { return {}; }
+}
+export function writeTombstones(t) {
+  try { localStorage.setItem(LS_TOMBS, JSON.stringify(t)); } catch {}
+}
+
+export function readAll() {
   try { return JSON.parse(localStorage.getItem(LS)) || []; } catch { return []; }
 }
-function writeAll(list) {
+export function writeAll(list) {
   try { localStorage.setItem(LS, JSON.stringify(list)); } catch {}
 }
 
@@ -35,6 +49,7 @@ export function createProject({ name, userType = "homeowner", buildMode = "resid
     createdAt: now, updatedAt: now,
   };
   writeAll([...readAll(), p]);
+  emit("upsert", p.id);
   return p;
 }
 
@@ -44,11 +59,14 @@ export function saveProject(id, patch) {
   if (i < 0) return null;
   list[i] = { ...list[i], ...patch, id, updatedAt: Date.now() };
   writeAll(list);
+  emit("upsert", id);
   return list[i];
 }
 
 export function deleteProject(id) {
   writeAll(readAll().filter((p) => p.id !== id));
+  writeTombstones({ ...readTombstones(), [id]: Date.now() });
+  emit("delete", id);
 }
 
 export function duplicateProject(id) {

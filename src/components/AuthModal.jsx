@@ -11,30 +11,56 @@
    (`enabled` false) the whole surface renders nothing, so a local build is
    unchanged.
    ========================================================================= */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { useAuth, SEGMENTS, TIERS } from "../state/auth.jsx";
 
-export function AccountButton() {
+/* tone="dark" is for the landing hero, where the normal ghost button would be
+   dark-on-dark. onSignedIn fires once a sign-in/up started here succeeds, and
+   is also what a signed-in user's button does there (go to the dashboard). */
+export function AccountButton({ tone, onSignedIn } = {}) {
   const { enabled, user, profile, tier } = useAuth();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenRaw] = useState(null);      // null | "signin" | "signup"
+  // "armed" outlives the modal: a successful sign-up closes the modal itself
+  // before the session arrives, and we still want to land on the dashboard.
+  const [armed, setArmed] = useState(false);
+  const setOpen = (m) => { setOpenRaw(m); if (m && !user) setArmed(true); };
+  useEffect(() => {
+    if (armed && user && onSignedIn) { setArmed(false); setOpenRaw(null); onSignedIn(); }
+  }, [armed, user, onSignedIn]);
   if (!enabled) return null;                      // no Supabase → no account UI
 
   const tierLabel = TIERS[tier]?.label ?? "Homeowner";
+  const ghost = tone === "dark"
+    ? { fontSize: 11, color: "#fff", borderColor: "rgba(255,255,255,0.45)", background: "rgba(5,7,11,0.35)" }
+    : { fontSize: 11 };
 
   return (
     <>
-      <button className="ec-btn ec-btn-ghost" onClick={() => setOpen(true)} style={{ fontSize: 11 }}>
-        {user ? `${profile?.full_name || user.email?.split("@")[0]} · ${tierLabel}` : "Save your work"}
-      </button>
-      {open && <AuthModal onClose={() => setOpen(false)} />}
+      {user ? (
+        <button className="ec-btn ec-btn-ghost" onClick={() => (onSignedIn ? onSignedIn() : setOpen("signin"))} style={ghost}>
+          {onSignedIn ? "Your dashboard →" : `${profile?.full_name || user.email?.split("@")[0]} · ${tierLabel}`}
+        </button>
+      ) : (
+        <>
+          <button className="ec-btn ec-btn-ghost" onClick={() => setOpen("signin")} style={ghost}>Sign in</button>
+          <button className="ec-btn ec-btn-hivis" onClick={() => setOpen("signup")} style={{ fontSize: 11 }}>Create account</button>
+        </>
+      )}
+      {open && <AuthModal initialMode={open} onClose={() => setOpen(null)} />}
     </>
   );
 }
 
-export default function AuthModal({ onClose }) {
+/* Google sign-in needs the provider switched on in Supabase (Authentication →
+   Providers → Google, with a Google Cloud OAuth client). Until it is, the
+   button would only produce an "Unsupported provider" error, so it stays
+   hidden unless VITE_AUTH_GOOGLE=1. */
+const GOOGLE_ENABLED = import.meta.env?.VITE_AUTH_GOOGLE === "1";
+
+export default function AuthModal({ onClose, initialMode = "signup" }) {
   const { user, profile, signIn, signUp, signInWithGoogle, signOut, resetPassword, updateProfile } = useAuth();
-  const [mode, setMode] = useState("signup");     // signup | signin | reset | done
+  const [mode, setMode] = useState(initialMode);  // signup | signin | reset | done
   // No segment here — it's chosen after signup on the Onboarding page, so the
   // profile is created with segment null and the welcome step knows to ask.
   const [form, setForm] = useState({ email: "", password: "", fullName: "" });
@@ -187,7 +213,7 @@ export default function AuthModal({ onClose }) {
           : "Sign in to pick up where you left off."}
       </p>
 
-      {!isReset && (
+      {!isReset && GOOGLE_ENABLED && (
         <button type="button" className="ec-btn ec-btn-ghost" disabled={busy}
           style={{ width: "100%", justifyContent: "center", marginBottom: 14 }}
           onClick={() => run(signInWithGoogle)}>

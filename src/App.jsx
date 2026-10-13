@@ -46,6 +46,8 @@ import BYOLogo from "./components/ui/BYOLogo.jsx";
 import HowItWorksIcon from "./components/ui/HowItWorksIcon.jsx";
 import CountUp from "./components/ui/CountUp.jsx";
 import { AccountButton, Onboarding } from "./components/AuthModal.jsx";
+import AccountDashboard from "./components/AccountDashboard.jsx";
+import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import {
   updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
@@ -1549,11 +1551,20 @@ const DASH_ICONS = {
   area: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3h18v18H3zM3 9h18M9 21V9" /></svg>,
 };
 
-function ProjectsScreen({ onOpen, onNew }) {
+function ProjectsScreen({ onOpen, onNew, onOpenSiteOffice }) {
   const [projects, setProjects] = useState(listProjects);
   const [name, setName] = useState("");
   const [type, setType] = useState("homeowner");
   const refresh = () => setProjects(listProjects());
+  const sync = useCloudSync();
+  const localOnly = new Set(sync.local || []);
+  // a sign-in pulls projects from the account into this browser — show them
+  useEffect(() => {
+    const on = () => refresh();
+    window.addEventListener("byo:projects-synced", on);
+    return () => window.removeEventListener("byo:projects-synced", on);
+  }, []);
+  const typeForMode = { residential: "homeowner", materials: "tradie", highrise: "developer" };
   const modeLabel = { residential: "Residential", highrise: "High-rise", materials: "Custom Quote" };
 
   const metrics = useMemo(() => {
@@ -1592,8 +1603,11 @@ function ProjectsScreen({ onOpen, onNew }) {
 
   return (
     <main style={{ maxWidth: 1480, margin: "0 auto", padding: "40px 24px 64px", minHeight: "60vh" }}>
-      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Portfolio dashboard</div>
+      <div className="ec-eyebrow" style={{ marginBottom: 8 }}>Dashboard</div>
       <h2 className="ec-display" style={{ fontSize: 34, lineHeight: 1, marginBottom: 24 }}>Your build pipeline at a glance.</h2>
+
+      <AccountDashboard projectCount={projects.length} onOpenSiteOffice={onOpenSiteOffice}
+        onNew={(mode) => onNew(typeForMode[mode] || "homeowner", name.trim() || "Untitled project")} />
 
       {projects.length === 0 ? (
         <>
@@ -1637,7 +1651,10 @@ function ProjectsScreen({ onOpen, onNew }) {
                 onClick={() => onOpen(getProject(p.id) || p)}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
                   <div className="ec-display" style={{ fontSize: 18 }}>{p.name}</div>
-                  <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel }}>{modeLabel[p.buildMode] || p.buildMode}</span>
+                  <span className="ec-mono" style={{ fontSize: 9, letterSpacing: "0.12em", color: TOKENS.steel, textAlign: "right" }}>
+                    {modeLabel[p.buildMode] || p.buildMode}
+                    {localOnly.has(p.id) && <><br /><span title="Your plan's cloud slots are full — this one is saved in this browser only">THIS DEVICE ONLY</span></>}
+                  </span>
                 </div>
                 <div className="ec-display" style={{ fontSize: 22, color: TOKENS.hivisInk, marginTop: 8 }}>
                   {est[p.id]?.total > 0 ? `${currencySymbol(p.region || "AU")}${fmt(est[p.id].total)}` : "—"}
@@ -1672,19 +1689,39 @@ const buildModeLabel = (m) => (BUILD_MODES.find(([id]) => id === m) || [, m])[1]
 /* ---- Workflow stepper: the workspace's linear flow ---- */
 const WORKFLOW = [
   { id: "estimate", label: "Estimate" },
-  { id: "three_d", label: "3D" },
-  { id: "materials", label: "Materials" },
+  { id: "three_d", label: "3D model" },
+  { id: "materials", label: "Costs" },
   { id: "timeline", label: "Timeline" },
-  { id: "ai", label: "AI" },
-  { id: "quote", label: "Quote" },
-  { id: "proposal", label: "Proposal" },
+  { id: "ai", label: "AI crew" },
+  { id: "proposal", label: "Quote" },
 ];
+
+/* What each workspace page shows. Every tab is its own page — nothing is
+   stacked and scrolled-to any more. Secondary tabs, where a page has more
+   than one view, are listed here so the page and its tab strip agree. */
+const PAGE_HEAD = {
+  estimate:  ["Estimate", "Specify the build"],
+  three_d:   ["3D model", "Walk the build"],
+  materials: ["Costs", "Where the money goes"],
+  timeline:  ["Timeline", "Build programme"],
+};
+function stageTabs(stage, buildMode) {
+  const imports = [{ id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "cadbim", label: "Import CAD / BIM" }];
+  const codes = { id: "codes", label: "Codes & compliance" };
+  if (stage === "estimate") return buildMode === "highrise" ? [codes] : buildMode === "materials" ? imports : [...imports, codes];
+  if (stage === "materials") return [
+    { id: "estimate", label: buildMode === "highrise" ? "Elemental cost plan" : buildMode === "materials" ? "Quote breakdown" : "Cost breakdown" },
+    { id: "suppliers", label: "Suppliers" },
+  ];
+  if (stage === "timeline") return [{ id: "timeline", label: "Programme" }];
+  return [];
+}
 
 function WorkflowStepper({ stage, onStage, buildMode }) {
   /* Not a linear stepper — a jump-anywhere tab row. Every section works
      independently at any point, so there's no numbering, no connector line,
      and no "completed" state; only the active section is highlighted. */
-  const stages = WORKFLOW.filter((s) => !(buildMode === "materials" && ["estimate", "timeline"].includes(s.id)));
+  const stages = WORKFLOW.filter((s) => !(buildMode === "materials" && s.id === "timeline"));
   return (
     <div style={{ maxWidth: 1480, margin: "0 auto", padding: "16px 24px 0" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
@@ -2008,7 +2045,6 @@ export default function App() {
      Every project lives in ONE workspace, walked as a linear workflow:
      Estimate → 3D → Materials → Timeline → AI → Quote → Proposal. */
   const [screen, setScreen] = useState("landing");     // landing | projects | workspace
-  const [guestMode] = useState(true);
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
   // Set when the estimator hands a quote to a specific job, so Site Office
@@ -2025,7 +2061,7 @@ export default function App() {
     if (p.spec) setSpec(p.spec);
     if (p.hrSpec) setHrSpec(p.hrSpec);
     if (p.matSpec) setMatSpec(p.matSpec);
-    setStage((p.buildMode || "residential") === "materials" ? "quote" : "estimate");
+    setStage("estimate");
     setTab("estimate");
     setScreen("workspace");
     window.scrollTo({ top: 0 });
@@ -2143,6 +2179,13 @@ export default function App() {
 
   useEffect(() => { if (buildMode === "residential") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
+
+  /* The current page's secondary tabs, and which one is showing. A stale
+     `tab` from another page falls back to this page's first view. */
+  const pageTabs = stageTabs(stage, buildMode);
+  // The Estimate page's extras (importers, codes) stay closed until asked for;
+  // every other page opens on its first view.
+  const activeTab = pageTabs.some((t) => t.id === tab) ? tab : stage === "estimate" ? null : pageTabs[0]?.id;
 
   /* Estimate (memoised) — switches engine by mode */
   const estimate = useMemo(
@@ -2551,6 +2594,8 @@ export default function App() {
         .ec-live { animation: blink 1.4s infinite; }
         /* keyboard focus */
         button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--hivis); outline-offset: 2px; }
+        /* phones: the trust badge repeats the line under the buttons — drop it so the hero fits */
+        @media (max-width: 560px) { .ec-hero-badge { display: none !important; } }
         @media (prefers-reduced-motion: reduce) {
           html { scroll-behavior: auto; }
           .ec-live, .ec-scroll-bob, .ec-fade-down, .ec-fade-up { animation: none !important; }
@@ -2566,15 +2611,12 @@ export default function App() {
 
         {/* Top hero bar — minimal, transparent over shader */}
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, zIndex: 20, padding: "20px 28px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", zIndex: 25, display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 999, background: "rgba(5,7,11,0.78)", border: "1px solid rgba(245,197,24,0.35)", color: "#fff", fontSize: 11, letterSpacing: "0.12em", fontFamily: "'JetBrains Mono', monospace" }}>
-            <span style={{ width: 6, height: 6, borderRadius: "999px", background: TOKENS.hivis }} />
-            GUEST MODE · NO SIGN-UP
-          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }} className="ec-fade-down">
             <BYOLogo size={34} />
             <div className="ec-display" style={{ fontSize: 18, color: "#fff", letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
           </div>
-          <div className="ec-fade-down ec-delay-1" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div className="ec-fade-down ec-delay-1" style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <AccountButton tone="dark" onSignedIn={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }} />
             <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.16em", color: "rgba(255,255,255,0.7)" }}>REGION</div>
             <div style={{ display: "flex", border: "1px solid rgba(255,255,255,0.35)", borderRadius: 2, overflow: "hidden" }}>
               {["AU","US","UK"].map((r) => (
@@ -2592,9 +2634,10 @@ export default function App() {
         </div>
 
         {/* Centered copy */}
-        <div style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 24px", textAlign: "center" }}>
+        {/* top padding clears the top bar, which wraps to two rows on phones */}
+        <div className="ec-hero-copy" style={{ position: "absolute", inset: 0, zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "96px 24px 24px", textAlign: "center" }}>
           {/* Trust badge */}
-          <div className="ec-fade-down ec-delay-1" style={{ marginBottom: 28 }}>
+          <div className="ec-fade-down ec-delay-1 ec-hero-badge" style={{ marginBottom: 28 }}>
             <div style={{
               display: "inline-flex", alignItems: "center", gap: 10,
               padding: "8px 18px",
@@ -2652,7 +2695,7 @@ export default function App() {
             <div style={{ width: "100%", display: "flex", justifyContent: "center", marginTop: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 999, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.9)", fontSize: 12, letterSpacing: "0.05em", fontFamily: "'JetBrains Mono', monospace" }}>
                 <span style={{ width: 8, height: 8, borderRadius: "999px", background: TOKENS.hivis, display: "inline-block" }} />
-                Works instantly on your phone · save projects locally · add accounts later
+                Works instantly on your phone · free account keeps your projects on every device
               </div>
             </div>
             <button onClick={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
@@ -2734,12 +2777,6 @@ export default function App() {
         borderBottom: screen === "workspace" ? `1px solid ${TOKENS.rule}` : "none",
       }}>
         <div className="hdr-in" style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-          {guestMode && (
-            <div style={{ position: "absolute", top: 8, right: 24, zIndex: 20, display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 999, background: "rgba(245,197,24,0.14)", border: "1px solid rgba(245,197,24,0.28)", color: TOKENS.ink, fontSize: 10, letterSpacing: "0.12em", fontFamily: "'JetBrains Mono', monospace" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "999px", background: TOKENS.hivis }} />
-              GUEST FIRST
-            </div>
-          )}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span onClick={() => setScreen("landing")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
               <BYOLogo size={28} />
@@ -2747,7 +2784,7 @@ export default function App() {
             </span>
             <button className={"ec-btn ec-btn-ghost" + (screen === "projects" ? " ec-btn-ghost-on" : "")}
               onClick={() => setScreen("projects")} style={{ marginLeft: 6 }}>
-              Projects
+              Dashboard
             </button>
             {/* The management side: jobs, takeoffs, budgets, claims. Separate
                 from Projects because it answers a different question — not
@@ -2838,27 +2875,15 @@ export default function App() {
       {screen === "workspace" && (
         <WorkflowStepper stage={stage} onStage={(s) => {
           setStage(s);
-          if (s === "estimate") setTab("estimate");
-          // Materials means "show me the priced lines", not "show me an import
-          // screen". It used to land residential users on the spreadsheet
-          // importer, which is a way IN to a quote, not the quote itself.
-          if (s === "materials") setTab("estimate");
-          if (s === "timeline" && buildMode !== "materials") setTab("timeline");
-          if (s === "quote") setTab("estimate");
-          // Scroll to the matching section after the stage/tab re-render commits.
-          const anchor = { three_d: "ws-viewport", estimate: "ws-results", materials: "ws-results", timeline: "ws-results", quote: "ws-results" }[s];
-          requestAnimationFrame(() => {
-            const el = anchor && document.getElementById(anchor);
-            if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-            else window.scrollTo({ top: 0, behavior: "smooth" }); // ai / proposal swap the view
-          });
+          window.scrollTo({ top: 0 });
         }} buildMode={buildMode} />
       )}
       </div>
 
       {/* ============== PROJECTS SCREEN ============== */}
       {screen === "projects" && (
-        <ProjectsScreen onOpen={openProject} onNew={newProject} />
+        <ProjectsScreen onOpen={openProject} onNew={newProject}
+          onOpenSiteOffice={() => { setManageJobId(null); setScreen("manage"); window.scrollTo({ top: 0 }); }} />
       )}
 
       {/* ============== CONSTRUCTION MANAGEMENT ============== */}
@@ -2884,7 +2909,7 @@ export default function App() {
 
       {/* ============== MAIN GRID (estimator tool) ============== */}
       {screen === "workspace" && !["ai", "proposal"].includes(stage) && (
-      <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", display: "grid", gridTemplateColumns: stage === "three_d" ? "1fr" : "minmax(320px, 380px) 1fr", gap: 28 }} className={"grid-responsive" + (stage === "three_d" ? " stage-3d" : "")}>
+      <main id="tool" style={{ maxWidth: 1480, margin: "0 auto", padding: "28px 24px 64px", display: "grid", gridTemplateColumns: stage === "estimate" ? "minmax(320px, 380px) 1fr" : "1fr", gap: 28 }} className={"grid-responsive" + (stage === "three_d" ? " stage-3d" : "")}>
         <style>{`
           main.grid-responsive { box-sizing: border-box; }
           main.grid-responsive * { min-width: 0; }
@@ -2902,6 +2927,7 @@ export default function App() {
           @media (max-width: 560px) {
             main.grid-responsive { padding: 24px 12px 40px !important; }
             .ec-viewport { height: 320px !important; }
+            main.stage-3d .ec-viewport { height: 62vh !important; }  /* the 3D page is the model — let it fill the phone */
           }
           /* Compact one-row sticky header on small screens — never eat the viewport */
           @media (max-width: 880px) {
@@ -2913,7 +2939,8 @@ export default function App() {
           }
         `}</style>
 
-        {/* ===== LEFT — INPUT PANEL ===== */}
+        {/* ===== LEFT — INPUT PANEL (Estimate page only) ===== */}
+        {stage === "estimate" && (
         <section>
           <Reveal variant="slide-left">
             <div className="ec-eyebrow" style={{ marginBottom: 8 }}>01 — Configure</div>
@@ -2971,7 +2998,7 @@ export default function App() {
             </InputRow>
           </InputCard>
 
-          <InputCard title="Materials" onClear={() => clearSection("materials")}>
+          <InputCard defaultOpen={false} title="Materials" onClear={() => clearSection("materials")}>
             <Field label="Framing">
               <select className="ec-select" value={spec.framingType} onChange={(e) => update({ framingType: e.target.value })}>
                 <option value="timber">Timber (MGP10 / LVL)</option>
@@ -3014,7 +3041,7 @@ export default function App() {
             )}
           </InputCard>
 
-          <InputCard title="Openings" onClear={() => clearSection("openings")}>
+          <InputCard defaultOpen={false} title="Openings" onClear={() => clearSection("openings")}>
             <InputRow>
               <Field label="Windows (count)"><input className="ec-input" type="number" min="0" max="60" step="1" value={spec.openings.windowsCount} onChange={(e) => updateOpenings({ windowsCount: +e.target.value })} /></Field>
               <Field label="Window area (m²)"><input className="ec-input" type="number" min="0" max="200" step="0.5" value={spec.openings.windowsM2} onChange={(e) => updateOpenings({ windowsM2: +e.target.value })} /></Field>
@@ -3034,7 +3061,7 @@ export default function App() {
 
           <BathroomCard spec={spec} setSpec={setSpec} />
 
-          <InputCard title="Site conditions" onClear={() => clearSection("site")}>
+          <InputCard defaultOpen={false} title="Site conditions" onClear={() => clearSection("site")}>
             <Field label="Block type">
               <select className="ec-select" value={spec.siteCondition} onChange={(e) => update({ siteCondition: e.target.value })}>
                 <option value="flat">Flat / good access</option>
@@ -3055,16 +3082,20 @@ export default function App() {
           )}
           </motion.div>
         </section>
+        )}
 
-        {/* ===== RIGHT — VIEWPORT & RESULTS ===== */}
+        {/* ===== RIGHT — the page's own content ===== */}
         <section>
-          <Reveal variant="slide-right">
-            <div className="ec-eyebrow" style={{ marginBottom: 8 }}>02 — Preview &amp; Estimate</div>
-            <h2 className="ec-display" style={{ fontSize: 28, lineHeight: 1, marginBottom: 16 }}>Live model &amp; takeoff</h2>
-          </Reveal>
+          {stage !== "estimate" && (
+            <div style={{ marginBottom: 16 }}>
+              <div className="ec-eyebrow" style={{ marginBottom: 8 }}>{(PAGE_HEAD[stage] || [])[0]}</div>
+              <h2 className="ec-display" style={{ fontSize: 28, lineHeight: 1, margin: 0 }}>{(PAGE_HEAD[stage] || [])[1]}</h2>
+            </div>
+          )}
 
-          {/* 3D viewport */}
-          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: 460, overflow: "hidden", scrollMarginTop: 132 }}>
+          {/* 3D viewport — a compact live preview while you edit, full size on its own page */}
+          {(stage === "estimate" || stage === "three_d") && (<>
+          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: stage === "three_d" ? "min(72vh, 760px)" : 360, overflow: "hidden" }}>
             <div ref={attachViewport} style={{ position: "absolute", inset: 0 }} />
             {/* Dimension annotations overlay */}
             <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
@@ -3166,9 +3197,11 @@ export default function App() {
                 </>
               )}
             </div>
+          </>)}
 
-          {/* Headline cost cards */}
-          <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 16, scrollMarginTop: 132 }}>
+          {/* Headline cost cards — Estimate and Costs pages */}
+          {(stage === "estimate" || stage === "materials") && (
+          <div id="ws-results" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: stage === "estimate" ? 16 : 0 }}>
             <StaggerReveal variant="fade-up" stagger={0.06}>
               {buildMode === "materials" ? [
                 <CostCard key="t" label="Quote total" value={`${currency}${fmt(grossOf(estimate))}`} hivis sub={inclusiveNote(estimate, currency)} />,
@@ -3192,34 +3225,38 @@ export default function App() {
               ]}
             </StaggerReveal>
           </div>
+          )}
 
-          {/* ===== TABS ===== */}
+          {/* ===== Secondary tabs (only where a page has more than one view) ===== */}
+          {(pageTabs.length > 1 || stage === "estimate") && pageTabs.length > 0 && (<>
           <div className="ec-rule-strong" style={{ marginTop: 28 }} />
+          {stage === "estimate" && (
+            <div className="ec-mono" style={{ fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: TOKENS.steel, marginTop: 14 }}>
+              More tools: bring in an existing takeoff, or check the building codes
+            </div>
+          )}
           <div className="ec-tabstrip" style={{ borderBottom: `1px solid ${TOKENS.rule}` }}>
-            {(buildMode === "highrise"
-              ? [{ id: "estimate", label: "Elemental cost plan" }, { id: "timeline", label: "Programme" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
-              : buildMode === "materials"
-              ? [{ id: "estimate", label: "Quote breakdown" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "cadbim", label: "Import CAD / BIM" }, { id: "suppliers", label: "Suppliers" }]
-              : [{ id: "estimate", label: "Cost breakdown" }, { id: "timeline", label: "Programme" }, { id: "spreadsheet", label: "Import spreadsheet" }, { id: "sketchup", label: "Import SketchUp" }, { id: "cadbim", label: "Import CAD / BIM" }, { id: "codes", label: "Codes & compliance" }, { id: "suppliers", label: "Suppliers" }]
-            ).map((t) => (
-              <div key={t.id} className={"ec-tab" + (tab === t.id ? " ec-tab-active" : "")} onClick={() => setTab(t.id)}>{t.label}</div>
+            {pageTabs.map((t) => (
+              <div key={t.id} className={"ec-tab" + (activeTab === t.id ? " ec-tab-active" : "")}
+                onClick={() => setTab(stage === "estimate" && activeTab === t.id ? "" : t.id)}>{t.label}</div>
             ))}
           </div>
+          </>)}
 
-          <div style={{ marginTop: 20 }}>
-              <motion.div key={tab + "-" + buildMode}
+          <div style={{ marginTop: pageTabs.length > 1 ? 20 : 0 }}>
+              <motion.div key={stage + "-" + activeTab + "-" + buildMode}
                 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}>
-            {tab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
-            {tab === "timeline" && buildMode !== "materials" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
-            {tab === "spreadsheet" && buildMode === "residential" && <SpreadsheetTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
-            {tab === "spreadsheet" && buildMode === "materials" && <SpreadsheetTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
-            {tab === "sketchup" && buildMode === "residential" && <SketchUpTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
-            {tab === "sketchup" && buildMode === "materials" && <SketchUpTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
-            {tab === "cadbim" && buildMode === "residential" && <CadBimTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
-            {tab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
-            {tab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
-            {tab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
+            {activeTab === "estimate" && (buildMode === "highrise" ? <HighRiseEstimateTab estimate={estimate} currency={currency} /> : buildMode === "materials" ? <MaterialsEstimateTab estimate={estimate} currency={currency} /> : <EstimateTab estimate={estimate} currency={currency} region={region} onRatesChanged={() => setRatesVersion((v) => v + 1)} />)}
+            {activeTab === "timeline" && buildMode !== "materials" && (buildMode === "highrise" ? <HighRiseTimelineTab estimate={estimate} /> : <TimelineTab estimate={estimate} />)}
+            {activeTab === "spreadsheet" && buildMode === "residential" && <SpreadsheetTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
+            {activeTab === "spreadsheet" && buildMode === "materials" && <SpreadsheetTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
+            {activeTab === "sketchup" && buildMode === "residential" && <SketchUpTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
+            {activeTab === "sketchup" && buildMode === "materials" && <SketchUpTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
+            {activeTab === "cadbim" && buildMode === "residential" && <CadBimTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
+            {activeTab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
+            {activeTab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
+            {activeTab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
               </motion.div>
           </div>
         </section>
@@ -3289,7 +3326,7 @@ function RoomScheduleCard({ spec, setSpec }) {
   const robeLM = rooms.reduce((a, r) => a + (r.robe !== "none" ? (r.robeLengthM || 0) : 0), 0);
 
   return (
-    <InputCard title="Room schedule" badge={`${rooms.length} rooms · ${totalArea.toFixed(0)} m²`} onClear={() => setRooms([])}>
+    <InputCard defaultOpen={false} title="Room schedule" badge={`${rooms.length} rooms · ${totalArea.toFixed(0)} m²`} onClear={() => setRooms([])}>
       <p className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginBottom: 12, lineHeight: 1.5, letterSpacing: "0.02em" }}>
         Drives flooring, internal walls, doors & robes. {robeLM > 0 ? `${robeLM.toFixed(1)} lin.m of robes scheduled.` : ""}
       </p>
@@ -3347,7 +3384,7 @@ function KitchenCard({ spec, setSpec }) {
   const removeKit = (id) => setKitchens(kitchens.filter((k) => k.id !== id));
 
   return (
-    <InputCard title="Kitchens" badge={`${kitchens.length}`} onClear={() => setKitchens([])}>
+    <InputCard defaultOpen={false} title="Kitchens" badge={`${kitchens.length}`} onClear={() => setKitchens([])}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {kitchens.map((k, i) => (
           <div key={k.id} style={{ border: `1px solid ${TOKENS.rule}`, padding: 10, background: TOKENS.paperLight }}>
@@ -3406,7 +3443,7 @@ function BathroomCard({ spec, setSpec }) {
   const removeBath = (id) => setBaths(bathrooms.filter((b) => b.id !== id));
 
   return (
-    <InputCard title="Bathrooms" badge={`${bathrooms.length}`} onClear={() => setBaths([])}>
+    <InputCard defaultOpen={false} title="Bathrooms" badge={`${bathrooms.length}`} onClear={() => setBaths([])}>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {bathrooms.map((b) => (
           <div key={b.id} style={{ border: `1px solid ${TOKENS.rule}`, padding: 10, background: TOKENS.paperLight }}>
@@ -4225,7 +4262,7 @@ Rules:
         </p>
       </InputCard>
 
-      <InputCard title="Structure & façade" onClear={() => clearSection("structure")}>
+      <InputCard defaultOpen={false} title="Structure & façade" onClear={() => clearSection("structure")}>
         <Field label="Structural system">
           <select className="ec-select" value={hrSpec.structureType} onChange={(e) => updateHr({ structureType: e.target.value })}>
             <option value="rc">RC core + PT slabs</option>
@@ -4250,7 +4287,7 @@ Rules:
         <p className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 4 }}>Façade area ≈ {fmt(t.facadeArea)} m²</p>
       </InputCard>
 
-      <InputCard title="Vertical transport" onClear={() => clearSection("transport")}>
+      <InputCard defaultOpen={false} title="Vertical transport" onClear={() => clearSection("transport")}>
         <InputRow>
           <Field label="Passenger lifts"><input className="ec-input" type="number" min="1" max="40" step="1" value={hrSpec.passengerLifts} onChange={(e) => updateHr({ passengerLifts: +e.target.value })} /></Field>
           <Field label="Goods lifts"><input className="ec-input" type="number" min="0" max="10" step="1" value={hrSpec.goodsLifts} onChange={(e) => updateHr({ goodsLifts: +e.target.value })} /></Field>
@@ -4258,7 +4295,7 @@ Rules:
         <Toggle label="Escalators (podium)" value={hrSpec.hasEscalators} onChange={(v) => updateHr({ hasEscalators: v })} />
       </InputCard>
 
-      <InputCard title="Site conditions" onClear={() => clearSection("site")}>
+      <InputCard defaultOpen={false} title="Site conditions" onClear={() => clearSection("site")}>
         <Field label="Site type">
           <select className="ec-select" value={hrSpec.siteCondition} onChange={(e) => updateHr({ siteCondition: e.target.value })}>
             <option value="flat">Flat / good access</option>

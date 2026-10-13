@@ -175,6 +175,10 @@ create policy "profiles: update own"
 -- Tables created in SQL are not necessarily exposed to the Data API, so be
 -- explicit. Note UPDATE is granted per column: the profile owner may edit
 -- their own details, and cannot touch tier, usage counters or the Stripe id.
+-- Revoke first: Supabase's default privileges give `authenticated` full
+-- table-level UPDATE, and a column grant only ADDS to that — without this
+-- revoke the user could still write `tier`. (Fixed live in 20261013000000.)
+revoke all on public.profiles from authenticated;
 grant select on public.profiles to authenticated;
 grant update (full_name, company, segment) on public.profiles to authenticated;
 

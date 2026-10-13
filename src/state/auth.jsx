@@ -11,6 +11,7 @@
    ========================================================================= */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { supabase, isAuthConfigured, redirectTo } from "../lib/supabase.js";
+import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
 
 const AuthCtx = createContext(null);
 
@@ -65,6 +66,13 @@ export function AuthProvider({ children }) {
      exist; if it doesn't we leave profile null rather than inventing a
      tier, because guessing "free" here could mask a real failure. */
   const userId = session?.user?.id ?? null;
+
+  // Mirror local projects to the account while signed in.
+  useEffect(() => {
+    if (!isAuthConfigured) return;
+    if (userId) startCloudSync(userId); else stopCloudSync();
+  }, [userId]);
+
   useEffect(() => {
     if (!isAuthConfigured || !userId) { setProfile(null); return; }
     let alive = true;

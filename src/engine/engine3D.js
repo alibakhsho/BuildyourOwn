@@ -207,6 +207,8 @@ export class Engine3D {
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
+    // setSize clears the canvas — when idle nothing else would redraw it
+    this._needsRender = true;
   }
 
   /* Move the renderer canvas into a new container. The viewport unmounts when
