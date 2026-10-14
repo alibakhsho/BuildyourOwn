@@ -21,7 +21,9 @@ initNativeAuth(supabase);
 // there would only cache stale copies across app updates.
 if (!isNative && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    // updateViaCache "none": always check /sw.js against the server, so a fixed
+    // worker reaches visitors on their next page load.
+    navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(() => {});
   });
 }
 
