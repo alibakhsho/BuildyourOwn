@@ -6,5 +6,8 @@
     "hostname": "app.buildyourown.local",
     "androidScheme": "https",
     "iosScheme": "capacitor"
+  },
+  "android": {
+    "adjustMarginsForEdgeToEdge": "auto"
   }
 }

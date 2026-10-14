@@ -13,6 +13,7 @@ import { Capacitor } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { Browser } from "@capacitor/browser";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
+import { useEffect, useRef } from "react";
 
 export const isNative = Capacitor.isNativePlatform();
 
@@ -31,6 +32,25 @@ export function onAppResume(cb) {
 
 /** Open an external URL (OAuth consent, docs) in the system browser. */
 export const openExternal = (url) => Browser.open({ url });
+
+/**
+ * Android's Back button. The app switches screens in React state, not browser
+ * history, so without this Back quits the app from any screen. `onBack`
+ * returns true if it handled the press (closed something, went up a level);
+ * false means we're at the top, where Back sends the app to the background
+ * the way native apps do, rather than killing it.
+ */
+export function useNativeBack(onBack) {
+  const ref = useRef(onBack);
+  ref.current = onBack;
+  useEffect(() => {
+    if (!isNative) return;
+    const sub = App.addListener("backButton", () => {
+      if (!ref.current()) App.minimizeApp();
+    });
+    return () => { sub.then((h) => h.remove()); };
+  }, []);
+}
 
 /**
  * Open the phone's camera and return the shot as a File, so it flows through

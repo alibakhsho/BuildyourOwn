@@ -56,6 +56,7 @@ import DescribeCard from "./components/DescribeCard.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
+import { useNativeBack } from "./lib/native.js";
 import {
   updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
   applyEstimateToBudget, tradeTotalsFromEstimate,
@@ -1826,6 +1827,14 @@ export default function App() {
   const [userType, setUserType] = useState(null);      // homeowner | tradie | developer — gates which build modes show
   const [stage, setStage] = useState("estimate");      // workflow stage id
 
+  // Android Back: close the upgrade prompt, then step up one level.
+  useNativeBack(() => {
+    if (upgrade) { setUpgrade(null); return true; }
+    if (screen === "workspace" || screen === "manage") { setScreen("projects"); window.scrollTo({ top: 0 }); return true; }
+    if (screen === "projects") { setScreen("landing"); window.scrollTo({ top: 0 }); return true; }
+    return false;
+  });
+
   const openProject = useCallback((p) => {
     const mode = p.buildMode || "residential";
     if (!can.canUseMode(mode)) { setUpgrade(mode); return; }
@@ -2478,6 +2487,7 @@ export default function App() {
       `}</style>
 
       {screen === "landing" && (
+        <div style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <Landing region={region} setRegion={setRegion}
           onStart={() => newProject("residential", "My build")}
           onPickAudience={(id) => {
@@ -2486,12 +2496,15 @@ export default function App() {
           }}
           onSignedIn={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
           howItWorks={<HowItWorksSection />} />
+        </div>
       )}
 
       {screen !== "landing" && <>
       {/* ====== STICKY TOPBAR: header + workflow stepper pinned together ====== */}
       <div style={{
         position: "sticky", top: 0, zIndex: 30,
+        // Clears the notch / status bar in the phone app (0 in a browser).
+        paddingTop: "env(safe-area-inset-top)",
         background: TOKENS.contentVeil,
         backdropFilter: "blur(10px)",
         WebkitBackdropFilter: "blur(10px)",
