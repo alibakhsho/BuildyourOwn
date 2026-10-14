@@ -13,9 +13,10 @@
 import { useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { useAuth, TIERS } from "../state/auth.jsx";
-import { planReadsUsedNow } from "../lib/entitlements.js";
+import { planReadsUsedNow, TRIAL_DAYS } from "../lib/entitlements.js";
 import { useCloudSync, syncNow } from "../state/cloud-sync.js";
 import AuthModal from "./AuthModal.jsx";
+import { UpgradeModal } from "./Plans.jsx";
 
 /* Which shortcuts each plan gets. Everything works for everyone today —
    this is about surfacing the right thing first, not gating. */
@@ -55,7 +56,7 @@ function Meter({ label, used, cap }) {
 }
 
 export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice }) {
-  const { enabled, loading, user, profile, tier, limits, can } = useAuth();
+  const { enabled, loading, user, profile, tier, limits, can, trial } = useAuth();
   const sync = useCloudSync();
   const [modal, setModal] = useState(null);
 
@@ -85,6 +86,7 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
   const localOnly = sync.local?.length || 0;
   const cloudCount = Math.max(0, projectCount - localOnly);
   const shortcuts = [...can.modes, ...(can.siteOffice ? ["site"] : [])];
+  const trialEnded = trial && !trial.active && can.paidTier === "free";
   const syncText = sync.status === "syncing" ? "Syncing…"
     : sync.status === "error" ? `Sync problem: ${sync.error || "try again"}`
     : sync.lastSync ? `Saved to your account · ${ago(sync.lastSync)}` : "Connecting…";
@@ -96,7 +98,12 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
         <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Welcome back</div>
         <div className="ec-display" style={{ fontSize: 26, lineHeight: 1.05 }}>{name}</div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
-          <span className="ec-tag ec-tag-hivis">{tierInfo.label} plan</span>
+          <span className="ec-tag ec-tag-hivis">{tierInfo.label} {can.onTrial ? "trial" : "plan"}</span>
+          {can.onTrial && (
+            <span className="ec-mono" style={{ fontSize: 11, fontWeight: 700, color: trial.daysLeft <= 3 ? TOKENS.alert : TOKENS.inkSoft }}>
+              {trial.daysLeft} day{trial.daysLeft === 1 ? "" : "s"} left
+            </span>
+          )}
           {profile?.company && <span className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{profile.company}</span>}
         </div>
         <div className="ec-mono" style={{ fontSize: 11, marginTop: 14, color: sync.status === "error" ? TOKENS.alert : TOKENS.steel, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -128,11 +135,22 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
             {SHORTCUT_LABEL[k]}
           </button>
         ))}
-        {tier !== "enterprise" && (
+        {can.onTrial ? (
           <div style={{ fontSize: 12, lineHeight: 1.5, color: TOKENS.steel, marginTop: 4 }}>
-            Paid plans (Tradie, Builder) are coming soon. Everything in the app is free while we launch.
+            Your free {tierInfo.label} trial runs until {trial.endsAt.toLocaleDateString()}. After that you're on the free
+            Homeowner plan unless you subscribe — nothing you've built is deleted.
           </div>
-        )}
+        ) : trialEnded ? (
+          <div style={{ fontSize: 12, lineHeight: 1.5, color: TOKENS.steel, marginTop: 4 }}>
+            Your {trial.label} trial ended on {trial.endsAt.toLocaleDateString()}. Your projects are all still here.{" "}
+            <button className="ec-btn ec-btn-ghost" style={{ fontSize: 11, padding: "3px 8px", marginTop: 6 }} onClick={() => setModal("plans")}>See plans</button>
+          </div>
+        ) : can.trialAvailable && tier === "free" ? (
+          <button className="ec-btn ec-btn-ghost" style={{ justifyContent: "flex-start", marginTop: 4 }} onClick={() => setModal("plans")}>
+            Try Tradie or Builder free for {TRIAL_DAYS} days
+          </button>
+        ) : null}
+        {modal === "plans" && <UpgradeModal onClose={() => setModal(null)} />}
       </div>
     </div>
   );

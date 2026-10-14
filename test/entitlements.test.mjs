@@ -46,6 +46,35 @@ ok("Homeowner is free", PLANS.free.price === 0);
   ok("usage: no profile → 0", planReadsUsedNow(null) === 0);
 }
 
+/* ---- free trials ---- */
+{
+  const { trialFor, TRIAL_PLAN_READS, SEGMENT_PLAN } = await import("../src/lib/entitlements.js");
+  const now = new Date("2026-10-14T00:00:00Z");
+  const tradieTrial = { tier: "free", trial_tier: "pro", trial_ends_at: "2026-10-28T00:00:00Z" };
+  const t = entitlementsFor(tradieTrial, now);
+  ok("trial: Tradie trial gives the Tradie plan", t.tier === "pro" && t.onTrial && t.canUseMode("materials") && t.ai);
+  ok("trial: paid tier stays Homeowner underneath", t.paidTier === "free");
+  ok("trial: 14 days left on day one", t.trial.daysLeft === 14 && t.trial.active);
+  ok("trial: AI plan reads capped during a trial", t.planReads === TRIAL_PLAN_READS && TRIAL_PLAN_READS < PLANS.pro.planReads);
+  ok("trial: unlimited cloud projects while it runs", t.projects === Infinity);
+  ok("trial: can't start another while one exists", t.trialAvailable === false);
+  ok("trial: last day still counts as 1 day left", entitlementsFor(tradieTrial, new Date("2026-10-27T23:00:00Z")).trial.daysLeft === 1);
+  const ended = entitlementsFor(tradieTrial, new Date("2026-10-28T00:00:01Z"));
+  ok("trial: ends exactly at trial_ends_at → back to Homeowner", ended.tier === "free" && !ended.onTrial && !ended.ai);
+  ok("trial: ended trial is still reported (for the 'ended' message)", ended.trial && ended.trial.active === false && ended.trial.daysLeft === 0);
+  ok("trial: ended trial can't be restarted", ended.trialAvailable === false);
+  const builderTrial = entitlementsFor({ tier: "free", trial_tier: "business", trial_ends_at: "2026-10-28T00:00:00Z" }, now);
+  ok("trial: Builder trial unlocks multi-dwelling + Site Office", builderTrial.canUseMode("multi") && builderTrial.siteOffice);
+  const paidBuilderOldTrial = entitlementsFor({ tier: "business", trial_tier: "pro", trial_ends_at: "2026-10-28T00:00:00Z" }, now);
+  ok("trial: never downgrades a better paid plan", paidBuilderOldTrial.tier === "business" && !paidBuilderOldTrial.onTrial && paidBuilderOldTrial.planReads === 100);
+  ok("trial: paid plan → no trial on offer", entitlementsFor({ tier: "pro" }).trialAvailable === false);
+  ok("trial: Homeowner who never trialled can", entitlementsFor({ tier: "free" }).trialAvailable === true);
+  ok("trial: guest can (by signing up)", entitlementsFor(null).trialAvailable === true);
+  ok("trial: junk trial tier ignored", trialFor({ trial_tier: "gold", trial_ends_at: "2030-01-01" }) === null);
+  ok("trial: junk end date ignored", trialFor({ trial_tier: "pro", trial_ends_at: "soon" }) === null);
+  ok("trial: segments map to plans", SEGMENT_PLAN.tradie === "pro" && SEGMENT_PLAN.builder === "business" && SEGMENT_PLAN.homeowner === "free");
+}
+
 /* ---- server check, against a fake Supabase ---- */
 process.env.SUPABASE_URL = "https://example.supabase.co";
 process.env.SUPABASE_PUBLISHABLE_KEY = "sb_publishable_test";
@@ -78,6 +107,24 @@ profiles["tok-home"].tier = "pro";
 ok("server: plan read fresh — upgrade applies immediately", (await checkAiAccess(req("tok-home"))) === null);
 profiles["tok-home"].tier = "free";
 ok("server: plan read fresh — downgrade applies immediately", (await checkAiAccess(req("tok-home")))?.code === "upgrade");
+
+/* trials, server side: the AI routes read the same columns */
+{
+  const soon = new Date(Date.now() + 5 * 86400000).toISOString();
+  const past = new Date(Date.now() - 86400000).toISOString();
+  profiles["tok-trial"] = { id: "u5", tier: "free", trial_tier: "pro", trial_ends_at: soon };
+  profiles["tok-expired"] = { id: "u6", tier: "free", trial_tier: "pro", trial_ends_at: past };
+  calls.length = 0;
+  ok("server: active trial → AI allowed", (await checkAiAccess(req("tok-trial"))) === null);
+  const sel = calls.find((c) => c.url.includes("/rest/v1/profiles"));
+  ok("server: reads the trial columns", /trial_tier/.test(sel?.url || "") && /trial_ends_at/.test(sel?.url || ""));
+  ok("server: expired trial → 402 upgrade", (await checkAiAccess(req("tok-expired")))?.code === "upgrade");
+  const access = await authorizeAi(req("tok-trial"));
+  calls.length = 0;
+  await withPlanRead(access, async () => "ok");
+  const reserve = calls.find((c) => c.url.endsWith("/rpc/reserve_plan_read"));
+  ok("server: trial reserves against the trial cap (10)", reserve && JSON.parse(reserve.body).p_cap === 10);
+}
 
 /* metering */
 {

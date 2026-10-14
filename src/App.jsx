@@ -44,7 +44,7 @@ import SectionHeader from "./components/ui/SectionHeader.jsx";
 import TakeoffTable from "./components/ui/TakeoffTable.jsx";
 import BYOLogo from "./components/ui/BYOLogo.jsx";
 import HowItWorksIcon from "./components/ui/HowItWorksIcon.jsx";
-import { AccountButton, Onboarding } from "./components/AuthModal.jsx";
+import { AccountButton, Onboarding, AuthLinks } from "./components/AuthModal.jsx";
 import AccountDashboard from "./components/AccountDashboard.jsx";
 import Landing from "./components/Landing.jsx";
 import { UpgradeModal, AiUpsell } from "./components/Plans.jsx";
@@ -1811,7 +1811,7 @@ export default function App() {
   const [mdSpec, setMdSpec] = useState(defaultMultiSpec);
   /* Plan gating. `upgrade` holds the feature someone just reached for that
      their plan doesn't include (a build mode, "ai" or "siteOffice"). */
-  const { can } = useAuth();
+  const { can, user, choosePlan } = useAuth();
   const [upgrade, setUpgrade] = useState(null);
   const [tab, setTab] = useState("estimate");
 
@@ -2486,12 +2486,18 @@ export default function App() {
         }
       `}</style>
 
+      {/* Emailed links (password reset, expired links) land on any screen. */}
+      <AuthLinks />
+
       {screen === "landing" && (
         <div style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <Landing region={region} setRegion={setRegion}
           onStart={() => newProject("residential", "My build")}
           onPickAudience={(id) => {
             if (id === "homeowner") { newProject("residential", "My build"); return; }
+            // Signed in: move up to that plan (its trial, if still available).
+            // Signed-out guests were sent through sign-up by Landing first.
+            if (user) choosePlan(id).catch((e) => console.error("Couldn't switch plan:", e.message));
             setScreen("projects"); window.scrollTo({ top: 0 });
           }}
           onSignedIn={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}

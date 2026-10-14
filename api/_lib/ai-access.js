@@ -38,7 +38,7 @@ export async function authorizeAi(req) {
   let rows;
   try {
     const prof = await fetch(
-      `${supaUrl()}/rest/v1/profiles?select=tier,ai_addon,plan_reads_used,period_started_at&id=eq.${encodeURIComponent(who.id)}`,
+      `${supaUrl()}/rest/v1/profiles?select=tier,ai_addon,plan_reads_used,period_started_at,trial_tier,trial_ends_at&id=eq.${encodeURIComponent(who.id)}`,
       { headers: userHeaders(who.token) },
     );
     rows = prof.ok ? await prof.json() : [];

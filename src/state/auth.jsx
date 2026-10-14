@@ -10,10 +10,10 @@
    the product.
    ========================================================================= */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from "react";
-import { supabase, isAuthConfigured, redirectTo } from "../lib/supabase.js";
+import { supabase, isAuthConfigured, redirectTo, authLinkState, onAuthLink, finishRecovery, clearLinkProblem } from "../lib/supabase.js";
 import { isNative, openExternal, onAppResume } from "../lib/native.js";
 import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
-import { PLANS, entitlementsFor } from "../lib/entitlements.js";
+import { PLANS, entitlementsFor, SEGMENT_PLAN, planRank } from "../lib/entitlements.js";
 
 const AuthCtx = createContext(null);
 
@@ -59,6 +59,10 @@ export function AuthProvider({ children }) {
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []);
 
+  // Password-reset links and failed email links (see lib/supabase.js).
+  const [link, setLink] = useState(authLinkState);
+  useEffect(() => onAuthLink(setLink), []);
+
   /* Load the profile row whenever the signed-in user changes. The row is
      created by the on_auth_user_created trigger, so it should always
      exist; if it doesn't we leave profile null rather than inventing a
@@ -81,7 +85,7 @@ export function AuthProvider({ children }) {
     if (!isAuthConfigured || !id) return null;
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, full_name, company, segment, tier, ai_addon, plan_reads_used, period_started_at, stripe_customer_id")
+      .select("id, email, full_name, company, segment, tier, ai_addon, plan_reads_used, period_started_at, trial_tier, trial_ends_at, stripe_customer_id")
       .eq("id", id)
       .maybeSingle();
     if (userIdRef.current !== id) return null;            // signed out / switched meanwhile
@@ -170,8 +174,59 @@ export function AuthProvider({ children }) {
     return data;
   }, [userId]);
 
+  /* Someone signed in after a password-reset link sets a new one here. */
+  const updatePassword = useCallback(async (password) => {
+    if (!isAuthConfigured) throw new Error("Sign-in isn't configured yet.");
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw new Error(error.message);
+    finishRecovery();
+  }, []);
+
+  /* App-store rule: an account you can make, you can delete. The database
+     function deletes the caller's own auth user; their profile and cloud
+     projects go with it (on delete cascade). The session is then dead, so
+     only clear it locally. */
+  const deleteAccount = useCallback(async () => {
+    if (!isAuthConfigured || !userId) throw new Error("Not signed in.");
+    const { error } = await supabase.rpc("delete_my_account");
+    if (error) throw new Error(error.message);
+    stopCloudSync();
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    setProfile(null);
+  }, [userId]);
+
+  /* "Choose Tradie" / "Choose Builder". Saving the segment is what starts a
+     trial (database trigger, once per account), so the choice is stored
+     until a profile is loaded — straight away when signed in (the returned
+     promise resolves with the updated profile), or right after the sign-in it
+     prompted. It only ever moves someone UP: a Builder who taps the Tradie
+     card isn't switched down. Re-saving the same segment is fine — the
+     trigger then starts a trial if the account never had one. */
+  const applyPlan = useCallback(async (segment, prof) => {
+    if (planRank(SEGMENT_PLAN[segment]) <= planRank(entitlementsFor(prof).tier)) return prof;
+    return updateProfile({ segment });
+  }, [updateProfile]);
+  const [intent, setIntent] = useState(() => {
+    try { return sessionStorage.getItem("byo.plan-intent"); } catch { return null; }
+  });
+  const choosePlan = useCallback(async (segment) => {
+    if (!SEGMENT_PLAN[segment]) return null;
+    if (userId && profile) return applyPlan(segment, profile);
+    try { sessionStorage.setItem("byo.plan-intent", segment); } catch { /* private mode */ }
+    setIntent(segment);
+    return null;
+  }, [userId, profile, applyPlan]);
+  useEffect(() => {
+    if (!intent || !profile || !userId) return;
+    try { sessionStorage.removeItem("byo.plan-intent"); } catch { /* ignore */ }
+    setIntent(null);
+    applyPlan(intent, profile).catch((e) => console.error("Couldn't switch plan:", e.message));
+  }, [intent, profile, userId, applyPlan]);
+
   const value = useMemo(() => {
-    const tierId = profile?.tier ?? "free";
+    const can = isAuthConfigured ? entitlementsFor(session ? profile : null) : entitlementsFor({ tier: "enterprise" });
+    // The plan in effect right now — a trial counts.
+    const tierId = can.tier;
     return {
       enabled: isAuthConfigured,
       loading,
@@ -183,10 +238,17 @@ export function AuthProvider({ children }) {
       // What this account (or a guest) may use — modes, AI, Site Office.
       // With no accounts configured (local dev) there is nothing to check
       // against — the server skips its check too — so everything is open.
-      can: isAuthConfigured ? entitlementsFor(session ? profile : null) : entitlementsFor({ tier: "enterprise" }),
+      can,
+      trial: can.trial,
+      // Email-link outcomes: show "set a new password" / explain a dead link.
+      recovering: link.recovering && !!session,
+      linkProblem: link.problem,
+      finishRecovery, clearLinkProblem,
+      pendingPlan: intent,
       signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile, refreshProfile,
+      updatePassword, deleteAccount, choosePlan,
     };
-  }, [loading, session, profile, signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile, refreshProfile]);
+  }, [loading, session, profile, link, intent, signUp, signIn, signInWithGoogle, signOut, resetPassword, updateProfile, refreshProfile, updatePassword, deleteAccount, choosePlan]);
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
 }

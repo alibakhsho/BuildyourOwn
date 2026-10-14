@@ -33,6 +33,9 @@ const url = /^https:\/\/[^/]+\.supabase\.(co|in|net)/.test(rawUrl) ? rawUrl : ""
 
 export const isAuthConfigured = !!(url && key);
 
+// Read before the client starts: it rewrites the URL once it has used the code.
+const landedUrl = typeof window !== "undefined" ? window.location?.href ?? "" : "";
+
 /* createClient can throw on a bad argument. It is imported (via auth.jsx)
    into main.jsx, which wraps the entire app — so an unguarded throw here
    blanks every page. Fail safe: on any error, log it and run without auth. */
@@ -62,6 +65,60 @@ export const supabase = (() => {
     return null;
   }
 })();
+
+/* ---- What an emailed link did ---------------------------------------------
+   A password-reset link signs the user in and fires PASSWORD_RECOVERY while
+   the client starts up — before React has mounted anything that could
+   listen — so it's caught here, at module level, and kept until the app
+   asks. Links that fail (expired, already used, or opened in a different
+   browser from the one that asked for them, where the PKCE verifier isn't)
+   otherwise do nothing visible; those become a `problem` the app explains. */
+const linkState = { recovering: false, problem: null };
+const linkListeners = new Set();
+const emitLink = (patch) => {
+  Object.assign(linkState, patch);
+  linkListeners.forEach((cb) => cb({ ...linkState }));
+};
+export const authLinkState = () => ({ ...linkState });
+export function onAuthLink(cb) { linkListeners.add(cb); return () => linkListeners.delete(cb); }
+export const finishRecovery = () => emitLink({ recovering: false });
+export const clearLinkProblem = () => emitLink({ problem: null });
+
+function linkProblemFrom(href) {
+  let u;
+  try { u = new URL(href); } catch { return null; }
+  const p = new URLSearchParams(u.hash.replace(/^#/, ""));
+  u.searchParams.forEach((v, k) => { if (!p.has(k)) p.set(k, v); });
+  const code = p.get("error_code");
+  if (code === "otp_expired") return "That email link has expired or has already been used. Request a new one below.";
+  if (p.get("error_description")) return `That link didn't work: ${p.get("error_description").replace(/\+/g, " ")}.`;
+  return null;
+}
+
+if (supabase) {
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === "PASSWORD_RECOVERY") emitLink({ recovering: true, problem: null });
+  });
+  supabase.auth.initialize().then(async ({ error }) => {
+    const hadCode = /[?&]code=/.test(landedUrl);
+    const hadError = /[#?&]error(_code|_description)?=/.test(landedUrl);
+    if (!hadCode && !hadError) return;
+    const { data } = await supabase.auth.getSession();
+    const problem = linkProblemFrom(landedUrl)
+      || (error ? `That link didn't work: ${error.message}` : null)
+      || (!data.session && hadCode
+        ? "That link was opened in a different browser from the one that asked for it. If you were confirming your email, it's confirmed — just sign in. If you were resetting your password, request a new link here."
+        : null);
+    if (problem) emitLink({ problem });
+    // Don't leave a dead code or error in the address bar to retry on reload.
+    try {
+      const clean = new URL(window.location.href);
+      ["code", "error", "error_code", "error_description"].forEach((k) => clean.searchParams.delete(k));
+      if (/error/.test(clean.hash)) clean.hash = "";
+      window.history.replaceState(window.history.state, "", clean.toString());
+    } catch { /* not fatal */ }
+  });
+}
 
 /* Where Google should send the user back to. Uses the live origin so the
    same build works on localhost, a preview URL and production without a

@@ -18,11 +18,12 @@ import { colors as TOKENS, paletteFor, kebab } from "../design/system.js";
    plan cards and sign-in modal inside it render light too. */
 const LIGHT_VARS = Object.fromEntries(Object.entries(paletteFor("light")).map(([k, v]) => [`--${kebab(k)}`, v]));
 import { Engine3D } from "../engine/engine3D.js";
-import { PlanCards } from "./Plans.jsx";
+import { PlanCards, PLAN_SEGMENT } from "./Plans.jsx";
 import { AccountButton } from "./AuthModal.jsx";
 import AuthModal from "./AuthModal.jsx";
 import BYOLogo from "./ui/BYOLogo.jsx";
 import { useAuth } from "../state/auth.jsx";
+import { TRIAL_DAYS } from "../lib/entitlements.js";
 import { Estimator } from "../logic/estimator.js";
 import { fmt, currencySymbol } from "../lib/format.js";
 
@@ -65,15 +66,29 @@ const chip = {
 const AUDIENCES = [
   { id: "homeowner", plan: "Homeowner · free", title: "Building or renovating your own home",
     body: "Put in your plans or just the size of the house. See what it should cost, trade by trade, before you sit down with a builder." },
-  { id: "tradie", plan: "Tradie", title: "Quoting jobs every week",
+  { id: "tradie", plan: "Tradie", trial: true, title: "Quoting jobs every week",
     body: "Price a whole house or any custom job from your own rates, and send a clean quote the client can say yes to." },
-  { id: "builder", plan: "Builder", title: "Running several builds at once",
+  { id: "builder", plan: "Builder", trial: true, title: "Running several builds at once",
     body: "Quote a duplex or a 40-lot estate in one go, cost an apartment block, then run every job from Site Office." },
 ];
 
 export default function Landing({ onStart, onPickAudience, onSignedIn, region, setRegion, howItWorks }) {
-  const { user, tier, enabled } = useAuth();
-  const [auth, setAuth] = useState(null);
+  const { user, profile, can, enabled } = useAuth();
+  const [auth, setAuth] = useState(null);         // { mode, intent }
+  // Outlives the modal, which closes itself on a successful sign-up before
+  // the account has loaded.
+  const [armed, setArmed] = useState(false);
+  /* Tradie / Builder: a guest signs up for that plan's free trial first, then
+     lands on their dashboard; anyone already signed in (or a build without
+     accounts) goes straight through — App switches their plan. */
+  const pick = (id) => {
+    if (id !== "homeowner" && enabled && !user) { setAuth({ mode: "signup", intent: id }); setArmed(true); return; }
+    onPickAudience(id);
+  };
+  // After that sign-up/in, wait for the profile, then go to the dashboard.
+  useEffect(() => {
+    if (armed && user && profile) { setArmed(false); setAuth(null); onSignedIn?.(); }
+  }, [armed, user, profile, onSignedIn]);
   const plansRef = useRef(null);
   // The hero numbers are a real estimate of the house on screen, not copy.
   const est = useMemo(() => Estimator.buildEstimate(HERO_SPEC, region), [region]);
@@ -174,12 +189,14 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
           <p style={{ fontSize: 16, color: "#5A6067", margin: "0 0 32px", maxWidth: "60ch" }}>Pick the one that sounds like you — you'll land in the right place.</p>
           <div className="lp-aud">
             {AUDIENCES.map((a, i) => (
-              <motion.button key={a.id} className="lp-card" onClick={() => onPickAudience(a.id)}
+              <motion.button key={a.id} className="lp-card" onClick={() => pick(a.id)}
                 initial={{ opacity: 0, y: 24 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: 0.3 }} transition={{ delay: i * 0.08 }}>
                 <div style={{ font: "600 12px 'Plus Jakarta Sans', sans-serif", color: TOKENS.emberInk, marginBottom: 10 }}>{a.plan}</div>
                 <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 26, lineHeight: 1.05, marginBottom: 10 }}>{a.title}</div>
                 <p style={{ fontSize: 14.5, lineHeight: 1.6, color: "#4A4F55", margin: "0 0 18px" }}>{a.body}</p>
-                <span style={{ font: "600 14px 'Plus Jakarta Sans', sans-serif" }}>Start here →</span>
+                <span style={{ font: "600 14px 'Plus Jakarta Sans', sans-serif" }}>
+                  {a.trial && can.trialAvailable && can.tier === "free" ? `Try it free for ${TRIAL_DAYS} days →` : "Start here →"}
+                </span>
               </motion.button>
             ))}
           </div>
@@ -193,10 +210,10 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
         <div className="lp-wrap">
           <h2 className="lp-h2">Simple plans. Start free.</h2>
           <p style={{ fontSize: 16, color: "#5A6067", margin: "0 0 32px", maxWidth: "64ch" }}>
-            Homeowners never pay to estimate their own build. Tradies and builders pay for the tools that win and run jobs. Prices in AUD, ex GST.
+            Homeowners never pay to estimate their own build. Tradies and builders pay for the tools that win and run jobs — and can try either free for {TRIAL_DAYS} days, no card. Prices in AUD, ex GST.
           </p>
-          <PlanCards current={user ? tier : null}
-            onChoose={(id) => (id === "free" ? onStart() : enabled && !user ? setAuth("signup") : onPickAudience(id === "pro" ? "tradie" : "builder"))} />
+          <PlanCards current={user ? can.tier : null} onTrial={can.onTrial} trialAvailable={can.trialAvailable}
+            onChoose={(id) => (id === "free" ? onStart() : pick(PLAN_SEGMENT[id]))} />
         </div>
       </section>
 
@@ -208,7 +225,7 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
           <button className="lp-cta" style={{ background: TOKENS.hivis, color: "#14171A" }} onClick={onStart}>Price my build →</button>
         </div>
       </section>
-      {auth && <AuthModal initialMode={auth} onClose={() => setAuth(null)} />}
+      {auth && <AuthModal initialMode={auth.mode} intent={auth.intent} onClose={() => setAuth(null)} />}
     </div>
   );
 }

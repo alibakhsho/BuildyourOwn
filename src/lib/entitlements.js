@@ -65,19 +65,51 @@ export const PLANS = {
 /* The plans offered on the pricing table (enterprise is sales-led). */
 export const PUBLIC_PLANS = ["free", "pro", "business"];
 
+/* ---- Free trials ----------------------------------------------------------
+   Signing up as (or switching to) a Tradie or Builder starts a 14-day trial
+   of that plan, once per account. The database trigger writes trial_tier /
+   trial_ends_at; nothing runs when it ends — every check reads the date.
+   Accounts are cheap to make, so a trial's AI plan reads are capped lower
+   than the paid plan's: the trial shows the feature, it isn't free capacity. */
+export const TRIAL_DAYS = 14;
+export const TRIAL_PLAN_READS = 10;
+/** Which plan a self-declared segment trials. */
+export const SEGMENT_PLAN = { homeowner: "free", tradie: "pro", builder: "business" };
+const RANK = { free: 0, pro: 1, business: 2, enterprise: 3 };
+export const planRank = (id) => RANK[id] ?? 0;
+
+/** The account's trial, active or ended — null if it never had one. */
+export function trialFor(profile, now = new Date()) {
+  const tier = profile?.trial_tier;
+  const endsAt = profile?.trial_ends_at ? new Date(profile.trial_ends_at) : null;
+  if (!PLANS[tier] || !endsAt || isNaN(endsAt)) return null;
+  const active = now < endsAt;
+  return { tier, label: PLANS[tier].label, endsAt, active, daysLeft: active ? Math.ceil((endsAt - now) / 86400000) : 0 };
+}
+
 /** Resolve what an account (or a guest, when profile is null) may do. */
-export function entitlementsFor(profile) {
-  const plan = PLANS[profile?.tier] || PLANS.free;
+export function entitlementsFor(profile, now = new Date()) {
+  const paid = PLANS[profile?.tier] || PLANS.free;
+  const trial = trialFor(profile, now);
+  // A trial only ever adds: it never replaces a plan that's already as good.
+  const onTrial = !!trial?.active && planRank(trial.tier) > planRank(paid.id);
+  const plan = onTrial ? PLANS[trial.tier] : paid;
   const addon = !!profile?.ai_addon && plan.id === "free";
+  const reads = addon ? Math.max(plan.planReads, AI_ADDON.planReads) : plan.planReads;
   return {
     plan,
     tier: plan.id,
+    paidTier: paid.id,
+    trial,
+    onTrial,
+    // A guest gets one by signing up; an account only if it never had one.
+    trialAvailable: paid.id === "free" && !profile?.trial_ends_at,
     modes: plan.modes,
     ai: plan.ai || addon,
     aiAddon: addon,
     siteOffice: plan.siteOffice,
     projects: plan.projects,
-    planReads: addon ? Math.max(plan.planReads, AI_ADDON.planReads) : plan.planReads,
+    planReads: onTrial ? Math.min(reads, TRIAL_PLAN_READS) : reads,
     canUseMode: (m) => plan.modes.includes(m),
   };
 }
