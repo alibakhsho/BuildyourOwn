@@ -26,6 +26,7 @@ import billingPortal from "../api/billing/portal.js";
 import billingSync from "../api/billing/sync.js";
 import billingWebhook from "../api/billing/webhook.js";
 import accountDelete from "../api/account/delete.js";
+import { healthReport } from "../api/health.js";
 
 // Load server/.env regardless of the cwd the process was started from.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -51,7 +52,7 @@ const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_A
 // Default model for every AI feature. Override per request with `model`.
 const DEFAULT_MODEL = process.env.BYO_AI_MODEL || "claude-opus-5";
 
-app.get("/api/health", (_req, res) => res.json({ ok: true, hasKey: hasKey() }));
+app.get("/api/health", (_req, res) => res.json(healthReport()));
 
 app.post("/api/ai/chat", async (req, res) => {
   if (!hasKey()) {
