@@ -2,17 +2,21 @@
    Plans — the plan table, used in three places so it can't drift:
      PlanCards     landing-page pricing + inside the upgrade prompt
      UpgradeModal  shown when someone reaches for a feature their plan lacks
+                   (or "see plans") — the one place a plan choice is acted on
      AiUpsell      the AI crew page for a plan without AI
 
-   Everything reads lib/entitlements.js. Billing isn't live yet: a paid plan
-   starts its 14-day free trial if the account (or a guest, by signing up)
-   can still get one; otherwise the call to action says payment is coming
-   rather than showing a dead "Buy" button.
+   Everything reads lib/entitlements.js. Picking a paid plan:
+     guest                      → sign up, which starts that plan's trial
+     never trialled             → start the 14-day trial (no card)
+     trial used / on a trial    → Stripe Checkout (lib/billing.js)
+     already paying             → Stripe billing portal to switch
+     in the phone app           → no purchase (app-store rules)
    ========================================================================= */
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { colors as TOKENS } from "../design/system.js";
 import { PLANS, PUBLIC_PLANS, AI_ADDON, MODE_LABEL, TRIAL_DAYS, planFor } from "../lib/entitlements.js";
+import { canPayHere, startCheckout, openBillingPortal, hasSubscription } from "../lib/billing.js";
 import { useAuth } from "../state/auth.jsx";
 import AuthModal from "./AuthModal.jsx";
 
@@ -31,16 +35,40 @@ const FEATURE_NAME = {
   ...Object.fromEntries(Object.entries(MODE_LABEL).map(([k, v]) => [k, `${v} quoting`])),
 };
 
+/** Monthly / yearly switch. Yearly = 10 × monthly (two months free). */
+export function IntervalToggle({ value, onChange }) {
+  const opt = (v, label) => (
+    <button type="button" onClick={() => onChange(v)} aria-pressed={value === v}
+      style={{ padding: "7px 14px", border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600,
+        background: value === v ? TOKENS.ink : "transparent", color: value === v ? TOKENS.paper : TOKENS.ink }}>
+      {label}
+    </button>
+  );
+  return (
+    <div role="group" aria-label="Billing period" style={{ display: "inline-flex", border: `1px solid ${TOKENS.rule}`, borderRadius: 999, overflow: "hidden" }}>
+      {opt("month", "Monthly")}{opt("year", "Yearly · 2 months free")}
+    </div>
+  );
+}
+
 /* current: the plan in effect (a trial counts) · onTrial: it's a trial ·
-   trialAvailable: paid plans can still be tried free. */
-export function PlanCards({ current, highlight, onChoose, onTrial = false, trialAvailable = false, tone = "light" }) {
+   trialAvailable: paid plans can still be tried free · subscribed: already
+   paying (other plans become "Switch to") · interval: "month" | "year". */
+export function PlanCards({ current, highlight, onChoose, onTrial = false, trialAvailable = false, subscribed = false, interval = "month", tone = "light" }) {
   const dark = tone === "dark";
+  const yearly = interval === "year";
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 }}>
       {PUBLIC_PLANS.map((id) => {
         const p = PLANS[id];
         const hot = id === highlight;
         const mine = id === current;
+        const amount = yearly ? p.priceYear : p.price;
+        const label = mine ? (onTrial ? (canPayHere ? "Subscribe to keep it" : "On free trial") : "Current plan")
+          : id === "free" ? "Start free"
+          : trialAvailable ? `Try ${p.label} free for ${TRIAL_DAYS} days`
+          : subscribed ? `Switch to ${p.label}`
+          : `Choose ${p.label}`;
         return (
           <div key={id} style={{
             background: dark ? "rgba(255,255,255,0.04)" : TOKENS.card,
@@ -50,8 +78,8 @@ export function PlanCards({ current, highlight, onChoose, onTrial = false, trial
             {(hot || mine) && <span className="ec-tag ec-tag-hivis" style={{ position: "absolute", top: -11, left: 18 }}>{mine ? (onTrial ? "Your trial" : "Your plan") : "Unlocks this"}</span>}
             <div className="ec-display" style={{ fontSize: 22 }}>{p.label}</div>
             <div>
-              <span className="ec-display" style={{ fontSize: 30 }}>{p.price ? `A$${p.price}` : "Free"}</span>
-              {p.price ? <span className="ec-mono" style={{ fontSize: 11, opacity: 0.7 }}> /month</span> : null}
+              <span className="ec-display" style={{ fontSize: 30 }}>{amount ? `A$${amount.toLocaleString()}` : "Free"}</span>
+              {amount ? <span className="ec-mono" style={{ fontSize: 11, opacity: 0.7 }}> /{yearly ? "year" : "month"} + GST</span> : null}
             </div>
             <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0, opacity: 0.8 }}>{p.blurb}</p>
             <ul style={{ listStyle: "none", padding: 0, margin: "4px 0 0", display: "flex", flexDirection: "column", gap: 7 }}>
@@ -62,12 +90,9 @@ export function PlanCards({ current, highlight, onChoose, onTrial = false, trial
               ))}
             </ul>
             {onChoose && (
-              <button className={hot ? "ec-btn ec-btn-hivis" : "ec-btn ec-btn-ghost"} style={{ marginTop: "auto", justifyContent: "center" }}
-                disabled={mine} onClick={() => onChoose(id)}>
-                {mine ? (onTrial ? "On free trial" : "Current plan")
-                  : id === "free" ? "Start free"
-                  : trialAvailable ? `Try ${p.label} free for ${TRIAL_DAYS} days`
-                  : `Choose ${p.label}`}
+              <button className={hot || (mine && onTrial) ? "ec-btn ec-btn-hivis" : "ec-btn ec-btn-ghost"} style={{ marginTop: "auto", justifyContent: "center" }}
+                disabled={mine && !(onTrial && canPayHere)} onClick={() => onChoose(id, interval)}>
+                {label}
               </button>
             )}
           </div>
@@ -92,13 +117,12 @@ function Backdrop({ onClose, children, wide }) {
   );
 }
 
-/* What happens when someone picks a paid plan they can't trial, until
-   billing is live. */
-function ChosenNotice({ plan, onBack, trialUsed }) {
+/* In the phone app nothing is sold — say so plainly, without a purchase
+   link (app-store rules). */
+function AppNotice({ onBack }) {
   return (
     <div style={{ marginTop: 18, padding: 16, border: `1px solid ${TOKENS.rule}`, background: TOKENS.paperLight, fontSize: 13, lineHeight: 1.6 }}>
-      {trialUsed && <>You've already had your free trial. </>}
-      <strong>Paid {PLANS[plan].label} plans are opening soon.</strong> Online payment isn't switched on yet. During launch, upgrades are set up by hand — reply to your welcome email or contact us and we'll turn {PLANS[plan].label} on for your account.
+      Plans can't be bought or changed in the app. Any plan on your account works here as soon as it's active.
       <div><button className="ec-btn ec-btn-ghost" style={{ marginTop: 10, fontSize: 11 }} onClick={onBack}>Back to plans</button></div>
     </div>
   );
@@ -119,25 +143,39 @@ function TrialStarted({ plan, onClose }) {
    nothing for a plain "see plans". */
 export function UpgradeModal({ feature, onClose }) {
   const { enabled, user, profile, can, choosePlan } = useAuth();
-  const [chosen, setChosen] = useState(null);
+  const [interval, setBillingInterval] = useState("month");
+  const [appNotice, setAppNotice] = useState(false);
   const [started, setStarted] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");             // what we're doing, while doing it
   const [error, setError] = useState("");
-  const [auth, setAuth] = useState(null);         // { mode, intent } — signs a guest up for the trial
+  const [auth, setAuth] = useState(null);           // { mode, intent } — signs a guest up for the trial
   const need = feature ? planFor(feature) : null;
+  const subscribed = hasSubscription(profile);
   // This modal sent a guest to sign up. Kept in a ref, not in `auth`: the
   // sign-up form closes itself on success, before the account has loaded.
   const viaAuth = useRef(false);
 
-  const choose = async (id) => {
-    if (id === "free") return onClose();
-    if (enabled && !user) { viaAuth.current = true; return setAuth({ mode: "signup", intent: PLAN_SEGMENT[id] }); }
-    if (!can.trialAvailable) return setChosen(id);
-    setBusy(true); setError("");
-    try { await choosePlan(PLAN_SEGMENT[id]); setStarted(id); }
-    catch (e) { setError(e.message || "Couldn't start the trial. Try again."); }
-    finally { setBusy(false); }
+  const act = async (doing, fn) => {
+    setBusy(doing); setError("");
+    try { await fn(); }
+    catch (e) { setError(e.message || "Something went wrong. Try again."); setBusy(""); }
+    // on success the browser is usually leaving for Stripe — keep "busy"
   };
+
+  const choose = (id, iv = interval) => {
+    if (id === "free") return onClose();
+    if (enabled && !user) {
+      viaAuth.current = true;
+      return setAuth({ mode: "signup", intent: id === "ai" ? null : PLAN_SEGMENT[id] });
+    }
+    if (can.trialAvailable && id !== "ai") {
+      return act("Starting your trial…", async () => { await choosePlan(PLAN_SEGMENT[id]); setStarted(id); setBusy(""); });
+    }
+    if (!canPayHere) return setAppNotice(true);
+    if (subscribed) return act("Opening billing…", openBillingPortal);
+    return act("Opening secure checkout…", () => startCheckout(id, iv));
+  };
+
   // A guest who signs up (or in) from here: once the account has loaded,
   // drop the sign-in form; when the trial it asked for is in effect — with
   // the account on sign-up, a moment later on sign-in — say so.
@@ -149,27 +187,54 @@ export function UpgradeModal({ feature, onClose }) {
     if (viaAuth.current && unlocked && can.onTrial && !started) setStarted(need || can.tier);
   }, [unlocked, can.onTrial, can.tier, started, need]);
 
+  // Homeowners can buy just the AI assistant.
+  const offerAddon = (feature === "ai" || !feature) && can.paidTier === "free" && !can.aiAddon;
+
   return (
     <Backdrop onClose={onClose} wide>
       <div className="ec-eyebrow" style={{ marginBottom: 6 }}>{feature ? "Upgrade" : "Plans"}</div>
       <h2 className="ec-display" style={{ fontSize: 26, margin: "0 0 6px" }}>
         {feature ? `${FEATURE_NAME[feature] || "This feature"} is part of the ${PLANS[need].label} plan` : "Pick the plan that fits your work"}
       </h2>
-      <p style={{ fontSize: 13, color: TOKENS.steel, margin: "0 0 22px", maxWidth: "70ch" }}>
+      <p style={{ fontSize: 13, color: TOKENS.steel, margin: "0 0 16px", maxWidth: "70ch" }}>
         {feature === "ai"
-          ? `Homeowners can add just the AI assistant for A${AI_ADDON.price}/month, or move to Tradie or Builder where AI is included.`
+          ? `Homeowners can add just the AI assistant for A$${AI_ADDON.price}/month, or move to Tradie or Builder where AI is included.`
           : "Everything you've already built stays as it is — upgrading only adds."}
         {can.trialAvailable ? ` Tradie and Builder can be tried free for ${TRIAL_DAYS} days, no card needed.` : ""}
+        {canPayHere ? " Prices in AUD; GST is added at checkout. Cancel any time." : ""}
       </p>
       {started ? <TrialStarted plan={started} onClose={onClose} />
-        : chosen ? <ChosenNotice plan={chosen} trialUsed={!!can.trial} onBack={() => setChosen(null)} />
+        : appNotice ? <AppNotice onBack={() => setAppNotice(false)} />
         : (
-        <div style={{ opacity: busy ? 0.6 : 1, pointerEvents: busy ? "none" : "auto" }}>
-          <PlanCards current={user ? can.tier : null} onTrial={can.onTrial} trialAvailable={can.trialAvailable}
-            highlight={need} onChoose={choose} />
-        </div>
+        <>
+          {canPayHere && !can.trialAvailable && (
+            <div style={{ marginBottom: 16 }}><IntervalToggle value={interval} onChange={setBillingInterval} /></div>
+          )}
+          <div style={{ opacity: busy ? 0.6 : 1, pointerEvents: busy ? "none" : "auto" }}>
+            <PlanCards current={user ? can.tier : null} onTrial={can.onTrial} trialAvailable={can.trialAvailable}
+              subscribed={subscribed} interval={interval} highlight={need} onChoose={choose} />
+          </div>
+          {offerAddon && canPayHere && (
+            <div style={{ marginTop: 16, padding: "14px 16px", border: `1px dashed ${TOKENS.rule}`, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+              <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+                <strong>Just want the AI?</strong> Keep Homeowner and add the AI assistant — the AI crew plus {AI_ADDON.planReads} AI plan reads a month.
+              </div>
+              <button className="ec-btn ec-btn-ghost" disabled={!!busy} onClick={() => choose("ai")}>
+                Add AI · A${interval === "year" ? `${AI_ADDON.priceYear}/yr` : `${AI_ADDON.price}/mo`}
+              </button>
+            </div>
+          )}
+          {subscribed && canPayHere && (
+            <div style={{ marginTop: 14, fontSize: 12.5, color: TOKENS.steel }}>
+              Already subscribed — plan changes, invoices and cancelling are in{" "}
+              <button className="ec-btn ec-btn-ghost" style={{ fontSize: 11, padding: "3px 8px" }} disabled={!!busy}
+                onClick={() => act("Opening billing…", openBillingPortal)}>Manage billing</button>
+            </div>
+          )}
+        </>
       )}
-      {error && <div role="alert" style={{ marginTop: 12, fontSize: 12, color: TOKENS.alert }}>{error}</div>}
+      {busy && <div role="status" className="ec-mono" style={{ marginTop: 12, fontSize: 12, color: TOKENS.steel }}>{busy}</div>}
+      {error && <div role="alert" style={{ marginTop: 12, fontSize: 12.5, color: TOKENS.alert }}>{error}</div>}
       {auth && <AuthModal initialMode={auth.mode} intent={auth.intent} onClose={() => setAuth(null)} />}
     </Backdrop>
   );
@@ -186,7 +251,7 @@ export function AiUpsell() {
         AI isn't part of the free Homeowner plan because every answer costs us to run.
       </p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
-        <button className="ec-btn ec-btn-hivis" onClick={() => setOpen(true)}>Add the AI assistant · A${AI_ADDON.price}/mo</button>
+        <button className="ec-btn ec-btn-hivis" onClick={() => setOpen(true)}>{canPayHere ? `Add the AI assistant · A$${AI_ADDON.price}/mo` : "See plans"}</button>
         <button className="ec-btn ec-btn-ghost" onClick={() => setOpen(true)}>Compare plans</button>
       </div>
       {open && <UpgradeModal feature="ai" onClose={() => setOpen(false)} />}

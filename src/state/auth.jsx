@@ -13,6 +13,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, u
 import { supabase, isAuthConfigured, redirectTo, authLinkState, onAuthLink, finishRecovery, clearLinkProblem } from "../lib/supabase.js";
 import { isNative, openExternal, onAppResume } from "../lib/native.js";
 import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
+import { deleteAccountOnServer, BillingError } from "../lib/billing.js";
 import { PLANS, entitlementsFor, SEGMENT_PLAN, planRank } from "../lib/entitlements.js";
 
 const AuthCtx = createContext(null);
@@ -85,7 +86,7 @@ export function AuthProvider({ children }) {
     if (!isAuthConfigured || !id) return null;
     const { data, error } = await supabase
       .from("profiles")
-      .select("id, email, full_name, company, segment, tier, ai_addon, plan_reads_used, period_started_at, trial_tier, trial_ends_at, stripe_customer_id")
+      .select("id, email, full_name, company, segment, tier, ai_addon, plan_reads_used, period_started_at, trial_tier, trial_ends_at, stripe_customer_id, billing_status, billing_interval, plan_renews_at, plan_cancels_at")
       .eq("id", id)
       .maybeSingle();
     if (userIdRef.current !== id) return null;            // signed out / switched meanwhile
@@ -182,18 +183,25 @@ export function AuthProvider({ children }) {
     finishRecovery();
   }, []);
 
-  /* App-store rule: an account you can make, you can delete. The database
-     function deletes the caller's own auth user; their profile and cloud
-     projects go with it (on delete cascade). The session is then dead, so
-     only clear it locally. */
+  /* App-store rule: an account you can make, you can delete. The server
+     cancels any Stripe subscription first, then deletes the caller's own
+     auth user; their profile and cloud projects go with it (on delete
+     cascade). Only if the server can't be reached at all — local dev without
+     it running — and there's no billing to cancel, the database function is
+     called directly. The session is then dead, so only clear it locally. */
   const deleteAccount = useCallback(async () => {
     if (!isAuthConfigured || !userId) throw new Error("Not signed in.");
-    const { error } = await supabase.rpc("delete_my_account");
-    if (error) throw new Error(error.message);
+    try {
+      await deleteAccountOnServer();
+    } catch (e) {
+      if (!(e instanceof BillingError && e.code === "network") || profile?.stripe_customer_id) throw e;
+      const { error } = await supabase.rpc("delete_my_account");
+      if (error) throw new Error(error.message);
+    }
     stopCloudSync();
     await supabase.auth.signOut({ scope: "local" }).catch(() => {});
     setProfile(null);
-  }, [userId]);
+  }, [userId, profile]);
 
   /* "Choose Tradie" / "Choose Builder". Saving the segment is what starts a
      trial (database trigger, once per account), so the choice is stored

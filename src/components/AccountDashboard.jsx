@@ -17,6 +17,8 @@ import { planReadsUsedNow, TRIAL_DAYS } from "../lib/entitlements.js";
 import { useCloudSync, syncNow } from "../state/cloud-sync.js";
 import AuthModal from "./AuthModal.jsx";
 import { UpgradeModal } from "./Plans.jsx";
+import { billingText } from "./AuthModal.jsx";
+import { canPayHere, openBillingPortal, hasSubscription } from "../lib/billing.js";
 
 /* Which shortcuts each plan gets. Everything works for everyone today —
    this is about surfacing the right thing first, not gating. */
@@ -135,10 +137,21 @@ export default function AccountDashboard({ projectCount, onNew, onOpenSiteOffice
             {SHORTCUT_LABEL[k]}
           </button>
         ))}
-        {can.onTrial ? (
+        {hasSubscription(profile) ? (
+          <div style={{ fontSize: 12, lineHeight: 1.5, color: profile.billing_status === "past_due" ? TOKENS.alert : TOKENS.steel, marginTop: 4 }}>
+            {billingText(profile)}
+            {canPayHere && (
+              <div><button className="ec-btn ec-btn-ghost" style={{ fontSize: 11, padding: "3px 8px", marginTop: 6 }}
+                onClick={() => openBillingPortal().catch((e) => alert(e.message))}>Manage billing</button></div>
+            )}
+          </div>
+        ) : can.onTrial ? (
           <div style={{ fontSize: 12, lineHeight: 1.5, color: TOKENS.steel, marginTop: 4 }}>
             Your free {tierInfo.label} trial runs until {trial.endsAt.toLocaleDateString()}. After that you're on the free
             Homeowner plan unless you subscribe — nothing you've built is deleted.
+            {canPayHere && (
+              <div><button className="ec-btn ec-btn-hivis" style={{ fontSize: 11, padding: "4px 10px", marginTop: 8 }} onClick={() => setModal("plans")}>Subscribe</button></div>
+            )}
           </div>
         ) : trialEnded ? (
           <div style={{ fontSize: 12, lineHeight: 1.5, color: TOKENS.steel, marginTop: 4 }}>

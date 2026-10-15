@@ -48,6 +48,7 @@ import { AccountButton, Onboarding, AuthLinks } from "./components/AuthModal.jsx
 import AccountDashboard from "./components/AccountDashboard.jsx";
 import Landing from "./components/Landing.jsx";
 import { UpgradeModal, AiUpsell } from "./components/Plans.jsx";
+import BillingReturn from "./components/BillingReturn.jsx";
 import { useAuth } from "./state/auth.jsx";
 import { MODE_LABEL, BUILD_MODE_IDS } from "./lib/entitlements.js";
 import { buildMultiEstimate } from "./logic/multi-dwelling.js";
@@ -2488,6 +2489,8 @@ export default function App() {
 
       {/* Emailed links (password reset, expired links) land on any screen. */}
       <AuthLinks />
+      {/* Coming back from Stripe Checkout / the billing portal. */}
+      <BillingReturn />
 
       {screen === "landing" && (
         <div style={{ paddingTop: "env(safe-area-inset-top)" }}>

@@ -31,31 +31,32 @@ export const MODE_LABEL = {
 
 export const AI_ADDON = {
   label: "AI assistant",
-  price: 19,           // A$/month — placeholder until billing is live
+  price: 19,           // A$/month, ex GST — must match Stripe price byo_ai_month
+  priceYear: 190,      // A$/year (two months free) — byo_ai_year
   planReads: 5,
 };
 
 export const PLANS = {
   free: {
-    id: "free", label: "Homeowner", price: 0,
+    id: "free", label: "Homeowner", price: 0, priceYear: 0,
     blurb: "Price your own home build or renovation, see it in 3D, and walk into the builder's office informed.",
     modes: ["residential"], ai: false, siteOffice: false,
     projects: 3, planReads: 0,
   },
   pro: {
-    id: "pro", label: "Tradie", price: 49,
+    id: "pro", label: "Tradie", price: 49, priceYear: 490,   // A$ ex GST = Stripe byo_pro_month / byo_pro_year
     blurb: "Quote houses and any custom job line by line from your own rates — with the AI crew on hand.",
     modes: ["residential", "materials"], ai: true, siteOffice: false,
     projects: Infinity, planReads: 25,
   },
   business: {
-    id: "business", label: "Builder", price: 149,
+    id: "business", label: "Builder", price: 149, priceYear: 1490,   // byo_business_month / byo_business_year
     blurb: "Everything: multi-dwelling and developer quoting, Site Office job management, Xero / MYOB.",
     modes: ["residential", "materials", "highrise", "multi"], ai: true, siteOffice: true,
     projects: Infinity, planReads: 100,
   },
   enterprise: {
-    id: "enterprise", label: "Enterprise", price: null,
+    id: "enterprise", label: "Enterprise", price: null, priceYear: null,
     blurb: "Builder with no caps, for volume builders and developers.",
     modes: ["residential", "materials", "highrise", "multi"], ai: true, siteOffice: true,
     projects: Infinity, planReads: Infinity,

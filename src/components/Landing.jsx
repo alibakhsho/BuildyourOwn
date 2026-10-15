@@ -18,7 +18,8 @@ import { colors as TOKENS, paletteFor, kebab } from "../design/system.js";
    plan cards and sign-in modal inside it render light too. */
 const LIGHT_VARS = Object.fromEntries(Object.entries(paletteFor("light")).map(([k, v]) => [`--${kebab(k)}`, v]));
 import { Engine3D } from "../engine/engine3D.js";
-import { PlanCards, PLAN_SEGMENT } from "./Plans.jsx";
+import { PlanCards, PLAN_SEGMENT, IntervalToggle, UpgradeModal } from "./Plans.jsx";
+import { hasSubscription, canPayHere } from "../lib/billing.js";
 import { AccountButton } from "./AuthModal.jsx";
 import AuthModal from "./AuthModal.jsx";
 import BYOLogo from "./ui/BYOLogo.jsx";
@@ -78,6 +79,8 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
   // Outlives the modal, which closes itself on a successful sign-up before
   // the account has loaded.
   const [armed, setArmed] = useState(false);
+  const [interval, setBillingInterval] = useState("month");
+  const [plansOpen, setPlansOpen] = useState(false);
   /* Tradie / Builder: a guest signs up for that plan's free trial first, then
      lands on their dashboard; anyone already signed in (or a build without
      accounts) goes straight through — App switches their plan. */
@@ -212,8 +215,14 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
           <p style={{ fontSize: 16, color: "#5A6067", margin: "0 0 32px", maxWidth: "64ch" }}>
             Homeowners never pay to estimate their own build. Tradies and builders pay for the tools that win and run jobs — and can try either free for {TRIAL_DAYS} days, no card. Prices in AUD, ex GST.
           </p>
+          {canPayHere && <div style={{ marginBottom: 18 }}><IntervalToggle value={interval} onChange={setBillingInterval} /></div>}
           <PlanCards current={user ? can.tier : null} onTrial={can.onTrial} trialAvailable={can.trialAvailable}
-            onChoose={(id) => (id === "free" ? onStart() : pick(PLAN_SEGMENT[id]))} />
+            subscribed={hasSubscription(profile)} interval={interval}
+            onChoose={(id) => (id === "free" ? onStart()
+              // guests sign up for the trial; signed-in accounts that can still
+              // trial go straight in; anyone else picks and pays in the plans view
+              : !user || can.trialAvailable ? pick(PLAN_SEGMENT[id])
+              : setPlansOpen(true))} />
         </div>
       </section>
 
@@ -226,6 +235,7 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
         </div>
       </section>
       {auth && <AuthModal initialMode={auth.mode} intent={auth.intent} onClose={() => setAuth(null)} />}
+      {plansOpen && <UpgradeModal onClose={() => setPlansOpen(false)} />}
     </div>
   );
 }

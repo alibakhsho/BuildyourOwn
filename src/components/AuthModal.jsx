@@ -19,6 +19,7 @@ import { createPortal } from "react-dom";
 import { colors as TOKENS } from "../design/system.js";
 import { useAuth, SEGMENTS, TIERS } from "../state/auth.jsx";
 import { PLANS, SEGMENT_PLAN, TRIAL_DAYS } from "../lib/entitlements.js";
+import { canPayHere, openBillingPortal } from "../lib/billing.js";
 
 const MIN_PASSWORD = 6;   // Supabase Auth's minimum; keep in step with the dashboard setting
 
@@ -306,6 +307,7 @@ function AccountPanel({ onClose }) {
         <h2 className="ec-display" style={{ ...H2, color: TOKENS.alert }}>Delete your account</h2>
         <p style={{ fontSize: 13, lineHeight: 1.6, color: TOKENS.inkSoft, margin: "8px 0 12px" }}>
           This permanently deletes your account and every project saved to it in the cloud. It can't be undone.
+          {profile?.stripe_customer_id ? " Any subscription is cancelled first, so you won't be charged again." : ""}
           Projects saved in this browser stay on this device until you remove them.
         </p>
         <label style={LBL}>
@@ -337,6 +339,9 @@ function AccountPanel({ onClose }) {
             Your {trial.label} trial ended on {trial.endsAt.toLocaleDateString()}.
           </div>
         )}
+        {profile?.stripe_customer_id && profile?.billing_status && (
+          <Row label="Billing" value={billingText(profile)} alert={profile.billing_status === "past_due"} />
+        )}
         <Row label="Name" value={profile?.full_name || "Not set"} />
         <Row label="Company" value={profile?.company || "Not set"} />
         <Row label="Role" value={SEGMENTS.find((s) => s.id === profile?.segment)?.label || "Not set"} />
@@ -346,6 +351,12 @@ function AccountPanel({ onClose }) {
         </div>
       </div>
 
+      {profile?.stripe_customer_id && canPayHere && (
+        <button className="ec-btn ec-btn-ghost" style={{ width: "100%", justifyContent: "center", marginBottom: 10 }} disabled={busy}
+          onClick={() => run(openBillingPortal)}>
+          Manage billing · invoices · cancel
+        </button>
+      )}
       {notice && <div className="ec-mono" role="status" style={{ ...MSG(TOKENS.ok), marginBottom: 10 }}>{notice}</div>}
       {error && <div className="ec-mono" role="alert" style={{ ...MSG(TOKENS.alert), marginBottom: 10 }}>{error}</div>}
 
@@ -360,11 +371,24 @@ function AccountPanel({ onClose }) {
   );
 }
 
-function Row({ label, value, strong }) {
+/* One line about the subscription, from the columns the server keeps in
+   step with Stripe. */
+export function billingText(p) {
+  const d = (iso) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const every = p.billing_interval === "year" ? "Yearly" : "Monthly";
+  if (p.billing_status === "past_due") return "Payment failed — update your card";
+  if (p.plan_cancels_at) return `Cancelled · ends ${d(p.plan_cancels_at)}`;
+  if (p.billing_status === "trialing" && p.plan_renews_at) return `Trial · first charge ${d(p.plan_renews_at)}`;
+  if (["active"].includes(p.billing_status) && p.plan_renews_at) return `${every} · renews ${d(p.plan_renews_at)}`;
+  if (p.billing_status === "canceled") return "No active subscription";
+  return p.billing_status;
+}
+
+function Row({ label, value, strong, alert }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: `1px solid ${TOKENS.rule}` }}>
       <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{label}</div>
-      <div className="ec-mono" style={{ fontSize: 12, fontWeight: strong ? 700 : 400, textAlign: "right" }}>{value}</div>
+      <div className="ec-mono" style={{ fontSize: 12, fontWeight: strong || alert ? 700 : 400, textAlign: "right", color: alert ? TOKENS.alert : undefined }}>{value}</div>
     </div>
   );
 }

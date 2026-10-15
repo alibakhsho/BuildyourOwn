@@ -20,6 +20,12 @@ import { checkAiAccess, authorizeAi } from "../api/_lib/ai-access.js";
 import { withPlanRead } from "../api/_lib/metering.js";
 import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../api/_lib/guard.js";
 import { mountAccounting } from "./accounting/routes.js";
+// Billing + account routes are the Vercel functions themselves, mounted here.
+import billingCheckout from "../api/billing/checkout.js";
+import billingPortal from "../api/billing/portal.js";
+import billingSync from "../api/billing/sync.js";
+import billingWebhook from "../api/billing/webhook.js";
+import accountDelete from "../api/account/delete.js";
 
 // Load server/.env regardless of the cwd the process was started from.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -27,8 +33,19 @@ dotenv.config({ path: join(here, ".env") });
 
 const app = express();
 app.use(cors());
+// Stripe signs the exact bytes it sent, so the webhook must get the raw body:
+// mounted BEFORE express.json, which would otherwise parse and discard it.
+app.post("/api/billing/webhook", express.raw({ type: "*/*", limit: "1mb" }), (req, res) => {
+  req.byoRawBody = req.body;
+  return billingWebhook(req, res);
+});
 // Plan images arrive base64-encoded and routinely exceed the old 1 MB cap.
 app.use(express.json({ limit: "12mb" }));
+
+app.post("/api/billing/checkout", billingCheckout);
+app.post("/api/billing/portal", billingPortal);
+app.post("/api/billing/sync", billingSync);
+app.post("/api/account/delete", accountDelete);
 
 const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim());
 // Default model for every AI feature. Override per request with `model`.
