@@ -5,8 +5,12 @@
    ========================================================================= */
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { CadLines } from "./cad-lines.js";
 import { easeOutCubic } from "../lib/format.js";
 import { buildHouse } from "./house-builder.js";
+import { highlightMember } from "./structure-render.js";
+import { SYSTEMS } from "../logic/structure/model.js";
 import { grassTexture, gravelTexture } from "./materials3d.js";
 
 export class Engine3D {
@@ -40,11 +44,19 @@ export class Engine3D {
     this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
     this.renderer.setSize(this.width, this.height);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap; // cheaper than PCFSoft
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     if ("outputColorSpace" in this.renderer) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     mountEl.appendChild(this.renderer.domElement);
+    this.renderer.localClippingEnabled = true;    // section cuts
+    // a perspective camera for 3D views and an orthographic one for true
+    // plan / elevation views, like a CAD package
+    this.persp = this.camera;
+    this.ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 2000);
+    this.view = "persp";
+    this.style = "realistic";
+    this.clipPlanes = [];
 
     // Lights — sky/ground hemisphere for natural fill, key light for form, soft fill to lift shadows
     const hemi = new THREE.HemisphereLight(0xdfeeff, 0xb9a98a, 0.55);
@@ -54,7 +66,9 @@ export class Engine3D {
     const dir = new THREE.DirectionalLight(0xfff4d6, 1.05);
     dir.position.set(24, 34, 18);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.mapSize.set(4096, 4096);
+    dir.shadow.normalBias = 0.02;
+    this.sun = dir;
     dir.shadow.camera.left = -40;
     dir.shadow.camera.right = 40;
     dir.shadow.camera.top = 40;
@@ -93,6 +107,8 @@ export class Engine3D {
     this.scene.add(grid);
 
     this._addTrees();
+    // everything that is the site, not the building (hideable to see footings)
+    this.siteObjects = this.scene.children.filter((o) => !o.isLight);
 
     // Building group
     this.buildingGroup = new THREE.Group();
@@ -129,50 +145,33 @@ export class Engine3D {
     this._resizeObs = new ResizeObserver(() => this.resize());
     this._resizeObs.observe(mountEl);
 
-    // ---- User camera controls: drag to orbit, wheel/pinch to zoom ----
-    this.zoomFactor = 1;      // 0.4 (close) .. 2.2 (far)
-    this.tiltFactor = 1;      // vertical
-    this._userOrbiting = false;
+    // ---- Camera: orbit (left drag), pan (right drag / two fingers),
+    //      zoom toward the cursor (wheel / pinch), like a CAD viewer ----
+    this.zoomFactor = 1;
+    this.tiltFactor = 1;
+    this.cameraAngle = Math.PI * 0.25;
     const el = this.renderer.domElement;
     el.style.touchAction = "none";
-    let dragging = false, lastX = 0, lastY = 0, pinchDist = 0;
-    const clampZoom = (z) => Math.max(0.4, Math.min(2.2, z));
-    const clampTilt = (t) => Math.max(0.35, Math.min(1.8, t));
-
-    el.addEventListener("pointerdown", (e) => {
-      dragging = true; lastX = e.clientX; lastY = e.clientY;
-      this.autoRotate = false; this._userOrbiting = true; this.requestRender && this.requestRender();
-      el.setPointerCapture && el.setPointerCapture(e.pointerId);
+    this.controls = new OrbitControls(this.camera, el);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.09;
+    this.controls.screenSpacePanning = true;
+    this.controls.zoomToCursor = true;
+    this.controls.minDistance = 0.4;
+    this.controls.maxDistance = 600;
+    this.controls.maxPolarAngle = Math.PI * 0.495;
+    this.controls.autoRotateSpeed = 0.55;
+    this.controls.autoRotate = true;
+    this.controls.addEventListener("start", () => {
+      if (this.autoRotate) { this.autoRotate = false; this.controls.autoRotate = false; this.onAutoRotateChange?.(false); }
     });
-    el.addEventListener("pointermove", (e) => {
-      if (!dragging || this.mode === "walk") return;
-      const dx = e.clientX - lastX, dy = e.clientY - lastY;
-      lastX = e.clientX; lastY = e.clientY;
-      this.cameraAngle -= dx * 0.008;
-      this.tiltFactor = clampTilt(this.tiltFactor + dy * 0.004);
-      this._needsRender = true;
+    this.controls.addEventListener("change", () => { this._needsRender = true; });
+    // a click (press + release without moving) picks the piece under the cursor
+    let downX = 0, downY = 0;
+    el.addEventListener("pointerdown", (e) => { downX = e.clientX; downY = e.clientY; });
+    el.addEventListener("pointerup", (e) => {
+      if (e.button === 0 && Math.hypot(e.clientX - downX, e.clientY - downY) < 5 && this.mode !== "walk") this.pickAt(e.clientX, e.clientY);
     });
-    const endDrag = (e) => { dragging = false; try { el.releasePointerCapture && el.releasePointerCapture(e.pointerId); } catch (x) {} };
-    el.addEventListener("pointerup", endDrag);
-    el.addEventListener("pointercancel", endDrag);
-    el.addEventListener("wheel", (e) => {
-      if (this.mode === "walk") return;
-      e.preventDefault();
-      this.autoRotate = false; this._userOrbiting = true;
-      this.zoomFactor = clampZoom(this.zoomFactor + (e.deltaY > 0 ? 0.12 : -0.12));
-      this._needsRender = true;
-    }, { passive: false });
-    // pinch zoom
-    el.addEventListener("touchstart", (e) => {
-      if (e.touches.length === 2) { pinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); }
-    }, { passive: true });
-    el.addEventListener("touchmove", (e) => {
-      if (e.touches.length === 2 && this.mode !== "walk") {
-        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-        if (pinchDist) { this.autoRotate = false; this._userOrbiting = true; this.zoomFactor = clampZoom(this.zoomFactor * (pinchDist / d)); this._needsRender = true; }
-        pinchDist = d;
-      }
-    }, { passive: true });
   }
 
   /* Sparse low-poly trees around the site edge — scale + life, not a forest. */
@@ -204,8 +203,9 @@ export class Engine3D {
   resize() {
     this.width = this.mount.clientWidth;
     this.height = this.mount.clientHeight;
-    this.camera.aspect = this.width / this.height;
-    this.camera.updateProjectionMatrix();
+    this.persp.aspect = this.width / this.height;
+    this.persp.updateProjectionMatrix();
+    this._fitOrtho();
     this.renderer.setSize(this.width, this.height);
     // setSize clears the canvas — when idle nothing else would redraw it
     this._needsRender = true;
@@ -232,12 +232,19 @@ export class Engine3D {
     this.spec = spec;
     this.isTower = false;
     this._clearGroup();
-    const { waypoints, summary } = buildHouse(this.buildingGroup, spec);
+    const { waypoints, summary, structure, byId } = buildHouse(this.buildingGroup, spec);
     this.walkWaypoints = waypoints;
     this.buildSummary = summary;
+    this.structure = structure;
+    this.memberHits = byId;
+    this.selected = null;
+    this._unhighlight = null;
     this.roofMeshes = [];
-    this.buildingGroup.traverse((o) => { if (o.userData && o.userData.stage === "roof") this.roofMeshes.push(o); });
-    this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
+    this.buildingGroup.traverse((o) => { if (o.userData && (o.userData.zone === "roof" || o.userData.zone === "ceiling")) this.roofMeshes.push(o); });
+    this.stageOrder = ["foundation", "frame", "roof", "walls", "finishes"];
+    this._indexStages();
+    if (this.style !== "realistic") this._applyStyle(); else this._applyClipping();
+    if (this.layerVisible) this._applyVisibility();
     this._frameCamera(spec.widthM, spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
     this.applyViewMode();
     this._needsRender = true;
@@ -268,7 +275,7 @@ export class Engine3D {
       const face = r % 2 === 0 ? 1 : -1;
       row.forEach((s) => {
         const g = new THREE.Group();
-        buildHouse(g, s);
+        buildHouse(g, s, { detail: "lite" });
         const lw = lotW(s);
         g.position.set(x + lw / 2 + (s.hasGarage ? 3.2 : 0), 0, z);
         if (face < 0) g.rotation.y = Math.PI;
@@ -286,6 +293,8 @@ export class Engine3D {
     this.buildingGroup.traverse((o) => { if (o.userData && o.userData.stage === "roof") this.roofMeshes.push(o); });
     this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
     this.buildSummary = { dwellings: lots.length, drawn: drawn.length };
+    this.structure = null;
+    this._indexStages();
     this._frameCamera(maxW, Math.abs(z), maxH);
     this.applyViewMode();
     this._needsRender = true;
@@ -297,6 +306,90 @@ export class Engine3D {
     this.viewMode = mode === "structural" ? "structural" : "finished";
     this.applyViewMode();
     this._needsRender = true;
+  }
+
+  /* Show or hide the ground, pad, grid and trees. */
+  setSiteVisible(v) {
+    this.siteVisible = !!v;
+    for (const o of this.siteObjects || []) o.visible = !!v;
+    this._needsRender = true;
+  }
+
+  /* ---- Layers (one per building system) ---- */
+  layers() {
+    const out = new Map();
+    this.buildingGroup.traverse((o) => {
+      const sys = o.userData && o.userData.sys;
+      if (!sys) return;
+      const r = out.get(sys) || { sys, label: SYSTEMS[sys]?.label || sys, order: SYSTEMS[sys]?.order ?? 99, pieces: 0, visible: this.layerVisible?.[sys] !== false };
+      r.pieces += o.userData.total || 1;
+      out.set(sys, r);
+    });
+    return [...out.values()].sort((a, b) => a.order - b.order);
+  }
+  setLayerVisible(sys, visible) {
+    this.layerVisible = { ...(this.layerVisible || {}), [sys]: !!visible };
+    this._applyVisibility();
+    this._needsRender = true;
+  }
+  /* Show one system on its own (e.g. just the roof framing). */
+  isolateLayer(sys) {
+    this.setLayers(Object.fromEntries(Object.keys(SYSTEMS).map((k) => [k, k === sys])));
+  }
+  setLayers(map) {
+    this.layerVisible = { ...map };
+    this._applyVisibility();
+    this._needsRender = true;
+  }
+  _applyVisibility() {
+    const lv = this.layerVisible || {};
+    this.buildingGroup.traverse((o) => {
+      const sys = o.userData && o.userData.sys;
+      if (!sys) return;
+      const stageOn = o.userData._stageOn !== false;
+      const walkHidden = this.mode === "walk" && (o.userData.zone === "roof" || o.userData.zone === "ceiling");
+      const fineHidden = o.userData.fine && !this._showFine;
+      o.visible = lv[sys] !== false && stageOn && !walkHidden && !fineHidden;
+    });
+  }
+
+  /* ---- Picking: click a piece, get its record ---- */
+  pickAt(clientX, clientY) {
+    if (!this.structure) return null;
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, this.camera);
+    const targets = [];
+    this.buildingGroup.traverse((o) => { if (o.isMesh && o.visible && o.userData.memberIds) targets.push(o); });
+    // see-through things (glass, x-rayed skins) don't block the pick
+    const hits = ray.intersectObjects(targets, false).filter((h) => !(h.object.material.transparent && h.object.material.opacity < 0.5));
+    const h = hits[0];
+    const id = h ? h.object.userData.memberIds[h.instanceId ?? 0] : null;
+    this.select(id);
+    return id;
+  }
+  select(id) {
+    if (this._unhighlight) { this._unhighlight(); this._unhighlight = null; }
+    const m = id != null && this.structure ? this.structure.members[id] : null;
+    this.selected = m || null;
+    if (m) this._unhighlight = highlightMember(this.memberHits.get(m.id));
+    if (this.onPick) this.onPick(this.selected);
+    this._needsRender = true;
+    return this.selected;
+  }
+
+  /* Each stage reveals its pieces in construction order: the member ids
+     (assigned in build order) are the timeline. */
+  _indexStages() {
+    const range = {};
+    this.buildingGroup.traverse((o) => {
+      const st = o.userData && o.userData.stage, ids = o.userData && o.userData.memberIds;
+      if (!st || !ids || !ids.length) return;
+      const r = range[st] || (range[st] = [Infinity, -Infinity]);
+      r[0] = Math.min(r[0], ids[0]); r[1] = Math.max(r[1], ids[ids.length - 1]);
+    });
+    this.stageRange = range;
   }
   applyViewMode() {
     const xray = this.viewMode === "structural";
@@ -325,15 +418,147 @@ export class Engine3D {
     // disappear into haze (fog used to end at a fixed 175 m)
     this.scene.fog.near = Math.max(62, this.frameRadius * 1.2);
     this.scene.fog.far = Math.max(175, this.frameRadius * 3);
-    this.camera.far = Math.max(500, this.frameRadius * 5);
-    this.camera.updateProjectionMatrix();
+    this.persp.far = Math.max(500, this.frameRadius * 5);
+    this.persp.updateProjectionMatrix();
+    this.frameSize = Math.max(w || 10, l || 10, h || 3);
+    const key = [Math.round((w || 0) * 2), Math.round((l || 0) * 2), Math.round((h || 0) * 2)].join(":");
+    if (key !== this._frameKey) {
+      this._frameKey = key;
+      this.home();
+    }
+  }
+
+  /* Back to the starting 3/4 view of the whole building. */
+  home() {
+    if (this.view !== "persp") this.setView("persp", { keep: true });
+    this.controls.target.set(0, this.frameLookY || 4, 0);
+    this._updateOrbitCamera();
+    this.controls.update();
+    this._needsRender = true;
+  }
+
+  /* Standard views: "persp" (3D), "top" (plan), "front", "back", "left",
+     "right" — the elevations and plan use a true orthographic camera. */
+  setView(view, { keep = false } = {}) {
+    const t = this.controls.target.clone();
+    const R = Math.max(30, (this.frameRadius || 30) * 2);
+    if (view === "persp") {
+      this.camera = this.persp;
+      this.view = "persp";
+      this.controls.object = this.persp;
+      this.controls.maxPolarAngle = Math.PI * 0.495;
+      if (!keep) { this.controls.target.set(0, this.frameLookY || 4, 0); this._updateOrbitCamera(); }
+    } else {
+      this.camera = this.ortho;
+      this.view = view;
+      this.controls.object = this.ortho;
+      this.controls.maxPolarAngle = Math.PI;
+      const ty = view === "top" ? 0 : Math.max(1.5, (this.frameLookY || 3));
+      t.set(0, ty, 0);
+      this.controls.target.copy(t);
+      const pos = {
+        top: [0, R, 0.0005 * R], front: [0, 0, R], back: [0, 0, -R], left: [-R, 0, 0], right: [R, 0, 0],
+      }[view] || [0, 0, R];
+      this.ortho.position.set(t.x + pos[0], t.y + pos[1], t.z + pos[2]);
+      this.ortho.zoom = 1;
+      this._fitOrtho();
+      this.ortho.lookAt(t);
+    }
+    if (this.autoRotate) { this.autoRotate = false; this.controls.autoRotate = false; this.onAutoRotateChange?.(false); }
+    this.cadLines?.setCamera(this.camera);
+    this.controls.update();
+    this._needsRender = true;
+  }
+  _fitOrtho() {
+    if (!this.ortho) return;
+    const aspect = (this.width || 1) / (this.height || 1);
+    const s = Math.max(4, (this.frameSize || 15) * 0.62);
+    this.ortho.left = -s * aspect; this.ortho.right = s * aspect;
+    this.ortho.top = s; this.ortho.bottom = -s;
+    this.ortho.near = 0.1; this.ortho.far = 4000;
+    this.ortho.updateProjectionMatrix();
+  }
+
+  /* Section cut: "off", "plan" (cut at a height, look down into the
+     rooms), "long" (along the ridge) or "cross" (across it). */
+  setSection(mode, at) {
+    let planes = [];
+    if (mode === "plan") planes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), at)];
+    else if (mode === "long") planes = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), at)];
+    else if (mode === "cross") planes = [new THREE.Plane(new THREE.Vector3(0, 0, -1), at)];
+    this.clipPlanes = planes;
+    this.section = { mode, at };
+    this.renderer.__byoClip = planes.length ? planes : null;
+    this._applyClipping();
+    this._needsRender = true;
+  }
+  _applyClipping() {
+    const planes = this.clipPlanes && this.clipPlanes.length ? this.clipPlanes : null;
+    const seen = new Set();
+    this.buildingGroup.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const m of [o.material, o.userData._mat, o.userData._xray, o.userData._clay].filter(Boolean)) {
+        if (seen.has(m)) continue;
+        seen.add(m);
+        const had = !!(m.clippingPlanes && m.clippingPlanes.length);
+        m.clippingPlanes = planes; m.clipShadows = true;
+        if (had !== !!planes) m.needsUpdate = true;
+      }
+    });
+  }
+
+  /* Display style: "realistic", "lines" (shaded + CAD edges) or "white"
+     (white architectural model with edges). */
+  setStyle(style) {
+    this.style = style;
+    if ((style === "lines" || style === "white") && !this.cadLines) {
+      this.cadLines = new CadLines(this.renderer, this.scene, this.camera, (o) => {
+        for (let p = o; p; p = p.parent) if (p === this.buildingGroup) return true;
+        return false;
+      });
+    }
+    this._applyStyle();
+    this._needsRender = true;
+  }
+  _applyStyle() {
+    const white = this.style === "white";
+    if (white && !this._clayMat) this._clayMat = new THREE.MeshStandardMaterial({ color: 0xf4f2ee, roughness: 0.9 });
+    this.buildingGroup.traverse((o) => {
+      if (!o.isMesh || !o.userData.sys) return;
+      if (!o.userData._mat) o.userData._mat = o.material;
+      const base = o.userData._mat;
+      if (white && !base.transparent) {
+        o.userData._clay = this._clayMat;
+        o.material = this._clayMat;
+        // per-piece tints (brick colours) would show through: park them
+        if (o.instanceColor) { o.userData._ic = o.instanceColor; o.instanceColor = null; }
+      } else if (o.material === this._clayMat) {
+        o.material = base;
+        if (o.userData._ic) { o.instanceColor = o.userData._ic; o.userData._ic = null; }
+      }
+    });
+    this._applyClipping();
+  }
+
+  /* One frame, in the current style. */
+  renderFrame() {
+    if ((this.style === "lines" || this.style === "white") && this.cadLines) {
+      const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+      if (size.x !== this._linesW || size.y !== this._linesH) { this._linesW = size.x; this._linesH = size.y; this.cadLines.setSize(size.x, size.y); }
+      this.cadLines.setCamera(this.camera);
+      this.cadLines.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   _clearGroup() {
     const g = this.buildingGroup;
     g.traverse((o) => {
       if (!o.isMesh) return;
-      o.geometry?.dispose();
+      // instanced members share unit geometries — free only their instances
+      if (o.isInstancedMesh) o.dispose();
+      else o.geometry?.dispose();
       // textures are cached and shared — only dispose the x-ray clones
       if (o.userData._xray) o.userData._xray.dispose();
     });
@@ -435,6 +660,7 @@ export class Engine3D {
 
     // frame the camera on the layout
     this.zoomFactor = Math.max(0.8, Math.min(1.6, cols * 0.45));
+    this.home();
     this._needsRender = true;
   }
 
@@ -464,6 +690,7 @@ export class Engine3D {
     // frame camera for a small structure
     const span = Math.max(spec.L || 6, spec.W || 6);
     this.zoomFactor = Math.max(0.35, Math.min(1.0, span / 14));
+    this.home();
     this._needsRender = true;
   }
 
@@ -563,6 +790,8 @@ export class Engine3D {
 
     // ground plane reference already exists; frame camera for tower height
     this.towerHeight = totalH;
+    this._frameKey = null;
+    this.home();
     this.stageOrder = ["foundation", "frame", "walls", "roof", "finishes"];
     this.progress = 1;
   }
@@ -574,10 +803,32 @@ export class Engine3D {
     if (!this.spec) return;
     const stageCount = this.stageOrder.length;
     const stageProgress = this.progress * stageCount;
+    const ranges = this.stageRange || {};
     this.buildingGroup.traverse((obj) => {
       if (!obj.isMesh && !(obj.isGroup && obj.userData.stage)) return;
       const stage = obj.userData.stage;
       if (!stage) return;
+      // structure meshes: show the pieces built up to this point
+      if (obj.userData.memberIds && ranges[stage]) {
+        const reveal = stageProgress - this.stageOrder.indexOf(stage);
+        const [lo, hi] = ranges[stage];
+        const ids = obj.userData.memberIds;
+        let n;
+        if (reveal >= 1) n = ids.length;
+        else if (reveal <= 0) n = 0;
+        else {
+          const limit = lo + (hi - lo) * reveal;
+          let a = 0, b = ids.length;
+          while (a < b) { const m = (a + b) >> 1; if (ids[m] <= limit) a = m + 1; else b = m; }
+          n = a;
+        }
+        if (obj.isInstancedMesh) obj.count = n;
+        obj.userData._stageOn = n > 0;
+        const lv = this.layerVisible || {};
+        const walkHidden = this.mode === "walk" && (obj.userData.zone === "roof" || obj.userData.zone === "ceiling");
+        obj.visible = n > 0 && lv[obj.userData.sys] !== false && !walkHidden && !(obj.userData.fine && !this._showFine);
+        return;
+      }
       const stageIdx = this.stageOrder.indexOf(stage);
       const reveal = stageProgress - stageIdx; // 0..1+
       if (reveal <= 0) {
@@ -610,7 +861,11 @@ export class Engine3D {
     });
   }
 
-  setAutoRotate(v) { this.autoRotate = v; }
+  setAutoRotate(v) {
+    this.autoRotate = !!v;
+    this.controls.autoRotate = !!v && this.mode !== "walk";
+    this._needsRender = true;
+  }
   setPlaying(v) { this.playing = v; }
 
   /* ----- Walkthrough ----- */
@@ -628,9 +883,13 @@ export class Engine3D {
     this.setProgress(1);
     this.mode = "walk";
     this.autoRotate = false;
+    this.controls.autoRotate = false;
+    this.controls.enabled = false;
+    if (this.view !== "persp") this.setView("persp", { keep: true });
     this.walkT = 0;
     // hide roof so we can see inside; soften fog
     this.roofMeshes.forEach((m) => (m.visible = false));
+    if (this.structure) this._applyVisibility();
     this.scene.fog.near = 60; this.scene.fog.far = 200;
     if (this.onModeChange) this.onModeChange("walk");
     return true;
@@ -638,8 +897,12 @@ export class Engine3D {
   stopWalk() {
     this.mode = "orbit";
     this.roofMeshes.forEach((m) => (m.visible = true));
-    this.scene.fog.near = 50; this.scene.fog.far = 140;
+    if (this.structure) this._applyVisibility();
+    this.scene.fog.near = Math.max(62, (this.frameRadius || 50) * 1.2); this.scene.fog.far = Math.max(175, (this.frameRadius || 50) * 3);
+    this.controls.enabled = true;
+    this.home();
     this.autoRotate = true;
+    this.controls.autoRotate = true;
     if (this.onModeChange) this.onModeChange("orbit");
   }
   setWalkT(t) { this.walkT = Math.max(0, Math.min(1, t)); }
@@ -699,25 +962,8 @@ export class Engine3D {
 
   animate() {
     this._animId = requestAnimationFrame(this.animate);
-
-    // Skip all work when the canvas isn't visible (scrolled away / tab hidden).
-    // This is the single biggest perf win — no GPU churn when you're reading
-    // the cost breakdown instead of looking at the model.
+    // nothing to do while the canvas is off-screen or the tab is hidden
     if (this.paused) return;
-
-    // When idle (not rotating, not walking, not playing), there's nothing moving
-    // — render once to settle, then stop until something changes.
-    const moving = this.mode === "walk" || this.autoRotate || this.playing;
-    if (!moving) {
-      // Idle still has to follow the user's drag/zoom — grabbing the model
-      // turns auto-rotate off, so this is the path manual orbiting runs on.
-      if (this._needsRender) {
-        if (this.mode !== "walk" && this._userOrbiting) this._updateOrbitCamera();
-        this.renderer.render(this.scene, this.camera);
-        this._needsRender = false;
-      }
-      return;
-    }
 
     if (this.mode === "walk") {
       this.walkT += this.walkSpeed;
@@ -726,13 +972,8 @@ export class Engine3D {
       this.camera.position.set(s.pos[0], s.pos[1], s.pos[2]);
       this.camera.lookAt(s.look[0], s.look[1], s.look[2]);
       if (this.onWalkProgress) this.onWalkProgress(this.walkT, s.name);
-      this.renderer.render(this.scene, this.camera);
+      this.renderFrame();
       return;
-    }
-
-    if (this.autoRotate || this._userOrbiting) {
-      if (this.autoRotate) this.cameraAngle += 0.0025;
-      this._updateOrbitCamera();
     }
     if (this.playing) {
       this.progress += 0.0035;
@@ -743,7 +984,18 @@ export class Engine3D {
       }
       this.setProgress(this.progress);
     }
-    this.renderer.render(this.scene, this.camera);
+    // damping and auto-rotate keep the camera moving after input stops
+    const moved = this.controls.enabled ? this.controls.update() : false;
+    // close up, show the small hardware (screws, nail plates, ties…)
+    const span = this.camera.isOrthographicCamera
+      ? (this.ortho.top - this.ortho.bottom) / this.ortho.zoom
+      : this.camera.position.distanceTo(this.controls.target);
+    const fine = span < 16;
+    if (fine !== this._showFine && this.structure) { this._showFine = fine; this._applyVisibility(); this._needsRender = true; }
+    if (moved || this._needsRender || this.playing) {
+      this.renderFrame();
+      this._needsRender = false;
+    }
   }
 
   /* Place the orbit camera from cameraAngle / tiltFactor / zoomFactor. */
@@ -756,6 +1008,7 @@ export class Engine3D {
       this.camera.position.x = Math.cos(this.cameraAngle) * r;
       this.camera.position.z = Math.sin(this.cameraAngle) * r;
       this.camera.position.y = (h * 0.6 + 6) * tilt;
+      this.controls?.target.set(0, h * 0.45, 0);
       this.camera.lookAt(0, h * 0.45, 0);
     } else {
       /* Low structures (carport spec has H) get a lower orbit + focus so
@@ -765,7 +1018,9 @@ export class Engine3D {
       this.camera.position.x = Math.cos(this.cameraAngle) * r;
       this.camera.position.z = Math.sin(this.cameraAngle) * r;
       this.camera.position.y = (low ? 9 : (this.frameHeight || 18)) * tilt;
-      this.camera.lookAt(0, low ? Math.max(1.2, this.spec.H * 0.7) : (this.frameLookY || 4), 0);
+      const ly = low ? Math.max(1.2, this.spec.H * 0.7) : (this.frameLookY || 4);
+      this.controls?.target.set(0, ly, 0);
+      this.camera.lookAt(0, ly, 0);
     }
   }
 
@@ -774,6 +1029,8 @@ export class Engine3D {
 
   dispose() {
     cancelAnimationFrame(this._animId);
+    this.controls?.dispose();
+    this.cadLines?.dispose();
     this._resizeObs.disconnect();
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode === this.mount) {
