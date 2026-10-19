@@ -681,6 +681,16 @@ export function createTakeoff(jobId, data = {}) {
     // point is meaningless, and the UI blocks it.
     pxPerMetre: data.pxPerMetre || null,
     calibration: data.calibration || null, // { p1, p2, knownMetres }
+    // Sheets that came out of a PDF: which page, how it was filed
+    // (logic/pdf-sheets.js SHEET_KINDS), the scale its title block states —
+    // offered, never applied, until the builder confirms it — and the blob
+    // holding the page's text layer for the plan reader.
+    source: data.source || null,             // { kind: "pdf", file, pageNo, numPages }
+    sheetKind: data.sheetKind || null,
+    sheetLabel: data.sheetLabel || null,
+    sheetNumber: data.sheetNumber || null,
+    suggestedScale: data.suggestedScale || null, // { ratio, paper, pxPerMetre, text, mixed }
+    textBlobId: data.textBlobId || null,
     measurements: data.measurements || [],
     createdAt: Date.now(),
     updatedAt: Date.now(),

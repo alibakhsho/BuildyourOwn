@@ -103,7 +103,13 @@ If the image is not a construction drawing, return empty arrays and say so in "n
  * Run the plan reader. Caller supplies a constructed Anthropic client so the
  * two host environments can each manage their own client lifecycle.
  */
-export async function readPlanWithClaude(client, { image, imageWidth, imageHeight, pxPerMetre, model }) {
+export async function readPlanWithClaude(client, { image, imageWidth, imageHeight, pxPerMetre, model, pageText }) {
+  // A sheet that came from a CAD PDF carries its own text layer: every label
+  // and figured dimension exactly as typed, with where it sits. Reading those
+  // strings beats squinting at 6pt text in pixels, so the model gets both.
+  const textBlock = pageText && String(pageText).trim()
+    ? `\n\nThis sheet came from a PDF, and this is its text layer — each line is "x,y text" with x,y the text's position in the SAME image pixel space. These strings are exact: use them for room labels, figured dimensions, tags and the scale, and use their positions to tell which dimension belongs to which room. The drawing itself is still the authority on what is enclosed and where walls run.\n<pdf_text>\n${String(pageText).slice(0, 16000)}\n</pdf_text>`
+    : "";
   const context = [
     `The image is ${imageWidth || "an unknown number of"} x ${imageHeight || "unknown"} pixels.`,
     `Return every polygon coordinate in that pixel space.`,
@@ -122,7 +128,7 @@ export async function readPlanWithClaude(client, { image, imageWidth, imageHeigh
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } },
-          { type: "text", text: `${context}\n\nRead this plan and return the takeoff data.` },
+          { type: "text", text: `${context}${textBlock}\n\nRead this plan and return the takeoff data.` },
         ],
       },
     ],

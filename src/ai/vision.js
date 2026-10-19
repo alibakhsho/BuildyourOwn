@@ -43,6 +43,8 @@ export async function readPlan(blob, ctx = {}) {
         imageWidth: ctx.imageWidth || 0,
         imageHeight: ctx.imageHeight || 0,
         pxPerMetre: ctx.pxPerMetre || null,
+        // a PDF sheet's own text layer (labels, figured dimensions) — exact where pixels are not
+        pageText: ctx.pageText || "",
       }),
     });
   } catch {
