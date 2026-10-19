@@ -101,6 +101,11 @@ ok("'ROOF FRAMING DETAILS' is a details sheet, not a roof plan", classifySheet(u
   const txt = sent.messages[0].content.find((c) => c.type === "text").text;
   ok("plan reader: PDF text goes to the model, marked as exact, in the image's pixel space", /<pdf_text>[\s\S]*Floor Plan[\s\S]*<\/pdf_text>/.test(txt) && /SAME image pixel space/.test(txt));
   ok("plan reader: told the size of the image it actually sees", /2400 x 1697 pixels/.test(txt));
+  // A dense US engineered sheet ran past 16k tokens and ~5 min at the default
+  // "high" effort; at "medium" the same sheets read in 29–70 s with the same
+  // counts. The cap must stay under the SDK's non-streaming ceiling (~21.3k).
+  ok("plan reader: runs at medium effort with the JSON schema", sent.output_config?.effort === "medium" && sent.output_config?.format?.type === "json_schema");
+  ok("plan reader: token cap leaves room to think but stays non-streamable", sent.max_tokens >= 16000 && sent.max_tokens <= 21333);
   await readPlanWithClaude(fake, { image: { mediaType: "image/jpeg", data: "x" }, imageWidth: 100, imageHeight: 100 });
   ok("plan reader: a plain image sends no text block", !/pdf_text/.test(sent.messages[0].content.find((c) => c.type === "text").text));
 }
