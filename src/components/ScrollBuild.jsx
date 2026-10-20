@@ -16,15 +16,16 @@ import { motion, useScroll, useSpring, useMotionValueEvent, useReducedMotion } f
 import { Engine3D } from "../engine/engine3D.js";
 import { fmt, currencySymbol } from "../lib/format.js";
 
+/* Same order as the engine builds: the roof goes on before the walls are clad. */
 const STAGES = [
   { key: "foundation", title: "Foundation & slab", body: "Set-out, footings and a reinforced slab poured on the cleared pad.",
     mat: ["foundation"], lab: ["siteworks", "concrete"] },
   { key: "frame", title: "Frame", body: "Wall frames, upper floor and staircase stood up and braced.",
     mat: ["frame", "stairs"], lab: ["frame"] },
-  { key: "walls", title: "Walls & openings", body: "Brick veneer laid course by course, windows and doors set in.",
-    mat: ["cladding", "openings"], lab: ["brick"] },
   { key: "roof", title: "Roof", body: "Trusses craned on, then Colorbond sheeting, gutters and flashings.",
     mat: ["roof"], lab: ["roof"] },
+  { key: "walls", title: "Walls & openings", body: "Brick veneer laid course by course, windows and doors set in.",
+    mat: ["cladding", "openings"], lab: ["brick"] },
   { key: "finishes", title: "Fit-out & finishes", body: "Services, plaster, kitchen, bathrooms, paint — and solar on the roof.",
     mat: null, lab: null }, // everything not claimed above
 ];
@@ -62,8 +63,9 @@ export default function ScrollBuild({ spec, est, region }) {
     let eng;
     try { eng = new Engine3D(el); } catch { return; }
     eng.buildFromSpec(spec);
-    eng.autoRotate = false;
-    eng._userOrbiting = true;          // idle loop follows our camera moves
+    // scroll drives the camera here, not the mouse: no orbit controls, no auto-rotate
+    eng.setAutoRotate(false);
+    if (eng.controls) eng.controls.enabled = false;
     eng.renderer.domElement.style.pointerEvents = "none"; // never trap the scroll
     engRef.current = eng;
     let narrow = false, fit = 1.3;
@@ -91,6 +93,7 @@ export default function ScrollBuild({ spec, est, region }) {
       eng.cameraAngle = Math.PI * 0.12 + t * Math.PI * 0.9;
       eng.zoomFactor = fit - t * 0.2;                    // dolly in as it completes
       eng.tiltFactor = 1.15 - t * 0.35;                  // from site view down to street level
+      eng._updateOrbitCamera();
       eng.requestRender();
     };
     engRef.current.apply = apply;

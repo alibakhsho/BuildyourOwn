@@ -13,8 +13,6 @@ import { MaterialsOnly } from "./logic/materials-only.js";
 import { Estimator, inferSpecFromImport } from "./logic/estimator.js";
 import { HighRiseEstimator } from "./logic/highrise-estimator.js";
 import { Engine3D } from "./engine/engine3D.js";
-import { materialFor } from "./engine/parts.js";
-import PartInspector from "./components/PartInspector.jsx";
 import { Equipment } from "./data/equipment.js";
 import {
   getSuppliers, addSupplierOverride, removeSupplierOverride,
@@ -56,6 +54,8 @@ import { MODE_LABEL, BUILD_MODE_IDS } from "./lib/entitlements.js";
 import { buildMultiEstimate } from "./logic/multi-dwelling.js";
 import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, houseType } from "./modules/MultiDwelling.jsx";
 import DescribeCard from "./components/DescribeCard.jsx";
+import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/ModelTools.jsx";
+import Drawings from "./components/Drawings.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
@@ -1474,6 +1474,11 @@ function stageTabs(stage, buildMode) {
     { id: "suppliers", label: "Suppliers" },
   ];
   if (stage === "timeline") return [{ id: "timeline", label: "Programme" }];
+  if (stage === "three_d" && (buildMode === "residential" || buildMode === "materials")) return [
+    { id: "layers", label: "Layers & views" },
+    { id: "cutlist", label: "Cut list & schedule" },
+    { id: "drawings", label: "Drawings" },
+  ];
   return [];
 }
 
@@ -1886,8 +1891,9 @@ export default function App() {
   const [ratesVersion, setRatesVersion] = useState(0); // bumped after equipment rate overrides change
   const [projectNo] = useState(genProjectNo);
   const [autoRotate, setAutoRotate] = useState(true);
+  const [piece, setPiece] = useState(null);          // the 3D piece the user clicked
+  const [modelVersion, setModelVersion] = useState(0); // bumps when the model is rebuilt
   const [viewMode, setViewMode] = useState("finished"); // 3D: finished | structural (skin faded)
-  const [partMode, setPartMode] = useState(false);       // 3D: click-to-select part editor open
   const [progress, setProgress] = useState(1); // start fully built
   const [walkMode, setWalkMode] = useState(false);
   const [walkRoom, setWalkRoom] = useState("");
@@ -1915,6 +1921,8 @@ export default function App() {
       eng.onComplete = () => setProgress(1);
       eng.onWalkProgress = (t, name) => { setWalkT(t); setWalkRoom(name || ""); };
       eng.onModeChange = (m) => setWalkMode(m === "walk");
+      eng.onPick = (m) => setPiece(m);
+      eng.onAutoRotateChange = (v) => setAutoRotate(v);
       setEngineReady(true);
     }
     // Pause rendering when the viewport scrolls off-screen — the biggest perf win.
@@ -1958,10 +1966,7 @@ export default function App() {
     };
   }, []);
 
-  /* Rebuild on spec or mode change (exit walkthrough first). Part edits are
-     left out of the key: they re-skin the existing model (effect below)
-     instead of rebuilding a thousand-piece house on every colour click. */
-  const buildKey = useMemo(() => { const { partEdits, ...rest } = spec; return JSON.stringify(rest); }, [spec]);
+  /* Rebuild on spec or mode change (exit walkthrough first) */
   useEffect(() => {
     const eng = engineRef.current;
     if (!eng) return;
@@ -1984,11 +1989,9 @@ export default function App() {
       eng.buildFromSpec(spec);
       eng.setProgress(progress);
     }
-  }, [buildKey, hrSpec, matSpec, mdSpec, buildMode, engineReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (buildMode === "residential") engineRef.current?.applyPartEdits(spec.partEdits || {}, materialFor);
-  }, [spec.partEdits, buildKey, buildMode, engineReady]); // eslint-disable-line react-hooks/exhaustive-deps
+    setPiece(null);
+    setModelVersion((v) => v + 1);
+  }, [spec, hrSpec, matSpec, mdSpec, buildMode, engineReady]);
 
   useEffect(() => { if (buildMode === "residential" || buildMode === "multi") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
@@ -2882,6 +2885,11 @@ export default function App() {
                 </>
               )}
             </div>
+            {stage === "three_d" && piece && (
+              <PieceCard member={piece} structure={engineRef.current?.structure}
+                onClose={() => engineRef.current?.select(null)}
+                onIsolate={(sys) => engineRef.current?.isolateLayer(sys)} />
+            )}
             {/* Live indicator + current room (walk mode) */}
             <div style={{ position: "absolute", top: 16, right: 16, maxWidth: "42%", pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
               <span className="ec-tag"><span className="ec-live" style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} />{walkMode ? "WALKTHROUGH" : "LIVE"}</span>
@@ -2891,11 +2899,6 @@ export default function App() {
                 </div>
               )}
             </div>
-            {partMode && buildMode === "residential" && !walkMode && engineReady && (
-              <PartInspector engine={engineRef.current} edits={spec.partEdits || {}}
-                onEdits={(partEdits) => setSpec((s) => ({ ...s, partEdits }))}
-                onClose={() => setPartMode(false)} />
-            )}
           </div>{/* end #ws-viewport */}
             {/* Controls — sit BELOW the live view, never over it (mobile-safe) */}
             <div className="ec-viewport-controls" style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: TOKENS.paperLight, padding: 8, borderRadius: 4, border: `1px solid ${TOKENS.rule}` }}>
@@ -2925,15 +2928,6 @@ export default function App() {
                   }}>
                     {viewMode === "finished" ? "Show skeleton" : "Show finished"}
                   </button>
-                  {buildMode === "residential" && (
-                    <button className={"ec-btn ec-btn-ghost" + (partMode ? " ec-btn-ghost-on" : "")} onClick={() => {
-                      const next = !partMode;
-                      setPartMode(next);
-                      if (next) { setAutoRotate(false); setProgress(1); engineRef.current?.setPlaying(false); }
-                    }}>
-                      {partMode ? "Editing parts" : "Edit parts"}
-                    </button>
-                  )}
                   <button className="ec-btn" onClick={toggleWalk} style={{ background: TOKENS.emberDeep, color: TOKENS.onEmber }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/><path d="M12 7v6m0 0l-3 7m3-7l3 7M8 9h8" strokeLinecap="round"/></svg>
                     Walk through
@@ -2959,6 +2953,10 @@ export default function App() {
               )}
             </div>
           </>)}
+
+          {stage === "three_d" && (buildMode === "residential" || (buildMode === "materials" && quoteMassingSpec)) && engineReady && !walkMode && (
+            <ModelToolbar engine={engineRef.current} />
+          )}
 
           {/* Headline cost cards — Estimate and Costs pages */}
           {(stage === "estimate" || stage === "materials") && (
@@ -3027,6 +3025,9 @@ export default function App() {
             {activeTab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {activeTab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
             {activeTab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
+            {activeTab === "layers" && <LayersPanel engine={engineRef.current} version={modelVersion} />}
+            {activeTab === "cutlist" && (buildMode === "residential" ? spec : quoteMassingSpec) && <CutList spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
+            {activeTab === "drawings" && (buildMode === "residential" ? spec : quoteMassingSpec) && <Drawings spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} projectNo={projectNo} region={region} />}
               </motion.div>
           </div>
         </section>
@@ -3282,13 +3283,16 @@ function ThemeToggle({ theme, onToggle }) {
 
 
 
+/* The engine reveals the house in AU progress-payment stages: base (slab),
+   frame (walls, floors, trusses), roof, lock-up (cladding, windows,
+   doors), fixing / fit-out. */
 function stageLabel(p) {
-  if (p < 0.05) return "SITE";
-  if (p < 0.2) return "FOUNDATION";
+  if (p < 0.02) return "SITE";
+  if (p < 0.2) return "BASE";
   if (p < 0.4) return "FRAME";
-  if (p < 0.6) return "WALLS";
-  if (p < 0.8) return "ROOF";
-  if (p < 0.99) return "FINISHES";
+  if (p < 0.6) return "ROOF";
+  if (p < 0.8) return "LOCK-UP";
+  if (p < 0.99) return "FIT-OUT";
   return "COMPLETE";
 }
 

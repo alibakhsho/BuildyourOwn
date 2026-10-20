@@ -24,10 +24,15 @@ import {
   hitTest, hitTestVertex, nextColor, polygonArea, polylineLength, rollUpByCostItem,
   snapOrtho, snapToVertex, toQuoteLines, distance, centroid,
 } from "../logic/takeoff.js";
-import { getBlobURL, putBlob, downscaleForVision, getBlob, isHeic } from "../state/blobstore.js";
+import { getBlobURL, putBlob, putRaw, downscaleForVision, getBlob, isHeic } from "../state/blobstore.js";
 import { createTakeoff, updateTakeoff, listTakeoffs, createDocument } from "../state/cm.js";
 import { readPlan } from "../ai/vision.js";
 import { isNative, takePhoto } from "../lib/native.js";
+import { readPdf } from "../lib/pdf-pages.js";
+import {
+  isPdf, classifySheet, boilerplateOf, isTextHeavy, pageScale, pxPerMetreFor, paperOf, compactText,
+  SHEET_KIND_LABEL, kindRank,
+} from "../logic/pdf-sheets.js";
 
 const HANDLE_R = 4.5;      // vertex handle radius, screen px
 const HIT_TOL = 7;         // click tolerance, screen px
@@ -186,7 +191,7 @@ export default function TakeoffCanvas({ jobId, takeoffId, onQuoteLines, onClose 
     const lw = (n) => n / s;
 
     // Calibration line — dashed, unmistakably different from measurements.
-    if (takeoff?.calibration) {
+    if (takeoff?.calibration?.p1 && takeoff.calibration.p2) {
       const { p1, p2 } = takeoff.calibration;
       ctx.setLineDash([lw(7), lw(5)]);
       ctx.strokeStyle = "#00A6FB";
@@ -429,6 +434,14 @@ export default function TakeoffCanvas({ jobId, takeoffId, onQuoteLines, onClose 
     }
   };
 
+  /* The scale printed on a PDF sheet, applied only when the builder says so. */
+  const acceptPdfScale = () => {
+    const sc = takeoff?.suggestedScale;
+    if (!sc?.pxPerMetre) return;
+    persist({ pxPerMetre: sc.pxPerMetre, calibration: { fromPdf: true, ratio: sc.ratio, paper: sc.paper || null } });
+    setStatus(`Scale set from the sheet — 1:${sc.ratio}${sc.paper ? ` @ ${sc.paper}` : ""}. Measure one figured dimension to check it before you rely on it.`);
+  };
+
   /* ---- AI plan read ---------------------------------------------------- */
   const runAI = async () => {
     if (!takeoff?.blobId) return;
@@ -438,11 +451,31 @@ export default function TakeoffCanvas({ jobId, takeoffId, onQuoteLines, onClose 
     try {
       const rec = await getBlob(takeoff.blobId);
       const small = await downscaleForVision(rec.blob);
-      const result = await readPlan(small, {
-        imageWidth: takeoff.imageWidth,
-        imageHeight: takeoff.imageHeight,
-        pxPerMetre,
+      // The model sees the downscaled image, so it gets that image's size and
+      // scale; its outlines come back in those pixels and are mapped up to
+      // the stored sheet (the space every measurement lives in).
+      const bmp = await createImageBitmap(small);
+      const sw = bmp.width, sh = bmp.height;
+      bmp.close?.();
+      const k = takeoff.imageWidth ? sw / takeoff.imageWidth : 1;
+      let pageText = "";
+      if (takeoff.textBlobId) {
+        try {
+          const t = await getBlob(takeoff.textBlobId);
+          const items = JSON.parse(await t.blob.text());
+          pageText = compactText(items.map((it) => ({ ...it, x: it.x * k, y: it.y * k })));
+        } catch { /* the text layer is a bonus — read the pixels without it */ }
+      }
+      const raw = await readPlan(small, {
+        imageWidth: sw,
+        imageHeight: sh,
+        pxPerMetre: pxPerMetre ? pxPerMetre * k : null,
+        pageText,
       });
+      const result = k === 1 ? raw : {
+        ...raw,
+        rooms: (raw.rooms || []).map((r) => ({ ...r, polygon: (r.polygon || []).map(([x, y]) => [x / k, y / k]) })),
+      };
       setAiResult(result);
       setStatus(
         result.rooms?.length
@@ -521,7 +554,15 @@ export default function TakeoffCanvas({ jobId, takeoffId, onQuoteLines, onClose 
           onAI={runAI} aiBusy={aiBusy}
         />
 
-        {!pxPerMetre && (
+        {!pxPerMetre && takeoff.suggestedScale?.pxPerMetre && (
+          <Banner tone="ok">
+            <strong>This sheet says it is drawn at 1:{takeoff.suggestedScale.ratio}{takeoff.suggestedScale.paper ? ` @ ${takeoff.suggestedScale.paper}` : ""}.</strong>{" "}
+            {takeoff.suggestedScale.mixed ? "It mentions more than one scale, so check it. " : ""}
+            <button className="ec-btn ec-btn-ghost" style={{ fontSize: 11, padding: "2px 8px", marginLeft: 4 }} onClick={acceptPdfScale}>Use that scale</button>
+            {" "}or calibrate against a dimension yourself.
+          </Banner>
+        )}
+        {!pxPerMetre && !takeoff.suggestedScale?.pxPerMetre && (
           <Banner tone="warn">
             <strong>Set the scale first.</strong> Pick <em>Calibrate</em>, draw a line along a dimension you know
             (a 6000&nbsp;mm wall, a 820&nbsp;mm door), and type its real length. Measurements stay locked until you do.
@@ -1083,19 +1124,83 @@ export function TakeoffSheets({ jobId, activeId, onOpen }) {
 
   /** Accepted by MIME where the browser gives one, by extension where it doesn't. */
   const isSupported = (file) =>
+    isPdf(file) ||
     /^image\/(png|jpe?g|webp|heic|heif)$/i.test(file.type || "") ||
     /\.(png|jpe?g|webp|heic|heif)$/i.test(file.name || "");
+
+  /* A PDF becomes one sheet per page, each filed by what it shows and
+     carrying its text layer and stated scale. The PDF itself is kept as the
+     job's document so the original is never lost. */
+  const importPdf = async (file) => {
+    setBusy(`Opening ${file.name}…`);
+    const original = await putRaw(file, { name: file.name });
+    const doc = createDocument(jobId, { name: file.name, kind: "plan", blobId: original.id, size: file.size, mimeType: "application/pdf" });
+    const base = file.name.replace(/\.pdf$/i, "");
+    const made = [];
+    const texts = [];   // every page's text, for the whole-set pass below
+    const { numPages, read } = await readPdf(file, {
+      onProgress: (i, n) => setBusy(`Reading ${file.name} — sheet ${i} of ${n}…`),
+      onPage: async (pg) => {
+        const cls = classifySheet(pg.text, { textHeavy: isTextHeavy(pg.text), page: { w: pg.width, h: pg.height } });
+        const sc = pageScale(pg.text);
+        const ppm = sc ? pxPerMetreFor(sc, pg.pageMm, { w: pg.width, h: pg.height }) : null;
+        const png = `${base} p${pg.pageNo}.png`;
+        const meta = await putBlob(new File([pg.blob], png, { type: "image/png" }), { name: png });
+        const textMeta = pg.text.length
+          ? await putRaw(new Blob([JSON.stringify(pg.text)], { type: "application/json" }), { name: `${png}.text.json` })
+          : null;
+        const t = createTakeoff(jobId, {
+          name: [cls.number, cls.label || SHEET_KIND_LABEL[cls.kind]].filter(Boolean).join(" · ") || `${base} p${pg.pageNo}`,
+          documentId: doc.id, blobId: meta.id,
+          imageWidth: meta.width || pg.width, imageHeight: meta.height || pg.height,
+          source: { kind: "pdf", file: file.name, pageNo: pg.pageNo, numPages: pg.numPages, paper: paperOf(pg.pageMm.w, pg.pageMm.h) },
+          sheetKind: cls.kind, sheetLabel: cls.label, sheetNumber: cls.number,
+          suggestedScale: ppm ? { ...sc, pxPerMetre: ppm } : null,
+          textBlobId: textMeta?.id || null,
+        });
+        made.push(t);
+        texts.push({ text: pg.text, page: { w: pg.width, h: pg.height } });
+        refresh();
+      },
+    });
+    // Second pass over the whole set: text repeated on most sheets (project
+    // name, firm, disclaimer) is dropped so it can't vote on every page.
+    const boilerplate = boilerplateOf(texts.map((x) => x.text));
+    if (boilerplate.size) {
+      made.forEach((t, i) => {
+        const cls = classifySheet(texts[i].text, { textHeavy: isTextHeavy(texts[i].text), boilerplate, page: texts[i].page });
+        if (cls.kind === t.sheetKind && cls.label === t.sheetLabel) return;
+        const name = [cls.number, cls.label || SHEET_KIND_LABEL[cls.kind]].filter(Boolean).join(" · ") || t.name;
+        made[i] = updateTakeoff(t.id, { sheetKind: cls.kind, sheetLabel: cls.label, sheetNumber: cls.number, name }) || t;
+      });
+      refresh();
+    }
+    const kinds = new Map();
+    for (const t of made) kinds.set(t.sheetKind, (kinds.get(t.sheetKind) || 0) + 1);
+    const filed = [...kinds].sort((a, b) => kindRank(a[0]) - kindRank(b[0])).map(([k, n]) => `${n} ${SHEET_KIND_LABEL[k].toLowerCase()}`).join(", ");
+    return {
+      opened: made.find((t) => t.sheetKind === "floor") || made[0] || null,
+      note: `${file.name}: ${made.length} sheet${made.length === 1 ? "" : "s"} filed — ${filed}.${read < numPages ? ` Only the first ${read} of ${numPages} pages were read.` : ""}`,
+    };
+  };
 
   const onFiles = async (files) => {
     setErr("");
     setNote("");
     const convertedNames = [];
+    const pdfNotes = [];
     try {
       for (const file of files) {
         if (!isSupported(file)) {
           setErr(
-            `"${file.name}" is a ${file.type || "unrecognised"} file. Upload a PNG, JPG, WEBP or iPhone HEIC — export or screenshot a PDF page if that is what you have.`
+            `"${file.name}" is a ${file.type || "unrecognised"} file. Upload a PDF, or a PNG, JPG, WEBP or iPhone HEIC image.`
           );
+          continue;
+        }
+        if (isPdf(file)) {
+          const { opened, note } = await importPdf(file);
+          pdfNotes.push(note);
+          if (opened) onOpen?.(opened.id);
           continue;
         }
         // HEIC decoding runs a WASM build of libheif and takes a second or
@@ -1118,11 +1223,13 @@ export function TakeoffSheets({ jobId, activeId, onOpen }) {
         refresh();
         onOpen?.(t.id);
       }
+      const notes = [...pdfNotes];
       if (convertedNames.length) {
-        setNote(
+        notes.push(
           `Converted ${convertedNames.length} phone photo${convertedNames.length === 1 ? "" : "s"} to a standard upright image. Measurements are taken from the converted version.`
         );
       }
+      if (notes.length) setNote(notes.join(" "));
     } catch (e) {
       setErr(e.message || "Upload failed.");
     } finally {
@@ -1138,11 +1245,15 @@ export function TakeoffSheets({ jobId, activeId, onOpen }) {
         style={{ display: "block", border: `2px dashed ${TOKENS.rule}`, background: TOKENS.paperLight, padding: "26px 20px", textAlign: "center", cursor: "pointer", marginBottom: 14 }}
       >
         <input type="file" multiple hidden
-          accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif"
+          accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif"
           onChange={(e) => { onFiles([...e.target.files]); e.target.value = ""; }} />
-        <div className="ec-display" style={{ fontSize: 17 }}>{busy || "Drop plan images here"}</div>
+        <div className="ec-display" style={{ fontSize: 17 }}>{busy || "Drop plans here"}</div>
         <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, marginTop: 5 }}>
-          PNG · JPG · WEBP · HEIC — straight off an iPhone is fine
+          PDF plan sets · PNG · JPG · WEBP · HEIC — straight off an iPhone is fine
+        </div>
+        <div style={{ fontSize: 10, color: TOKENS.steel, marginTop: 6, lineHeight: 1.5, maxWidth: 460, marginInline: "auto" }}>
+          A whole PDF set is split into sheets and filed — floor plans, elevations, sections, structural — with
+          the scale read off each title block.
         </div>
         <div style={{ fontSize: 10, color: TOKENS.steel, marginTop: 6, lineHeight: 1.5, maxWidth: 460, marginInline: "auto" }}>
           Shoot the sheet square-on and flat. A photo taken at an angle stretches one side of the
@@ -1173,11 +1284,18 @@ export function TakeoffSheets({ jobId, activeId, onOpen }) {
       {err && <Banner tone="error" onClose={() => setErr("")}>{err}</Banner>}
       {note && !err && <Banner tone="ok" onClose={() => setNote("")}>{note}</Banner>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
-        {sheets.map((s) => (
-          <SheetCard key={s.id} sheet={s} active={s.id === activeId} onOpen={() => onOpen?.(s.id)} />
-        ))}
-      </div>
+      {groupSheets(sheets).map(([kind, list]) => (
+        <section key={kind || "all"} style={{ marginBottom: 14 }}>
+          {kind !== null && (
+            <div className="ec-eyebrow" style={{ marginBottom: 6 }}>{kind === "images" ? "Images" : SHEET_KIND_LABEL[kind]} · {list.length}</div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10 }}>
+            {list.map((s) => (
+              <SheetCard key={s.id} sheet={s} active={s.id === activeId} onOpen={() => onOpen?.(s.id)} />
+            ))}
+          </div>
+        </section>
+      ))}
       {!sheets.length && !busy && (
         <p style={{ fontSize: 12, color: TOKENS.steel, textAlign: "center", marginTop: 16 }}>
           No plans uploaded for this job yet.
@@ -1185,6 +1303,19 @@ export function TakeoffSheets({ jobId, activeId, onOpen }) {
       )}
     </div>
   );
+}
+
+/** Sheets filed by kind (PDF pages) then page order; plain images last. No
+    headings at all when nothing came from a PDF. */
+function groupSheets(sheets) {
+  if (!sheets.some((s) => s.sheetKind)) return [[null, sheets]];
+  const by = new Map();
+  for (const s of sheets) {
+    const k = s.sheetKind || "images";
+    (by.get(k) || by.set(k, []).get(k)).push(s);
+  }
+  for (const list of by.values()) list.sort((a, b) => (a.source?.file || "").localeCompare(b.source?.file || "") || (a.source?.pageNo || 0) - (b.source?.pageNo || 0));
+  return [...by].sort((a, b) => (a[0] === "images") - (b[0] === "images") || kindRank(a[0]) - kindRank(b[0]));
 }
 
 function SheetCard({ sheet, active, onOpen }) {
@@ -1210,8 +1341,13 @@ function SheetCard({ sheet, active, onOpen }) {
       <div style={{ padding: "7px 9px" }}>
         <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sheet.name}</div>
         <div className="ec-mono" style={{ fontSize: 9, color: sheet.pxPerMetre ? TOKENS.ok : TOKENS.ember, marginTop: 2 }}>
-          {sheet.pxPerMetre ? `scaled · ${count} measurement${count === 1 ? "" : "s"}` : "needs calibration"}
+          {sheet.pxPerMetre ? `scaled · ${count} measurement${count === 1 ? "" : "s"}` : sheet.suggestedScale ? `1:${sheet.suggestedScale.ratio} on sheet · confirm` : "needs calibration"}
         </div>
+        {sheet.source?.kind === "pdf" && (
+          <div className="ec-mono" style={{ fontSize: 9, color: TOKENS.steel, marginTop: 1 }}>
+            p{sheet.source.pageNo}/{sheet.source.numPages}{sheet.source.paper ? ` · ${sheet.source.paper}` : ""}
+          </div>
+        )}
         {sheet.converted && (
           <div className="ec-mono" style={{ fontSize: 9, color: TOKENS.steel, marginTop: 1 }}>from phone photo</div>
         )}
