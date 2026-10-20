@@ -10,8 +10,8 @@
    Structure:
      Dashboard  — pipeline value, jobs on site, unclaimed revenue, at-risk trades
      Jobs       — pipeline board, lead → on site → closed
-     Job detail — Overview / Takeoff / Budget / POs / Variations / Claims /
-                  Schedule / Diary / Documents
+     Job detail — Overview / Approvals / Takeoff / Budget / POs / Variations /
+                  Claims / Schedule / Diary / Documents
      Clients    — the contact book that feeds Xero/MYOB
      Settings   — company details and accounting connections
 
@@ -25,6 +25,8 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { fmt, currencySymbol } from "../lib/format.js";
 import * as CM from "../state/cm.js";
+import { putBlob, putRaw } from "../state/blobstore.js";
+import { AU_STATES, BUILD_TYPES, DISCIPLINES, APPROVAL_STATUS, STAGE_LABEL } from "../logic/approvals.js";
 import TakeoffCanvas, { TakeoffSheets } from "./TakeoffCanvas.jsx";
 import Integrations from "./Integrations.jsx";
 import { pushClaim, pushPurchaseOrder, claimToLineItems } from "../lib/accounting.js";
@@ -37,6 +39,7 @@ import { track } from "../lib/analytics.js";
 
 const JOB_MODULES = [
   { id: "overview", label: "Overview" },
+  { id: "approvals", label: "Approvals" },
   { id: "takeoff", label: "Takeoff" },
   { id: "budget", label: "Budget" },
   { id: "purchase_orders", label: "Purchase orders" },
@@ -363,6 +366,7 @@ function JobDetail({ job, onBack, onOpenEstimator }) {
       </div>
 
       {module === "overview" && <Overview job={job} fin={fin} cur={cur} onOpenEstimator={onOpenEstimator} onModule={setModule} />}
+      {module === "approvals" && <Approvals job={job} cur={cur} />}
       {module === "takeoff" && (
         takeoffId
           ? <>
@@ -406,6 +410,24 @@ function Overview({ job, fin, cur, onOpenEstimator, onModule }) {
           {onOpenEstimator && <button className="ec-btn ec-btn-ghost" onClick={() => onOpenEstimator(job)}>Open in estimator</button>}
         </Panel>
       )}
+
+      {/* Only pre-contract jobs need nudging toward a final price. */}
+      {["lead", "estimating", "quoted"].includes(job.status) && (() => {
+        const q = CM.jobQuoteReadiness(job.id);
+        const open = CM.listApprovals(job.id).length === 0 ? null : q.blocking.length;
+        return (
+          <Panel title={open == null ? "Get this quote to a final price" : STAGE_LABEL[q.stage]} tone={q.stage === "indicative" ? "warn" : undefined}>
+            <p style={{ margin: "0 0 10px", fontSize: 13, lineHeight: 1.6 }}>
+              {open == null
+                ? "Soil test, engineering, energy rating and permits decide whether this estimate holds. See what this site needs."
+                : open
+                  ? `${open} price-affecting report${open === 1 ? "" : "s"} still outstanding.`
+                  : "Engineering is in — the price can be fixed."}
+            </p>
+            <button className="ec-btn ec-btn-ghost" onClick={() => onModule("approvals")}>Open approvals</button>
+          </Panel>
+        );
+      })()}
 
       {fin.atRiskCount > 0 && (
         <Panel title={`${fin.atRiskCount} cost centre${fin.atRiskCount === 1 ? "" : "s"} over budget`} tone="alert">
@@ -877,6 +899,162 @@ function Diary({ job }) {
         </div>
       )}
     </>
+  );
+}
+
+/* ---- Approvals --------------------------------------------------------- */
+
+/* The engineering, certifier and council work that turns an indicative
+   estimate into a price the builder can stand behind. The builder answers a
+   few questions about the site, the checklist follows, and as each report
+   comes back they attach it, enter the real fee and how much it moved the
+   build cost. The banner says what kind of quote they can send today. */
+function Approvals({ job, cur }) {
+  const site = CM.getSite(job.id);
+  const items = CM.listApprovals(job.id);
+  const q = CM.jobQuoteReadiness(job.id);
+
+  // First visit: derive the checklist from the default profile so the
+  // builder sees what a typical job needs before answering anything.
+  useEffect(() => { if (!items.length) CM.syncApprovals(job.id); }, [job.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const tone = { indicative: TOKENS.hivisDeep, fixed: TOKENS.ok, approved: TOKENS.ok }[q.stage];
+  const groups = Object.keys(DISCIPLINES)
+    .map((d) => [d, items.filter((a) => a.discipline === d)])
+    .filter(([, list]) => list.length);
+
+  return (
+    <>
+      <SectionBar title="Approvals" sub="Engineering, certification and council — what stands between this estimate and a final price." />
+
+      <section style={{ background: TOKENS.card, border: `1px solid ${tone}`, padding: "14px 16px", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "baseline" }}>
+          <div className="ec-display" style={{ fontSize: 18, color: tone }}>{STAGE_LABEL[q.stage]}</div>
+          <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>{Math.round(q.progress * 100)}% of approvals in hand</div>
+        </div>
+        <div style={{ fontSize: 12, color: TOKENS.inkSoft, marginTop: 6, lineHeight: 1.5 }}>
+          {q.stage === "indicative" && <>Still waiting on {q.blocking.map((b) => b.label).join(", ")}. Quote with these as provisional allowances, or wait for the reports.</>}
+          {q.stage === "fixed" && <>Every price-affecting report is in. You can fix the price, listing these as conditions: {q.conditions.map((c) => c.label).join(", ")}.</>}
+          {q.stage === "approved" && <>Everything has issued. This price is ready to sign.</>}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginTop: 12 }}>
+          <Stat label="Estimate" value={`${cur}${fmt(q.base)}`} sub={q.base ? "Job contract value" : "Set a contract value on the job"} />
+          <Stat label="Consultant & permit fees" value={`${cur}${fmt(q.fees)}`} sub={q.provisionalFees ? `${cur}${fmt(q.provisionalFees)} still an allowance` : "All actual"} />
+          <Stat label="Cost moved by reports" value={`${q.costImpact >= 0 ? "+" : "−"}${cur}${fmt(Math.abs(q.costImpact))}`} sub="Footings, BAL, energy upgrades…" />
+          <Stat label="Quote total" value={`${cur}${fmt(q.total)}`} sub="Ex GST" hivis />
+        </div>
+      </section>
+
+      <Panel title="The site">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+          <Field label="State">
+            <select className="ec-select" value={site.state} onChange={(e) => CM.setSite(job.id, { state: e.target.value })}>
+              {AU_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="Type of work">
+            <select className="ec-select" value={site.buildType} onChange={(e) => CM.setSite(job.id, { buildType: e.target.value })}>
+              {BUILD_TYPES.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Storeys">
+            <input className="ec-input" type="number" min="1" max="4" value={site.storeys} onChange={(e) => CM.setSite(job.id, { storeys: Math.max(1, Number(e.target.value) || 1) })} />
+          </Field>
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 10, fontSize: 12 }}>
+          {[["bushfire", "Bushfire-prone"], ["flood", "Flood overlay"], ["heritage", "Heritage / character"], ["slopeOver15", "Slope over 15%"]].map(([k, label]) => (
+            <label key={k} style={{ display: "flex", gap: 6, alignItems: "center", cursor: "pointer" }}>
+              <input type="checkbox" checked={!!site[k]} onChange={(e) => CM.setSite(job.id, { [k]: e.target.checked })} /> {label}
+            </label>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: TOKENS.steel, marginTop: 8, lineHeight: 1.5 }}>
+          Overlays are on the council's planning scheme map for the lot. Warranty insurance and levies use the job's contract value.
+        </div>
+      </Panel>
+
+      {groups.map(([d, list]) => (
+        <Panel key={d} title={DISCIPLINES[d]}>
+          <div style={{ display: "grid", gap: 8 }}>
+            {list.map((a) => <ApprovalRow key={a.id} a={a} cur={cur} />)}
+          </div>
+        </Panel>
+      ))}
+    </>
+  );
+}
+
+function ApprovalRow({ a, cur }) {
+  const [busy, setBusy] = useState(false);
+  const docs = (a.documentIds || []).map((id) => CM.listDocuments(a.jobId).find((d) => d.id === id)).filter(Boolean);
+  const done = a.status === "approved" || a.status === "not_required";
+
+  async function attach(e) {
+    const files = [...(e.target.files || [])];
+    e.target.value = "";
+    if (!files.length) return;
+    setBusy(true);
+    try {
+      for (const file of files) {
+        const meta = file.type.startsWith("image/") ? await putBlob(file, { name: file.name }) : await putRaw(file, { name: file.name });
+        CM.attachApprovalDocument(a.id, { name: file.name, blobId: meta.id, size: file.size, mimeType: file.type, width: meta.width, height: meta.height });
+      }
+      // Paperwork in hand = report received, unless it's already further along.
+      if (["required", "requested"].includes(a.status)) CM.updateApproval(a.id, { status: "submitted" });
+      track("approval_document_attached", { key: a.key });
+    } catch (err) {
+      alert(`Could not store that file: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ border: `1px solid ${done ? TOKENS.ok : TOKENS.rule}`, padding: "10px 12px", opacity: a.status === "not_required" ? 0.6 : 1 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>
+            {a.label}
+            {a.affectsPrice && <span className="ec-mono" style={{ fontSize: 9, marginLeft: 8, color: TOKENS.hivisInk, background: TOKENS.warnWash, padding: "1px 5px" }}>MOVES PRICE</span>}
+            {a.stale && <span className="ec-mono" style={{ fontSize: 9, marginLeft: 8, color: TOKENS.alert }}>NO LONGER NEEDED?</span>}
+          </div>
+          <div style={{ fontSize: 11, color: TOKENS.steel, marginTop: 2 }}>{a.who} — {a.why}</div>
+          {a.verify && <div style={{ fontSize: 10, color: TOKENS.hivisInk, marginTop: 2 }}>{a.verify}</div>}
+        </div>
+        <select className="ec-select" value={a.status} onChange={(e) => CM.updateApproval(a.id, { status: e.target.value })} style={{ width: 130, padding: "3px 6px", fontSize: 11 }}>
+          {APPROVAL_STATUS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, marginTop: 8 }}>
+        <Field label="Who's doing it">
+          <input className="ec-input" value={a.provider?.name || ""} placeholder={a.who}
+            onChange={(e) => CM.updateApproval(a.id, { provider: { ...a.provider, name: e.target.value } })} style={{ padding: "4px 7px", fontSize: 11 }} />
+        </Field>
+        <Field label="Email">
+          <input className="ec-input" type="email" value={a.provider?.email || ""}
+            onChange={(e) => CM.updateApproval(a.id, { provider: { ...a.provider, email: e.target.value } })} style={{ padding: "4px 7px", fontSize: 11 }} />
+        </Field>
+        <Field label="Fee" hint={a.feeActual == null ? `Allowance ${cur}${fmt(a.feeAllowance)}` : "Actual"}>
+          <input className="ec-input" type="number" value={a.feeActual ?? ""} placeholder={String(a.feeAllowance)}
+            onChange={(e) => CM.updateApproval(a.id, { feeActual: e.target.value === "" ? null : Number(e.target.value) || 0 })} style={{ padding: "4px 7px", fontSize: 11 }} />
+        </Field>
+        {a.affectsPrice && (
+          <Field label="Build cost moved by" hint="+ more, − less than estimated">
+            <input className="ec-input" type="number" value={a.costImpact || ""} placeholder="0"
+              onChange={(e) => CM.updateApproval(a.id, { costImpact: Number(e.target.value) || 0 })} style={{ padding: "4px 7px", fontSize: 11 }} />
+          </Field>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 8 }}>
+        {docs.map((d) => (
+          <span key={d.id} className="ec-mono" style={{ fontSize: 10, padding: "2px 6px", border: `1px solid ${TOKENS.rule}`, color: TOKENS.inkSoft }}>{d.name}</span>
+        ))}
+        <label className="ec-mono" style={{ fontSize: 10, cursor: busy ? "wait" : "pointer", color: TOKENS.ink, textDecoration: "underline" }}>
+          {busy ? "Saving…" : "+ attach plans / report"}
+          <input type="file" multiple accept=".pdf,image/*,.dwg,.dxf,.doc,.docx" onChange={attach} disabled={busy} style={{ display: "none" }} />
+        </label>
+      </div>
+    </div>
   );
 }
 

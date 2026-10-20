@@ -57,11 +57,12 @@ Check it's wired: open http://localhost:8787/api/health → `{"ok":true,"hasKey"
 
 Reached from the **Manage** button in the top bar. Left rail: Dashboard, Jobs, Clients, Settings.
 
-A **job** is the unit of work, moving through `lead → estimating → quoted → won → on site → PC → closed`. Each job carries nine modules:
+A **job** is the unit of work, moving through `lead → estimating → quoted → won → on site → PC → closed`. Each job carries ten modules:
 
 | Module | What it's for |
 |---|---|
 | Overview | Contract sum, committed cost, gross margin, unclaimed revenue |
+| Approvals | Engineering, certifier and council checklist from the site profile; quote stage (indicative → fixed → approved), consultant reports attached, fees and cost impact rolled into the quote. See `docs/MARKETPLACE-PLAN.md` |
 | Takeoff | Measure quantities off a plan image (below) |
 | Budget | Budget vs committed vs variations, per cost centre, with over-budget flags |
 | Purchase orders | Commit cost to suppliers; push to Xero/MYOB |
