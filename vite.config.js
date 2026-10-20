@@ -2,9 +2,21 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
+import { rmSync } from "node:fs";
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
+/* The native app bundles dist/ inside the phone and only ever plays the 720p
+   scroll film, so the mobile build leaves the 1080p cut (~18 MB) out. */
+const dropHdFilmOnMobile = (mode) => ({
+  name: "drop-hd-film-on-mobile",
+  apply: "build",
+  closeBundle() {
+    if (mode !== "mobile") return;
+    rmSync(fileURLToPath(new URL("./dist/media/byo-flight-1080.mp4", import.meta.url)), { force: true });
+  },
+});
+
+export default defineConfig(({ mode }) => ({
+  plugins: [react(), tailwindcss(), dropHdFilmOnMobile(mode)],
   resolve: {
     alias: {
       // The shadcn convention. Components pasted from the shadcn registry or
@@ -20,4 +32,4 @@ export default defineConfig({
       "/api": "http://localhost:8787",
     },
   },
-});
+}));
