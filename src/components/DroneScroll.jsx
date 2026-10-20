@@ -19,7 +19,11 @@ import { useScroll, useMotionValueEvent, useReducedMotion } from "framer-motion"
 /* 1080p for desktops, a lighter 720p cut for phones and small screens. */
 const SRC_HD = "/media/byo-flight-1080.mp4";
 const SRC_SD = "/media/byo-flight-720.mp4";
-const pickSrc = () => (typeof window !== "undefined" && window.innerWidth * Math.min(2, window.devicePixelRatio || 1) >= 1600 ? SRC_HD : SRC_SD);
+/* The native app ships only the 720p cut (see vite.config.js), so it never asks for HD. */
+const pickSrc = () => {
+  if (typeof window === "undefined" || window.Capacitor?.isNativePlatform?.()) return SRC_SD;
+  return window.innerWidth * Math.min(2, window.devicePixelRatio || 1) >= 1600 ? SRC_HD : SRC_SD;
+};
 const POSTER = "/media/byo-flight-poster.jpg";
 
 /* Copy beats, as fractions of the flight. */
