@@ -102,6 +102,11 @@ create table if not exists public.listings (
   id            uuid primary key default gen_random_uuid(),
   seller_id     uuid not null default auth.uid() references public.pro_profiles (user_id) on delete cascade,
   kind          text not null check (kind in ('material','plan','module','service')),
+  -- How a builder sells it (src/logic/marketplace.js SALE_MODES); their choice.
+  sale_mode     text check (sale_mode in ('plan_purchase','plan_licence','build_only','prefab')),
+  owns_copyright boolean not null default false,
+  site_works    jsonb not null default '{}'::jsonb,   -- prefab: { footings|transport|services|approvals: included|excluded }
+  lead_time_weeks integer check (lead_time_weeks > 0),
   title         text not null check (char_length(title) <= 160),
   description   text check (char_length(description) <= 8000),
   price_cents   bigint check (price_cents >= 0),   -- ex GST
@@ -139,6 +144,45 @@ begin
 end $$;
 create trigger listings_rereview before update on public.listings
   for each row execute function public.listings_rereview();
+
+
+-- ---- orders: plan and prefab purchases (Stripe Connect) --------------------
+-- Written by the Stripe webhook only (service role). Buyer and seller read.
+create table if not exists public.orders (
+  id                  uuid primary key default gen_random_uuid(),
+  listing_id          uuid not null references public.listings on delete restrict,
+  buyer_id            uuid not null references auth.users on delete restrict,
+  seller_id           uuid not null references public.pro_profiles (user_id) on delete restrict,
+  subtotal_cents      bigint not null,
+  gst_cents           bigint not null,
+  platform_fee_cents  bigint not null,               -- 1.5%, Stripe application_fee_amount
+  stripe_payment_intent text unique,
+  status              text not null default 'paid' check (status in ('paid','refunded','disputed')),
+  created_at          timestamptz not null default now()
+);
+alter table public.orders enable row level security;
+create policy "orders: buyer and seller read" on public.orders
+  for select to authenticated using ((select auth.uid()) in (buyer_id, seller_id));
+revoke all on public.orders from anon, authenticated;
+grant select on public.orders to authenticated;
+
+-- ---- signed contracts: the 1.5% platform fee ---------------------------------
+create table if not exists public.contract_fees (
+  id                  uuid primary key default gen_random_uuid(),
+  builder_id          uuid not null references auth.users on delete restrict,
+  job_ref             text not null,
+  contract_value_cents bigint not null check (contract_value_cents > 0),
+  fee_cents           bigint not null,
+  signed_at           timestamptz not null default now(),
+  stripe_invoice_id   text unique,
+  status              text not null default 'invoiced' check (status in ('invoiced','paid','void')),
+  unique (builder_id, job_ref)
+);
+alter table public.contract_fees enable row level security;
+create policy "contract_fees: builder reads own" on public.contract_fees
+  for select to authenticated using ((select auth.uid()) = builder_id);
+revoke all on public.contract_fees from anon, authenticated;
+grant select on public.contract_fees to authenticated;
 
 
 -- ---- job shares: invite an engineer/certifier onto one job -------------------

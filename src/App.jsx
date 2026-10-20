@@ -56,6 +56,7 @@ import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, ho
 import DescribeCard from "./components/DescribeCard.jsx";
 import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/ModelTools.jsx";
 import Drawings from "./components/Drawings.jsx";
+import BuildRequirements from "./components/BuildRequirements.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
@@ -3023,7 +3024,7 @@ export default function App() {
             {activeTab === "sketchup" && buildMode === "materials" && <SketchUpTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {activeTab === "cadbim" && buildMode === "residential" && <CadBimTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
             {activeTab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
-            {activeTab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
+            {activeTab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} floors={spec?.floors} currency={currency} />}
             {activeTab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
             {activeTab === "layers" && <LayersPanel engine={engineRef.current} version={modelVersion} />}
             {activeTab === "cutlist" && (buildMode === "residential" ? spec : quoteMassingSpec) && <CutList spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
@@ -4250,7 +4251,7 @@ function TimelineTab({ estimate }) {
 }
 
 /* ---- Codes tab ---- */
-function CodesTab({ region, highrise }) {
+function CodesTab({ region, highrise, floors, currency }) {
   const code = highrise ? HighRiseCodes[region] : BuildingCodes[region];
   const leg = Legislation[region];
   const [juris, setJuris] = useState(0);
@@ -4258,6 +4259,8 @@ function CodesTab({ region, highrise }) {
   return (
     <div>
       <SectionHeader index="F" title="Code & compliance reference" />
+      {/* AU residential: what this build needs signed off. Read-only — the builder manages it in Site Office. */}
+      {region === "AU" && !highrise && <BuildRequirements floors={floors || 1} currency={currency} />}
       <div className="ec-card" style={{ padding: 16, marginBottom: 16, background: TOKENS.paperLight }}>
         <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Authority</div>
         <div className="ec-display" style={{ fontSize: 20, lineHeight: 1.2, marginBottom: 4 }}>{code.name}</div>

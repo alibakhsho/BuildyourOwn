@@ -67,6 +67,14 @@ const waived = recs.map(x => ({ ...x, status: x.affectsPrice ? "not_required" : 
 ok("waived items cost nothing", A.quoteReadiness(waived, 100).fees,
   waived.filter(x => x.status !== "not_required").reduce((n, x) => n + (x.feeActual ?? x.feeAllowance), 0));
 
+// --- Homeowner read-only view ---
+const ho = A.homeownerRequirements({ state: "QLD", buildType: "new_dwelling" });
+ok("new house needs structural sign-off", ho.needsStructural, true);
+ok("structural list holds engineering + building approval",
+  ["soil_test", "structural_design", "building_approval"].every(k => ho.structural.some(i => i.key === k)), true);
+ok("energy rating listed separately", ho.other.some(i => i.key === "energy"), true);
+ok("cosmetic reno: no structural sign-off", A.homeownerRequirements({ state: "QLD", buildType: "renovation" }).needsStructural, false);
+
 // --- Store integration ---
 const job = CM.createJob({ name: "Smith St", contractValue: 450000 });
 CM.setSite(job.id, { state: "QLD", buildType: "new_dwelling" });

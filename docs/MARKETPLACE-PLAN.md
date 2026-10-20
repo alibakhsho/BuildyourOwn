@@ -121,9 +121,13 @@ Four sides, one job record connecting them:
 3. **Revenue: a 1.5% platform fee on every contract signed through BuildYourOwn**, plus subscriptions. No escrow at first; it may come later.
 4. **No custom contract templates from us.** Builders use their own contracts. We record the signed contract value and charge the fee.
 
-### Still open
-- **Approvals tab:** builders only, or also a free read-only "what your build will need" view for homeowners? (Recommended: both.)
-- **Sample projects:** showcase only, so a homeowner gets the design by signing a build with that builder (and we earn the 1.5%)? Or can builders also sell plans on their own? (Recommended: showcase only.)
+5. **Approvals:** builders get the full Approvals tab. Homeowners get a free read-only view in the estimator's *Codes & compliance* tab that shows whether their work needs structural sign-off and what the builder will arrange (built).
+6. **Builders get a free hand on how they sell** (`src/logic/marketplace.js`):
+   - **Buy the plans:** pay in the app and build with anyone (seller confirms they own the design).
+   - **Licence to build once:** pay per build.
+   - **Build with this builder:** the design is a showcase and comes with a signed build contract.
+   - **Prefab module:** a fixed price, paid in the app, *what you see is what you get*. Every listing must answer included/excluded for footings, transport and crane, service connections, and site approvals, so the buyer sees what else to budget for.
+   - Payment runs through Stripe Connect: the buyer pays price + GST, and the 1.5% comes out of the seller's payout.
 
 ### Making the 1.5% stick
 - The fee is charged when the contract is marked signed on the platform. The builder agrees to it in the platform terms when they sign up.

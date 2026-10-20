@@ -312,3 +312,25 @@ export const STAGE_LABEL = {
   fixed: "Fixed-price quote (subject to approvals)",
   approved: "Final quote — approvals in hand",
 };
+
+/* Disciplines that mean structural sign-off: someone certifies the building
+   will stand up before it is built. */
+const STRUCTURAL_DISCIPLINES = new Set(["survey", "engineering", "building"]);
+
+/**
+ * The homeowner's read-only view: does this work need structural sign-off,
+ * and what will the builder have to arrange? Homeowners see the list and a
+ * typical spend; managing it (fees, documents, status) is the builder's
+ * job, in Site Office.
+ */
+export function homeownerRequirements(site = {}) {
+  const items = requiredApprovals(site);
+  const structural = items.filter((i) => STRUCTURAL_DISCIPLINES.has(i.discipline));
+  return {
+    needsStructural: structural.length > 0,
+    structural,
+    other: items.filter((i) => !STRUCTURAL_DISCIPLINES.has(i.discipline)),
+    typicalFees: items.reduce((n, i) => n + i.feeAllowance, 0),
+    priceMovers: items.filter((i) => i.affectsPrice).length,
+  };
+}
