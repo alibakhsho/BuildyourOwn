@@ -59,12 +59,43 @@ export const PREFAB_SITE_WORKS = {
   approvals: "Engineering and building approval for your site",
 };
 
+const num = (v) => (v === "" || v == null ? null : Number(v));
+
+/**
+ * Values the database would refuse whatever the status — checked before
+ * Save as well as Publish, so the seller gets a sentence, not a Postgres
+ * error. Ranges match the CHECKs in the marketplace migration.
+ */
+export function fieldProblems(l = {}) {
+  const out = [];
+  const range = (v, lo, hi, msg) => {
+    const n = num(v);
+    if (n != null && (Number.isNaN(n) || n < lo || n > hi)) out.push(msg);
+  };
+  range(l.bedrooms, 0, 20, "Beds must be between 0 and 20");
+  range(l.bathrooms, 0, 20, "Baths must be between 0 and 20");
+  range(l.storeys, 1, 6, "Storeys must be between 1 and 6");
+  const area = num(l.floorAreaM2);
+  if (area != null && !(area > 0 && area < 100000)) out.push("Area must be more than 0 and under 100,000 m²");
+  if (l.priceCents != null && !(l.priceCents > 0 && l.priceCents < 100000000000)) out.push("Price must be more than $0 and under $1 billion");
+  if (l.leadTimeWeeks != null && !(Number.isInteger(l.leadTimeWeeks) && l.leadTimeWeeks >= 1 && l.leadTimeWeeks <= 104)) {
+    out.push("Lead time must be 1 to 104 weeks");
+  }
+  if ((l.inclusions || []).filter((x) => x.trim()).length > 40) out.push("List at most 40 inclusions");
+  if ((l.title || "").length > 160) out.push("Keep the title under 160 characters");
+  return out;
+}
+
+/** The fee line for a listing: a build-only plan ends in a build contract. */
+export const listingFeeLabel = (l) =>
+  (l.saleMode === "build_only" ? PLATFORM_FEES.contract : PLATFORM_FEES[l.kind] || PLATFORM_FEES.plan).label;
+
 /**
  * What stops this listing going live. Mirrors the database's CHECKs for
  * status = 'live', plus the obvious (a title). Empty list = ready.
  */
 export function publishProblems(l = {}) {
-  const out = [];
+  const out = [...fieldProblems(l)];
   const mode = SALE_MODES[l.saleMode];
   if (!mode) out.push("Choose how you're selling it");
   else if (mode.kind !== l.kind) out.push(`"${mode.label}" doesn't apply to a ${LISTING_KINDS[l.kind]?.label.toLowerCase() || "listing"}`);

@@ -1837,9 +1837,13 @@ export default function App() {
   const [userType, setUserType] = useState(null);      // homeowner | tradie | developer — gates which build modes show
   const [stage, setStage] = useState("estimate");      // workflow stage id
 
+  // The marketplace keeps its own page history; Back walks that first.
+  const marketBack = useRef(null);
+
   // Android Back: close the upgrade prompt, then step up one level.
   useNativeBack(() => {
     if (upgrade) { setUpgrade(null); return true; }
+    if (screen === "market" && marketBack.current?.()) return true;
     if (screen === "workspace" || screen === "manage" || screen === "market") { setScreen("projects"); window.scrollTo({ top: 0 }); return true; }
     if (screen === "projects") { setScreen("landing"); window.scrollTo({ top: 0 }); return true; }
     return false;
@@ -2655,7 +2659,7 @@ export default function App() {
       )}
 
       {/* ============== MARKETPLACE ============== */}
-      {screen === "market" && <Marketplace onUpgrade={setUpgrade} />}
+      {screen === "market" && <Marketplace onUpgrade={setUpgrade} backRef={marketBack} />}
 
       {/* ============== CONSTRUCTION MANAGEMENT ============== */}
       {screen === "manage" && (

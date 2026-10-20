@@ -19,7 +19,7 @@
    flush cards (`gap-px bg-rule`), mono labels, one hi-vis accent.
    ========================================================================= */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft, BadgeCheck, Bath, BedDouble, Building2, Eye, FileText, Hammer, ImagePlus, Inbox, Layers,
   MapPin, Plus, Ruler, Search, Store, Timer, Trash2, Truck, X,
@@ -35,34 +35,62 @@ import { track } from "../lib/analytics.js";
 import * as MK from "../state/marketplace.js";
 import {
   STATES, LISTING_KINDS, SALE_MODES, PRO_KINDS, PREFAB_SITE_WORKS, PLATFORM_FEES,
-  publishProblems, prefabExtras, priceLabel, sellerStats,
+  publishProblems, fieldProblems, listingFeeLabel, prefabExtras, priceLabel, sellerStats,
 } from "../logic/marketplace.js";
 
+/* Open dialogs, newest last — the phone's Back button closes these first. */
+const openModals = [];
+
 /* ---- tiny async helper: load, keep the error, reload on demand -------- */
+/* `ready` is true once the CURRENT deps have loaded at least once, so a
+   change of deps (signing in, opening another listing) never renders the
+   previous user's or page's data, while a reload keeps the old data on
+   screen instead of flashing skeletons. */
 function useLoad(fn, deps) {
-  const [state, setState] = useState({ loading: true, data: null, error: "" });
+  const key = JSON.stringify(deps);
+  const [state, setState] = useState({ key: null, loading: true, data: null, error: "" });
   const [n, setN] = useState(0);
   useEffect(() => {
     let live = true;
     setState((s) => ({ ...s, loading: true, error: "" }));
     fn().then(
-      (data) => live && setState({ loading: false, data, error: "" }),
-      (e) => live && setState({ loading: false, data: null, error: e.message || "Couldn't load." }),
+      (data) => live && setState({ key, loading: false, data, error: "" }),
+      (e) => live && setState({ key, loading: false, data: null, error: e.message || "Couldn't load." }),
     );
     return () => { live = false; };
-  }, [...deps, n]); // eslint-disable-line react-hooks/exhaustive-deps
-  return { ...state, reload: useCallback(() => setN((x) => x + 1), []) };
+  }, [key, n]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ready = state.key === key;
+  return {
+    ready,
+    loading: !ready || state.loading,
+    data: ready ? state.data : null,
+    error: ready ? state.error : "",
+    reload: useCallback(() => setN((x) => x + 1), []),
+  };
 }
 
 /* ======================================================================== */
 
-export default function Marketplace({ onUpgrade }) {
+export default function Marketplace({ onUpgrade, backRef }) {
   // { name: "browse" | "pros" | "listing" | "pro" | "mine", id? }
   const [route, setRoute] = useState({ name: "browse" });
   const [history, setHistory] = useState([]);
   const go = (next) => { setHistory((h) => [...h, route]); setRoute(next); window.scrollTo({ top: 0 }); };
   const back = () => { setRoute(history[history.length - 1] || { name: "browse" }); setHistory((h) => h.slice(0, -1)); window.scrollTo({ top: 0 }); };
   const tab = (name) => { setHistory([]); setRoute({ name }); window.scrollTo({ top: 0 }); };
+
+  // Phone Back: close the top dialog, then step back through the
+  // marketplace's own pages; only then let the app leave the marketplace.
+  useEffect(() => {
+    if (!backRef) return;
+    backRef.current = () => {
+      if (openModals.length) { openModals[openModals.length - 1](); return true; }
+      if (history.length) { back(); return true; }
+      if (route.name !== "browse") { tab("browse"); return true; }
+      return false;
+    };
+    return () => { backRef.current = null; };
+  });
 
   if (!MK.marketplaceAvailable()) {
     return <Shell route={route} onTab={tab}><Notice>The marketplace needs an internet connection. Check you're online and try again.</Notice></Shell>;
@@ -298,7 +326,7 @@ function ListingPage({ id, onBack, onPro }) {
       {own && l.status !== "live" && <Notice tone="warn">Only you can see this — it's {l.status === "draft" ? "a draft" : "archived"}.</Notice>}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.6fr_1fr]">
         <div className="min-w-0">
-          <Photo path={l.mediaPaths[shot]} alt={l.title} className="aspect-[16/10] w-full border border-rule" />
+          <Photo key={l.mediaPaths[shot] || "none"} path={l.mediaPaths[shot]} alt={l.title} className="aspect-[16/10] w-full border border-rule" />
           {l.mediaPaths.length > 1 && (
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
               {l.mediaPaths.map((p, i) => (
@@ -511,9 +539,25 @@ function EnquiryDialog({ sellerId, listing = null, sellerName, onClose }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
-  useEffect(() => { if (user && !f.email) setF((x) => ({ ...x, email: user.email || "" })); }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [authClosed, setAuthClosed] = useState(false);
+  useEffect(() => {
+    if (user) setF((x) => ({ ...x, email: x.email || user.email || "", name: x.name || profile?.full_name || "" }));
+  }, [user, profile]);
 
-  if (!user) return <AuthModal initialMode="signin" onClose={onClose} />;
+  // Signed out: sign in first, then carry straight on to the form. If the
+  // sign-in box is closed without signing in, say why rather than vanish.
+  if (!user) {
+    if (!authClosed) return <AuthModal initialMode="signin" onClose={() => setAuthClosed(true)} />;
+    return (
+      <Modal title="Sign in to send an enquiry" onClose={onClose}>
+        <p className="text-sm text-ink-soft">Sellers reply to a real account, so enquiries need you to be signed in. It's free.</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="hivis" onClick={() => setAuthClosed(false)}>Sign in</Button>
+        </div>
+      </Modal>
+    );
+  }
 
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   const submit = async (e) => {
@@ -588,8 +632,8 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
     );
   }
 
-  if (pro.loading || data.loading) return <CardSkeletons n={4} />;
   if (pro.error || data.error) return <Notice tone="alert">{pro.error || data.error}</Notice>;
+  if (!pro.ready || !data.ready || !data.data) return <CardSkeletons n={4} />;
 
   const reload = () => { pro.reload(); data.reload(); };
   const d = data.data;
@@ -681,7 +725,7 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
         <ListingsManager uid={uid} listings={d.listings} canList={canList} onUpgrade={onUpgrade} onChanged={data.reload} onPreview={onOpenListing} />
       )}
       {sub === "portfolio" && <PortfolioManager uid={uid} items={d.portfolio} onChanged={data.reload} />}
-      {sub === "profile" && <ProfileEditor uid={uid} pro={me} onSaved={reload} />}
+      {sub === "profile" && <ProfileEditor uid={uid} pro={me} canBuild={can.marketListing} onSaved={reload} />}
       {sub === "sent" && <SentEnquiries sent={d.sent} onOpenListing={onOpenListing} onOpenPro={onOpenPro} bare />}
     </>
   );
@@ -744,7 +788,7 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
             <input className="ec-input w-72 max-w-full" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="e.g. Coastline Homes" />
           </Field>
           <Button variant="hivis" disabled={busy || name.trim().length < 2} onClick={create}>{busy ? "Creating…" : "Create my profile"}</Button>
-          <span className="text-[11px] text-steel">You can't switch between builder and tradie later.</span>
+          <span className="text-[11px] text-steel">A tradie or designer can switch to a builder profile later, on the Builder plan.</span>
         </div>
       )}
       {error && <p className="mt-2 text-xs text-alert">{error}</p>}
@@ -834,7 +878,7 @@ const BLANK_LISTING = (kind) => ({
 function ListingsManager({ uid, listings, canList, onUpgrade, onChanged, onPreview }) {
   const [editing, setEditing] = useState(null);
   if (editing) {
-    return <ListingEditor uid={uid} initial={editing} onClose={() => { setEditing(null); onChanged(); }} onPreview={onPreview} />;
+    return <ListingEditor uid={uid} initial={editing} canList={canList} onUpgrade={onUpgrade} onClose={() => { setEditing(null); onChanged(); }} onPreview={onPreview} />;
   }
   const add = (kind) => (canList ? setEditing(BLANK_LISTING(kind)) : onUpgrade?.("marketListing"));
   return (
@@ -863,12 +907,14 @@ function ListingsManager({ uid, listings, canList, onUpgrade, onChanged, onPrevi
   );
 }
 
-function ListingEditor({ uid, initial, onClose, onPreview }) {
+function ListingEditor({ uid, initial, canList, onUpgrade, onClose, onPreview }) {
   const [l, setL] = useState(initial);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const set = (k, v) => setL((x) => ({ ...x, [k]: v }));
+  // v may be an updater: MediaPicker appends uploads to the latest list.
+  const set = (k, v) => setL((x) => ({ ...x, [k]: typeof v === "function" ? v(x[k]) : v }));
   const problems = publishProblems(l);
+  const saveBlockers = fieldProblems(l);
   const modes = Object.entries(SALE_MODES).filter(([, m]) => m.kind === l.kind);
 
   const act = async (label, fn) => {
@@ -878,13 +924,16 @@ function ListingEditor({ uid, initial, onClose, onPreview }) {
   const save = () => act("Saving…", async () => { const saved = await MK.saveListing(uid, l); setL(saved); });
   const publish = () => act("Publishing…", async () => {
     const saved = await MK.saveListing(uid, l);
+    setL(saved);                         // keep the id even if the next step fails, so a retry doesn't duplicate
     const live = await MK.setListingStatus(saved.id, "live");
     setL(live);
     track("market_listing_published", { kind: live.kind, mode: live.saleMode });
   });
+  // Unpublish / archive change only the status, so a listing can always be
+  // taken down even while the form holds edits that wouldn't save.
   const setStatus = (status) => act("Saving…", async () => {
-    const saved = await MK.saveListing(uid, l);
-    setL(await MK.setListingStatus(saved.id, status));
+    const changed = await MK.setListingStatus(l.id, status);
+    setL((x) => ({ ...x, status: changed.status, updatedAt: changed.updatedAt }));
   });
   const remove = () => {
     if (!l.id) return onClose();
@@ -909,7 +958,7 @@ function ListingEditor({ uid, initial, onClose, onPreview }) {
           <div className="font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-steel">{LISTING_KINDS[l.kind]?.label}</div>
           <Field label="Title"><input className="ec-input w-full" maxLength={160} value={l.title} onChange={(e) => set("title", e.target.value)} placeholder={l.kind === "module" ? "e.g. 6 × 3 m studio pod" : "e.g. The Kauri — 4 bed Queenslander"} /></Field>
           <Field label="One-line summary"><input className="ec-input w-full" maxLength={300} value={l.summary} onChange={(e) => set("summary", e.target.value)} /></Field>
-          <Field label="How you're selling it">
+          <Field group label="How you're selling it">
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {modes.map(([id, m]) => (
                 <button key={id} type="button" onClick={() => set("saleMode", id)}
@@ -965,7 +1014,7 @@ function ListingEditor({ uid, initial, onClose, onPreview }) {
             </div>
           )}
 
-          <Field label={l.kind === "module" ? "Delivers to" : "Available in"}>
+          <Field group label={l.kind === "module" ? "Delivers to" : "Available in"}>
             <StateChips value={l.regions} onChange={(v) => set("regions", v)} />
           </Field>
 
@@ -978,7 +1027,7 @@ function ListingEditor({ uid, initial, onClose, onPreview }) {
         </div>
 
         <div className="space-y-4">
-          <Field label="Photos & renders" hint="First photo is the cover. JPG, PNG, WebP or iPhone photos.">
+          <Field group label="Photos & renders" hint="First photo is the cover. JPG, PNG, WebP or iPhone photos.">
             <MediaPicker uid={uid} paths={l.mediaPaths} onChange={(v) => set("mediaPaths", v)} />
           </Field>
 
@@ -989,16 +1038,22 @@ function ListingEditor({ uid, initial, onClose, onPreview }) {
             ) : <p className="text-xs text-ok">All set.</p>}
           </div>
 
+          {!canList && l.status !== "live" && (
+            <Notice tone="warn">Publishing is part of the Builder plan. You can still edit, archive or delete. <button className="font-semibold underline" onClick={() => onUpgrade?.("marketListing")}>See plans</button></Notice>
+          )}
           {error && <p className="text-xs text-alert">{error}</p>}
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={!!busy || l.title.trim().length < 2} onClick={save}>{busy === "Saving…" ? busy : "Save draft"}</Button>
+            <Button variant="outline" disabled={!!busy || l.title.trim().length < 2 || saveBlockers.length > 0} onClick={save}>
+              {busy === "Saving…" ? busy : l.status === "live" ? "Save changes" : "Save draft"}
+            </Button>
             {l.status !== "live"
-              ? <Button variant="hivis" disabled={!!busy || problems.length > 0} onClick={publish}>{busy === "Publishing…" ? busy : "Publish"}</Button>
+              ? <Button variant="hivis" disabled={!!busy || problems.length > 0 || !canList} onClick={publish}>{busy === "Publishing…" ? busy : "Publish"}</Button>
               : <Button variant="outline" disabled={!!busy} onClick={() => setStatus("draft")}>Unpublish</Button>}
             {l.id && l.status !== "archived" && <Button variant="subtle" disabled={!!busy} onClick={() => setStatus("archived")}>Archive</Button>}
             {l.id && <Button variant="danger" size="sm" disabled={!!busy} onClick={remove}><Trash2 className="size-3.5" /> Delete</Button>}
           </div>
-          <p className="text-[11px] text-steel">Fee: {PLATFORM_FEES[l.kind].label.toLowerCase()}. You're responsible for the design, licences and approvals.</p>
+          {l.status === "live" && <p className="text-[11px] text-steel">Changes to a live listing show to buyers as soon as you save.</p>}
+          <p className="text-[11px] text-steel">Fee: {listingFeeLabel(l).toLowerCase()}. You're responsible for the design, licences and approvals.</p>
         </div>
       </div>
     </div>
@@ -1035,7 +1090,7 @@ function PortfolioEditor({ uid, initial, onClose }) {
   const [it, setIt] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const set = (k, v) => setIt((x) => ({ ...x, [k]: v }));
+  const set = (k, v) => setIt((x) => ({ ...x, [k]: typeof v === "function" ? v(x[k]) : v }));
   const save = async () => {
     setBusy(true); setError("");
     try { await MK.savePortfolioItem(uid, it); onClose(); } catch (e) { setError(e.message); setBusy(false); }
@@ -1069,7 +1124,7 @@ function PortfolioEditor({ uid, initial, onClose }) {
           </label>
         </div>
         <div className="space-y-3">
-          <Field label="Photos"><MediaPicker uid={uid} paths={it.mediaPaths} onChange={(v) => set("mediaPaths", v)} /></Field>
+          <Field group label="Photos"><MediaPicker uid={uid} paths={it.mediaPaths} onChange={(v) => set("mediaPaths", v)} /></Field>
           {error && <p className="text-xs text-alert">{error}</p>}
           <div className="flex gap-2">
             <Button variant="hivis" disabled={busy || it.title.trim().length < 2} onClick={save}>{busy ? "Saving…" : "Save"}</Button>
@@ -1083,16 +1138,24 @@ function PortfolioEditor({ uid, initial, onClose }) {
 
 /* ---- Profile ----------------------------------------------------------- */
 
-function ProfileEditor({ uid, pro, onSaved }) {
+function ProfileEditor({ uid, pro, canBuild, onSaved }) {
   const [p, setP] = useState(pro);
+  const [tradesText, setTradesText] = useState(() => pro.trades.join(", "));   // raw text; split on save
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState({ error: "", ok: "" });
   const set = (k, v) => setP((x) => ({ ...x, [k]: v }));
+  // Single-image pickers hand back a list (or an updater of one); keep the first.
+  const setImage = (k) => (v) => setP((x) => {
+    const list = typeof v === "function" ? v(x[k] ? [x[k]] : []) : v;
+    return { ...x, [k]: list[0] || null };
+  });
   const save = async (changes = {}) => {
     setBusy(true); setMsg({ error: "", ok: "" });
     try {
-      const saved = await MK.saveMyPro(uid, { ...p, ...changes });
-      setP(saved); setMsg({ error: "", ok: "Saved." }); onSaved();
+      const saved = await MK.saveMyPro(uid, { ...p, trades: tradesText.split(","), ...changes });
+      setP(saved); setTradesText(saved.trades.join(", "));
+      setMsg({ error: "", ok: changes.kind ? "You're now a builder — the Listings tab is open." : "Saved." });
+      onSaved();
     } catch (e) { setMsg({ error: e.message, ok: "" }); }
     finally { setBusy(false); }
   };
@@ -1104,9 +1167,9 @@ function ProfileEditor({ uid, pro, onSaved }) {
           <Field label="Tagline"><input className="ec-input w-full" maxLength={160} value={p.tagline} onChange={(e) => set("tagline", e.target.value)} placeholder="e.g. Custom homes across Far North Queensland" /></Field>
           <Field label="About"><textarea className="ec-input w-full" rows={5} maxLength={4000} value={p.bio} onChange={(e) => set("bio", e.target.value)} /></Field>
           <Field label="Work you do" hint="Comma-separated, e.g. new homes, extensions, decks">
-            <input className="ec-input w-full" value={p.trades.join(", ")} onChange={(e) => set("trades", e.target.value.split(","))} />
+            <input className="ec-input w-full" value={tradesText} onChange={(e) => setTradesText(e.target.value)} />
           </Field>
-          <Field label="Where you work"><StateChips value={p.regions} onChange={(v) => set("regions", v)} /></Field>
+          <Field group label="Where you work"><StateChips value={p.regions} onChange={(v) => set("regions", v)} /></Field>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <Field label="Licence number"><input className="ec-input w-full" maxLength={40} value={p.licenceNumber} onChange={(e) => set("licenceNumber", e.target.value)} /></Field>
             <Field label="Licence state">
@@ -1125,12 +1188,19 @@ function ProfileEditor({ uid, pro, onSaved }) {
               ? <Button variant="subtle" disabled={busy} onClick={() => save({ published: false })}>Hide from buyers</Button>
               : <Button variant="hivis" disabled={busy || p.displayName.trim().length < 2} onClick={() => save({ published: true })}>Save & publish</Button>}
           </div>
+          {p.kind !== "builder" && canBuild && (
+            <div className="border-t border-rule pt-3">
+              <p className="text-xs text-ink-soft">You're on the Builder plan. Switch this profile to a builder to list house plans and prefab modules — your portfolio and enquiries stay.</p>
+              <Button className="mt-2" size="sm" variant="outline" disabled={busy}
+                onClick={() => confirm("Switch to a builder profile?") && save({ kind: "builder" })}>Switch to builder</Button>
+            </div>
+          )}
         </div>
       </Section>
       <Section title="Logo & cover">
         <div className="space-y-3 border border-rule bg-card p-4">
-          <Field label="Logo"><MediaPicker uid={uid} single paths={p.logoPath ? [p.logoPath] : []} onChange={(v) => set("logoPath", v[0] || null)} /></Field>
-          <Field label="Cover photo"><MediaPicker uid={uid} single paths={p.coverPath ? [p.coverPath] : []} onChange={(v) => set("coverPath", v[0] || null)} /></Field>
+          <Field group label="Logo"><MediaPicker uid={uid} single paths={p.logoPath ? [p.logoPath] : []} onChange={setImage("logoPath")} /></Field>
+          <Field group label="Cover photo"><MediaPicker uid={uid} single paths={p.coverPath ? [p.coverPath] : []} onChange={setImage("coverPath")} /></Field>
           <p className="text-[11px] text-steel">Press Save after changing images.</p>
         </div>
       </Section>
@@ -1156,10 +1226,11 @@ function MediaPicker({ uid, paths, onChange, single }) {
       catch (err) { setError(err.message); }
       setBusy((n) => n - 1);
     }
-    onChange(single ? added.slice(0, 1) : [...paths, ...added]);
+    // Updater, not a value: the list may have changed while files uploaded.
+    if (added.length) onChange(single ? () => added.slice(0, 1) : (prev) => [...prev, ...added].slice(0, 20));
   };
-  const removeAt = (i) => onChange(paths.filter((_, j) => j !== i));
-  const coverFirst = (i) => onChange([paths[i], ...paths.filter((_, j) => j !== i)]);
+  const removeAt = (path) => onChange((prev) => prev.filter((x) => x !== path));
+  const coverFirst = (path) => onChange((prev) => [path, ...prev.filter((x) => x !== path)]);
   return (
     <div>
       <div className={cn("grid gap-2", single ? "grid-cols-2" : "grid-cols-3")}>
@@ -1168,8 +1239,8 @@ function MediaPicker({ uid, paths, onChange, single }) {
             <Photo path={p} alt="" className="aspect-[4/3] w-full" />
             {!single && i === 0 && <span className="absolute left-1 top-1 bg-hivis px-1 font-mono text-[9px] font-bold uppercase text-on-hivis">Cover</span>}
             <div className="absolute right-1 top-1 flex gap-1">
-              {!single && i > 0 && <button type="button" onClick={() => coverFirst(i)} className="bg-card/90 px-1 font-mono text-[9px] font-bold uppercase text-ink">Cover</button>}
-              <button type="button" onClick={() => removeAt(i)} aria-label="Remove" className="bg-card/90 p-0.5 text-ink"><X className="size-3" /></button>
+              {!single && i > 0 && <button type="button" onClick={() => coverFirst(p)} aria-label="Make cover photo" className="bg-card/90 px-1 font-mono text-[9px] font-bold uppercase text-ink">Cover</button>}
+              <button type="button" onClick={() => removeAt(p)} aria-label="Remove photo" className="bg-card/90 p-0.5 text-ink"><X className="size-3" /></button>
             </div>
           </div>
         ))}
@@ -1263,13 +1334,17 @@ function Section({ title, sub, action, children, className }) {
   );
 }
 
-function Field({ label, hint, children }) {
+/* `group` for anything that isn't a single input (button rows, pickers): a
+   <label> forwards every click inside it to its first button, so a tap on a
+   photo would hit that photo's Remove. Groups use role="group" instead. */
+function Field({ label, hint, children, group }) {
+  const Tag = group ? "div" : "label";
   return (
-    <label className="block">
+    <Tag className="block" {...(group ? { role: "group", "aria-label": label } : {})}>
       <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-steel">{label}</span>
       {children}
       {hint && <span className="mt-0.5 block text-[10px] text-steel">{hint}</span>}
-    </label>
+    </Tag>
   );
 }
 
@@ -1307,11 +1382,19 @@ function CardSkeletons({ n = 8 }) {
 }
 
 function Modal({ title, onClose, children, wide }) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
+    const close = () => closeRef.current();
+    const onKey = (e) => e.key === "Escape" && close();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    openModals.push(close);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      const i = openModals.lastIndexOf(close);
+      if (i >= 0) openModals.splice(i, 1);
+    };
+  }, []);
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-black/50 p-3" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
       <div onClick={(e) => e.stopPropagation()} className={cn("max-h-[92vh] w-full overflow-y-auto border border-rule bg-card p-5 shadow-xl", wide ? "max-w-3xl" : "max-w-lg")}>

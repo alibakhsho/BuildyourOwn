@@ -25,6 +25,18 @@ ok("no photo, no listing", M.publishProblems({ kind: "plan", saleMode: "build_on
   ["Add at least one photo or render"]);
 ok("a plan can't be sold as prefab", M.publishProblems({ ...prefab, kind: "plan" }).length > 0, true);
 
+// --- Values the database would refuse are caught before Save ---
+ok("in-range values pass", M.fieldProblems({ bedrooms: "4", bathrooms: "2", storeys: "2", floorAreaM2: "214.5", priceCents: 32500000, leadTimeWeeks: 10 }), []);
+ok("out-of-range values are named", M.fieldProblems({ bedrooms: "25", storeys: "0", floorAreaM2: "-3", leadTimeWeeks: 200 }).length, 4);
+ok("blank optional numbers are fine", M.fieldProblems({ bedrooms: "", bathrooms: null, floorAreaM2: "" }), []);
+ok("too many inclusions", M.fieldProblems({ inclusions: Array.from({ length: 41 }, (_, i) => `item ${i}`) }), ["List at most 40 inclusions"]);
+ok("publish blocks on range problems too", M.publishProblems({ ...prefab, leadTimeWeeks: 200 }).includes("Lead time must be 1 to 104 weeks"), true);
+
+// --- Fee line follows how it's sold ---
+ok("build-only plan is a build contract", M.listingFeeLabel({ kind: "plan", saleMode: "build_only" }), "1.5% of the signed contract");
+ok("selling plans: discussed on contract", M.listingFeeLabel({ kind: "plan", saleMode: "plan_purchase" }), "Discussed on contract");
+ok("prefab: discussed on contract", M.listingFeeLabel({ kind: "module", saleMode: "prefab" }), "Discussed on contract");
+
 // --- What the buyer still pays for ---
 ok("buyer told what else to budget for", M.prefabExtras(prefab).length, 3);
 

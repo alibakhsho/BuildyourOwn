@@ -16,11 +16,17 @@
 --   seller                     read and triage enquiries sent to them
 -- A trial counts as the plan it trials, same as everywhere else.
 --
--- Trust columns (`verified`, `hidden`, `view_count`) are not writable by
--- users: column GRANTs exclude them, because a row-level UPDATE policy
--- cannot protect individual columns. Staff set them with the service role
--- (Supabase dashboard). `hidden` takes a listing down without the seller's
--- say-so.
+-- Trust columns (`verified`, `suspended`, `hidden`, `view_count`) are not
+-- writable by users: column GRANTs exclude them, because a row-level UPDATE
+-- policy cannot protect individual columns. Staff set them with the service
+-- role (Supabase dashboard). `hidden` takes one listing down; `suspended`
+-- takes a whole seller down (profile, portfolio, listings) and stops them
+-- deleting and re-creating their profile to get round it.
+--
+-- Plans and lapses: going live counts as listing, so publishing needs the
+-- Builder plan at the moment of publishing (same rule as enforce_project_cap:
+-- reviving counts as adding). A listing already live when a plan lapses stays
+-- up and editable; the seller can always unpublish, archive or delete.
 --
 -- IDEMPOTENT: safe to re-run; every object is created if-not-exists or
 -- replaced, and policies are dropped before being recreated.
@@ -35,7 +41,7 @@ create or replace function public.my_effective_tier()
 returns public.subscription_tier
 language sql
 stable
-security definer
+security invoker   -- reads the caller's own profile row, which RLS already allows
 set search_path = ''
 as $$
   select case
@@ -68,8 +74,10 @@ create table if not exists public.pro_profiles (
   cover_path     text check (char_length(cover_path) <= 300),
   published      boolean not null default false,
   verified       boolean not null default false,   -- staff only
+  suspended      boolean not null default false,   -- staff only: takes the whole seller down
   created_at     timestamptz not null default now(),
-  updated_at     timestamptz not null default now()
+  updated_at     timestamptz not null default now(),
+  constraint pro_profiles_trades_size check (octet_length(array_to_string(trades, '')) <= 2000)
 );
 
 create index if not exists pro_profiles_published_kind on public.pro_profiles (kind) where published;
@@ -79,14 +87,16 @@ alter table public.pro_profiles enable row level security;
 
 drop policy if exists "pro_profiles: public reads published" on public.pro_profiles;
 drop policy if exists "pro_profiles: owner reads own"        on public.pro_profiles;
+drop policy if exists "pro_profiles: read"                   on public.pro_profiles;
 drop policy if exists "pro_profiles: pro plan creates own"   on public.pro_profiles;
 drop policy if exists "pro_profiles: owner updates own"      on public.pro_profiles;
 drop policy if exists "pro_profiles: owner deletes own"      on public.pro_profiles;
 
-create policy "pro_profiles: public reads published" on public.pro_profiles
-  for select to anon, authenticated using (published);
-create policy "pro_profiles: owner reads own" on public.pro_profiles
-  for select to authenticated using ((select auth.uid()) = user_id);
+-- One SELECT policy (published and not suspended, or your own) rather than
+-- two permissive ones, which Postgres would evaluate both of on every row.
+create policy "pro_profiles: read" on public.pro_profiles
+  for select to anon, authenticated
+  using ((published and not suspended) or (select auth.uid()) = user_id);
 create policy "pro_profiles: pro plan creates own" on public.pro_profiles
   for insert to authenticated with check (
     (select auth.uid()) = user_id
@@ -96,17 +106,19 @@ create policy "pro_profiles: pro plan creates own" on public.pro_profiles
 create policy "pro_profiles: owner updates own" on public.pro_profiles
   for update to authenticated
   using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
+-- A suspended seller can't delete and re-create their way out of it.
 create policy "pro_profiles: owner deletes own" on public.pro_profiles
-  for delete to authenticated using ((select auth.uid()) = user_id);
+  for delete to authenticated using ((select auth.uid()) = user_id and not suspended);
 
 revoke all on public.pro_profiles from anon, authenticated;
 grant select on public.pro_profiles to anon, authenticated;
 grant insert (user_id, kind, display_name, tagline, bio, abn, licence_number, licence_state,
               trades, regions, logo_path, cover_path, published)
   on public.pro_profiles to authenticated;
--- `kind` is fixed after creation: switching tradie -> builder would skip
--- the Builder-plan check on insert.
-grant update (display_name, tagline, bio, abn, licence_number, licence_state,
+-- `kind` may change (a Tradie who upgrades becomes a Builder without losing
+-- their portfolio or inbox), but only to a kind the plan allows: see
+-- guard_pro_kind() below.
+grant update (kind, display_name, tagline, bio, abn, licence_number, licence_state,
               trades, regions, logo_path, cover_path, published)
   on public.pro_profiles to authenticated;
 grant delete on public.pro_profiles to authenticated;
@@ -115,6 +127,33 @@ drop trigger if exists pro_profiles_touch_updated_at on public.pro_profiles;
 create trigger pro_profiles_touch_updated_at
   before update on public.pro_profiles
   for each row execute function public.touch_updated_at();
+
+create or replace function public.guard_pro_kind()
+returns trigger
+language plpgsql
+set search_path = ''
+as $$
+begin
+  -- Same rule as insert: builder needs the Builder plan, the rest Tradie.
+  -- Staff (service role, no auth.uid()) may relabel freely.
+  if new.kind is distinct from old.kind and (select auth.uid()) is not null then
+    if coalesce(public.my_effective_tier() < case when new.kind = 'builder'
+                  then 'business'::public.subscription_tier else 'pro'::public.subscription_tier end, true) then
+      raise exception 'plan_limit: a % profile needs the % plan', new.kind,
+        case when new.kind = 'builder' then 'Builder' else 'Tradie' end
+        using errcode = 'P0001';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.guard_pro_kind() from public, anon, authenticated;
+
+drop trigger if exists pro_profiles_guard_kind on public.pro_profiles;
+create trigger pro_profiles_guard_kind
+  before update of kind on public.pro_profiles
+  for each row execute function public.guard_pro_kind();
 
 
 -- ---- portfolio: finished jobs a pro shows off ---------------------------
@@ -127,7 +166,8 @@ create table if not exists public.portfolio_items (
   suburb       text check (char_length(suburb) <= 80),
   state        text check (state in ('QLD','NSW','VIC','WA','SA','TAS','ACT','NT')),
   completed_on date,
-  media_paths  text[] not null default '{}' check (cardinality(media_paths) <= 20),
+  media_paths  text[] not null default '{}'
+               check (cardinality(media_paths) <= 20 and octet_length(array_to_string(media_paths, '')) <= 6000),
   published    boolean not null default true,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
@@ -139,18 +179,21 @@ alter table public.portfolio_items enable row level security;
 
 drop policy if exists "portfolio: public reads published" on public.portfolio_items;
 drop policy if exists "portfolio: owner reads own"        on public.portfolio_items;
+drop policy if exists "portfolio: read"                   on public.portfolio_items;
 drop policy if exists "portfolio: owner inserts"          on public.portfolio_items;
 drop policy if exists "portfolio: owner updates"          on public.portfolio_items;
 drop policy if exists "portfolio: owner deletes"          on public.portfolio_items;
 
-create policy "portfolio: public reads published" on public.portfolio_items
+create policy "portfolio: read" on public.portfolio_items
   for select to anon, authenticated using (
-    published and exists (select 1 from public.pro_profiles p where p.user_id = owner_id and p.published));
-create policy "portfolio: owner reads own" on public.portfolio_items
-  for select to authenticated using ((select auth.uid()) = owner_id);
--- The FK to pro_profiles means only someone with a pro profile can add items.
+    (select auth.uid()) = owner_id
+    or (published and exists (
+      select 1 from public.pro_profiles p where p.user_id = owner_id and p.published and not p.suspended)));
+-- The FK to pro_profiles means only someone with a pro profile can add
+-- items; the plan check stops a lapsed trial adding more.
 create policy "portfolio: owner inserts" on public.portfolio_items
-  for insert to authenticated with check ((select auth.uid()) = owner_id);
+  for insert to authenticated with check (
+    (select auth.uid()) = owner_id and (select public.my_effective_tier()) >= 'pro');
 create policy "portfolio: owner updates" on public.portfolio_items
   for update to authenticated
   using ((select auth.uid()) = owner_id) with check ((select auth.uid()) = owner_id);
@@ -185,12 +228,14 @@ create table if not exists public.listings (
   bathrooms       smallint check (bathrooms between 0 and 20),
   storeys         smallint check (storeys between 1 and 6),
   floor_area_m2   numeric(7, 1) check (floor_area_m2 > 0 and floor_area_m2 < 100000),
-  inclusions      text[] not null default '{}' check (cardinality(inclusions) <= 40),
+  inclusions      text[] not null default '{}'
+                  check (cardinality(inclusions) <= 40 and octet_length(array_to_string(inclusions, '')) <= 8000),
   site_works      jsonb not null default '{}'::jsonb check (octet_length(site_works::text) < 2000),
   lead_time_weeks smallint check (lead_time_weeks between 1 and 104),
   regions         text[] not null default '{}'
                   check (regions <@ array['QLD','NSW','VIC','WA','SA','TAS','ACT','NT']::text[]),
-  media_paths     text[] not null default '{}' check (cardinality(media_paths) <= 20),
+  media_paths     text[] not null default '{}'
+                  check (cardinality(media_paths) <= 20 and octet_length(array_to_string(media_paths, '')) <= 6000),
   owns_copyright  boolean not null default false,
   status          text not null default 'draft' check (status in ('draft', 'live', 'archived')),
   hidden          boolean not null default false,  -- staff only: takedown
@@ -207,10 +252,16 @@ create table if not exists public.listings (
     status <> 'live' or sale_mode not in ('plan_purchase', 'plan_licence') or owns_copyright),
   -- "What you see is what you get": a live prefab listing says, for each
   -- piece of site work, whether it is included or excluded, and its lead time.
+  -- coalesce(..., false): a missing key or a non-object must fail, not pass as NULL.
   constraint listings_prefab_site_works_when_live check (
     status <> 'live' or sale_mode <> 'prefab' or (
-      site_works ?& array['footings', 'transport', 'services', 'approvals']
-      and not jsonb_path_exists(site_works, '$.* ? (@ != "included" && @ != "excluded")')
+      coalesce(
+        jsonb_typeof(site_works) = 'object'
+        and site_works->>'footings'  in ('included', 'excluded')
+        and site_works->>'transport' in ('included', 'excluded')
+        and site_works->>'services'  in ('included', 'excluded')
+        and site_works->>'approvals' in ('included', 'excluded'),
+        false)
       and lead_time_weeks is not null)),
   constraint listings_media_when_live check (status <> 'live' or cardinality(media_paths) >= 1)
 );
@@ -223,24 +274,26 @@ alter table public.listings enable row level security;
 
 drop policy if exists "listings: public reads live"     on public.listings;
 drop policy if exists "listings: seller reads own"      on public.listings;
+drop policy if exists "listings: read"                  on public.listings;
 drop policy if exists "listings: builder plan inserts"  on public.listings;
 drop policy if exists "listings: seller updates own"    on public.listings;
 drop policy if exists "listings: seller deletes own"    on public.listings;
 
-create policy "listings: public reads live" on public.listings
+create policy "listings: read" on public.listings
   for select to anon, authenticated using (
-    status = 'live' and not hidden
-    and exists (select 1 from public.pro_profiles p where p.user_id = seller_id and p.published));
-create policy "listings: seller reads own" on public.listings
-  for select to authenticated using ((select auth.uid()) = seller_id);
+    (select auth.uid()) = seller_id
+    or (status = 'live' and not hidden and exists (
+      select 1 from public.pro_profiles p where p.user_id = seller_id and p.published and not p.suspended)));
 create policy "listings: builder plan inserts" on public.listings
   for insert to authenticated with check (
     (select auth.uid()) = seller_id and (select public.my_effective_tier()) >= 'business');
 create policy "listings: seller updates own" on public.listings
   for update to authenticated
   using ((select auth.uid()) = seller_id) with check ((select auth.uid()) = seller_id);
+-- A listing staff took down stays on record: deleting it and re-posting a
+-- copy would undo the takedown with no trace.
 create policy "listings: seller deletes own" on public.listings
-  for delete to authenticated using ((select auth.uid()) = seller_id);
+  for delete to authenticated using ((select auth.uid()) = seller_id and not hidden);
 
 revoke all on public.listings from anon, authenticated;
 grant select on public.listings to anon, authenticated;
@@ -248,16 +301,48 @@ grant insert (seller_id, kind, sale_mode, title, summary, description, price_cen
               storeys, floor_area_m2, inclusions, site_works, lead_time_weeks, regions, media_paths,
               owns_copyright, status)
   on public.listings to authenticated;
-grant update (sale_mode, title, summary, description, price_cents, bedrooms, bathrooms,
+-- kind may change with sale_mode; listings_mode_fits_kind keeps them paired.
+grant update (kind, sale_mode, title, summary, description, price_cents, bedrooms, bathrooms,
               storeys, floor_area_m2, inclusions, site_works, lead_time_weeks, regions, media_paths,
               owns_copyright, status)
   on public.listings to authenticated;
 grant delete on public.listings to authenticated;
 
+-- A page view is not an edit: without the WHEN, every view would reorder
+-- the seller's "recently updated" list.
 drop trigger if exists listings_touch_updated_at on public.listings;
 create trigger listings_touch_updated_at
   before update on public.listings
-  for each row execute function public.touch_updated_at();
+  for each row
+  when (old.view_count is not distinct from new.view_count)
+  execute function public.touch_updated_at();
+
+-- Going live counts as listing (new, or from draft/archived): Builder plan
+-- at that moment, a trial counting as the plan it trials.
+create or replace function public.enforce_listing_go_live()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.status = 'live'
+     and (tg_op = 'INSERT' or old.status is distinct from 'live')
+     and (select auth.uid()) is not null            -- staff (service role) exempt
+     and coalesce(public.my_effective_tier(), 'free') < 'business' then
+    raise exception 'plan_limit: publishing a listing needs the Builder plan'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.enforce_listing_go_live() from public, anon, authenticated;
+
+drop trigger if exists listings_go_live on public.listings;
+create trigger listings_go_live
+  before insert or update of status on public.listings
+  for each row execute function public.enforce_listing_go_live();
 
 
 -- ---- listing views ------------------------------------------------------
@@ -272,7 +357,9 @@ as $$
   update public.listings
      set view_count = view_count + 1
    where id = p_listing and status = 'live' and not hidden
-     and seller_id is distinct from (select auth.uid());   -- sellers don't count themselves
+     and seller_id is distinct from (select auth.uid())    -- sellers don't count themselves
+     and exists (select 1 from public.pro_profiles p
+                  where p.user_id = seller_id and p.published and not p.suspended);
 $$;
 
 revoke execute on function public.record_listing_view(uuid) from public;
@@ -300,12 +387,14 @@ create table if not exists public.enquiries (
 
 create index if not exists enquiries_seller on public.enquiries (seller_id, created_at desc);
 create index if not exists enquiries_buyer on public.enquiries (buyer_id, created_at desc);
+create index if not exists enquiries_listing on public.enquiries (listing_id);
 
 alter table public.enquiries enable row level security;
 
 drop policy if exists "enquiries: buyer sends"          on public.enquiries;
 drop policy if exists "enquiries: buyer reads own"      on public.enquiries;
 drop policy if exists "enquiries: seller reads theirs"  on public.enquiries;
+drop policy if exists "enquiries: read"                 on public.enquiries;
 drop policy if exists "enquiries: seller updates status" on public.enquiries;
 
 -- A buyer may only enquire with a published seller, about one of that
@@ -313,14 +402,12 @@ drop policy if exists "enquiries: seller updates status" on public.enquiries;
 create policy "enquiries: buyer sends" on public.enquiries
   for insert to authenticated with check (
     (select auth.uid()) = buyer_id
-    and exists (select 1 from public.pro_profiles p where p.user_id = seller_id and p.published)
+    and exists (select 1 from public.pro_profiles p where p.user_id = seller_id and p.published and not p.suspended)
     and (listing_id is null or exists (
       select 1 from public.listings l
        where l.id = listing_id and l.seller_id = enquiries.seller_id and l.status = 'live' and not l.hidden)));
-create policy "enquiries: buyer reads own" on public.enquiries
-  for select to authenticated using ((select auth.uid()) = buyer_id);
-create policy "enquiries: seller reads theirs" on public.enquiries
-  for select to authenticated using ((select auth.uid()) = seller_id);
+create policy "enquiries: read" on public.enquiries
+  for select to authenticated using ((select auth.uid()) in (buyer_id, seller_id));
 create policy "enquiries: seller updates status" on public.enquiries
   for update to authenticated
   using ((select auth.uid()) = seller_id) with check ((select auth.uid()) = seller_id);
@@ -345,6 +432,11 @@ as $$
 declare
   n integer;
 begin
+  -- Only count for the caller's own sends: for anyone else's buyer_id RLS
+  -- rejects the row anyway, and counting would leak how many they've sent.
+  if new.buyer_id is distinct from (select auth.uid()) then
+    return new;
+  end if;
   select count(*) into n from public.enquiries
    where buyer_id = new.buyer_id and created_at > now() - interval '1 day';
   if n >= 20 then
@@ -381,9 +473,11 @@ drop policy if exists "marketplace media: owner deletes" on storage.objects;
 create policy "marketplace media: owner reads" on storage.objects
   for select to authenticated using (
     bucket_id = 'marketplace' and (storage.foldername(name))[1] = (select auth.uid())::text);
+-- Only people who can sell (Tradie plan and up) put photos in the public bucket.
 create policy "marketplace media: owner uploads" on storage.objects
   for insert to authenticated with check (
-    bucket_id = 'marketplace' and (storage.foldername(name))[1] = (select auth.uid())::text);
+    bucket_id = 'marketplace' and (storage.foldername(name))[1] = (select auth.uid())::text
+    and (select public.my_effective_tier()) >= 'pro');
 create policy "marketplace media: owner updates" on storage.objects
   for update to authenticated
   using (bucket_id = 'marketplace' and (storage.foldername(name))[1] = (select auth.uid())::text)

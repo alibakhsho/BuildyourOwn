@@ -21,7 +21,13 @@ import {
 } from "../logic/marketplace.js";
 
 const BUCKET = "marketplace";
-const SELLER = "seller:pro_profiles!listings_seller_id_fkey(user_id, kind, display_name, tagline, logo_path, regions, verified, licence_number, licence_state)";
+const SELLER_COLS = "user_id, kind, display_name, tagline, logo_path, regions, verified, licence_number, licence_state";
+const SELLER = `seller:pro_profiles!listings_seller_id_fkey(${SELLER_COLS})`;
+// Browse uses an inner join on a published, unsuspended seller, so a signed-in
+// seller sees exactly what the public sees (RLS also lets them read their own
+// drafts and taken-down listings, which don't belong in Browse).
+const PUBLIC_SELLER = `seller:pro_profiles!listings_seller_id_fkey!inner(${SELLER_COLS}, published, suspended)`;
+const publicListings = (q) => q.eq("status", "live").eq("hidden", false).eq("seller.published", true).eq("seller.suspended", false);
 
 export const marketplaceAvailable = () => !!supabase;
 
@@ -30,12 +36,12 @@ function need() {
   return supabase;
 }
 
-/* Turn database refusals into something a person can act on. */
-function fail(error) {
+/* Turn database refusals into something a person can act on. `rls` is the
+   sentence for a row-level-security refusal in the caller's context. */
+function fail(error, rls = "Your plan doesn't allow that yet — Tradie for a profile and portfolio, Builder for listings.") {
   const m = error?.message || String(error);
-  if (/row-level security|violates row-level/i.test(m)) {
-    throw new Error("Your plan doesn't allow that yet — Tradie for a profile and portfolio, Builder for listings.");
-  }
+  if (/row-level security|violates row-level/i.test(m)) throw new Error(rls);
+  if (/plan_limit/.test(m)) throw new Error(m.replace(/^.*plan_limit:\s*/, "").replace(/^./, (c) => c.toUpperCase()) + ".");
   if (/rate_limit/.test(m)) throw new Error("You've sent 20 enquiries today. Try again tomorrow.");
   if (/listings_copyright_when_live/.test(m)) throw new Error("Confirm you own this design before publishing it.");
   if (/listings_prefab_site_works_when_live/.test(m)) throw new Error("Say whether each piece of site work is included, and add a lead time, before publishing.");
@@ -43,11 +49,13 @@ function fail(error) {
   if (/abn/i.test(m) && /check/i.test(m)) throw new Error("An ABN is 11 digits.");
   if (/contact_email/.test(m)) throw new Error("That email address doesn't look right.");
   if (/postcode/.test(m)) throw new Error("A postcode is 4 digits.");
+  if (/check constraint|out of range/i.test(m)) throw new Error("One of the values is out of range — check the numbers and try again.");
+  if (/permission denied/i.test(m)) throw new Error("That change isn't allowed.");
   throw new Error(m);
 }
-const run = async (q) => {
+const run = async (q, rls) => {
   const { data, error, count } = await q;
-  if (error) fail(error);
+  if (error) fail(error, rls);
   return count != null && data == null ? count : data;
 };
 
@@ -102,8 +110,7 @@ export async function removeMedia(paths = []) {
 /** Live listings, newest first. RLS already limits this to live, unhidden
  *  listings from published sellers; the filters only narrow it. */
 export async function browseListings({ kind = null, state = null, q = "", saleMode = null, limit = 60 } = {}) {
-  let query = need().from("listings").select(`*, ${SELLER}`).order("created_at", { ascending: false }).limit(limit);
-  query = query.eq("status", "live");
+  let query = publicListings(need().from("listings").select(`*, ${PUBLIC_SELLER}`)).order("created_at", { ascending: false }).limit(limit);
   if (kind) query = query.eq("kind", kind);
   if (saleMode) query = query.eq("sale_mode", saleMode);
   if (state) query = query.contains("regions", [state]);
@@ -113,7 +120,7 @@ export async function browseListings({ kind = null, state = null, q = "", saleMo
 }
 
 export async function browsePros({ kind = null, state = null, q = "", limit = 60 } = {}) {
-  let query = need().from("pro_profiles").select("*").eq("published", true).order("updated_at", { ascending: false }).limit(limit);
+  let query = need().from("pro_profiles").select("*").eq("published", true).eq("suspended", false).order("updated_at", { ascending: false }).limit(limit);
   if (kind) query = query.eq("kind", kind);
   if (state) query = query.contains("regions", [state]);
   const term = safeTerm(q);
@@ -126,10 +133,10 @@ export async function marketCounts() {
   const sb = need();
   const head = { count: "exact", head: true };
   const [plans, modules, builders, tradies] = await Promise.all([
-    sb.from("listings").select("id", head).eq("status", "live").eq("kind", "plan"),
-    sb.from("listings").select("id", head).eq("status", "live").eq("kind", "module"),
-    sb.from("pro_profiles").select("user_id", head).eq("published", true).eq("kind", "builder"),
-    sb.from("pro_profiles").select("user_id", head).eq("published", true).in("kind", ["tradie", "designer"]),
+    publicListings(sb.from("listings").select(`id, ${PUBLIC_SELLER}`, head)).eq("kind", "plan"),
+    publicListings(sb.from("listings").select(`id, ${PUBLIC_SELLER}`, head)).eq("kind", "module"),
+    sb.from("pro_profiles").select("user_id", head).eq("published", true).eq("suspended", false).eq("kind", "builder"),
+    sb.from("pro_profiles").select("user_id", head).eq("published", true).eq("suspended", false).in("kind", ["tradie", "designer"]),
   ]);
   for (const r of [plans, modules, builders, tradies]) if (r.error) fail(r.error);
   return { plans: plans.count || 0, modules: modules.count || 0, builders: builders.count || 0, tradies: tradies.count || 0 };
@@ -174,7 +181,7 @@ export async function sendEnquiry({ sellerId, listingId = null, name, email, pho
   if (!row.contact_name || !row.contact_email || !row.message) throw new Error("Add your name, email and a message.");
   // No .select(): the buyer can read their own enquiry, but returning it
   // isn't needed and keeps this a plain insert.
-  await run(need().from("enquiries").insert(row));
+  await run(need().from("enquiries").insert(row), "This seller isn't taking enquiries right now.");
 }
 
 /** Enquiries sent TO the signed-in seller. */
@@ -200,7 +207,8 @@ export async function getMyPro(userId) {
   return row ? proFromRow(row) : null;
 }
 
-/** Create (with a kind, which can't change later) or update the seller's profile. */
+/** Create or update the seller's profile. Changing `kind` is allowed only to
+ *  a kind the plan covers (the database checks): Tradie -> Builder on upgrade. */
 export async function saveMyPro(userId, profile, { create = false } = {}) {
   const sb = need();
   const row = proToRow(profile);
@@ -208,7 +216,8 @@ export async function saveMyPro(userId, profile, { create = false } = {}) {
     const data = await run(sb.from("pro_profiles").insert({ ...row, user_id: userId, kind: profile.kind }).select().single());
     return proFromRow(data);
   }
-  const data = await run(sb.from("pro_profiles").update(row).eq("user_id", userId).select().single());
+  const patch = profile.kind ? { ...row, kind: profile.kind } : row;
+  const data = await run(sb.from("pro_profiles").update(patch).eq("user_id", userId).select().single());
   return proFromRow(data);
 }
 
