@@ -115,9 +115,17 @@ Four sides, one job record connecting them:
 | **5** | First live pricing partner (one regional yard) · SKU mapping tool · price validity on quotes | `contracts.js` |
 | **6** | Tradie dispatch partner · escrow milestones · reviews from completed jobs | `contracts.js` |
 
-## 5. Decisions needed from you
-1. **First market:** FNQ / QLD only to start (fewer rules to get right, local supplier relationships) or national from day one?
-2. **Who uploads first:** do homeowners get the approvals checklist too, or Builder plan only?
-3. **Plans marketplace:** sell plans outright, licence per build, or both?
-4. **Payments:** take payments and hold escrow ourselves (more revenue, more licensing and compliance) or referral fees only at first?
-5. **Legal review:** budget for a construction lawyer on the contract templates and the "fixed price" wording before launch.
+## 5. Decisions (Oct 2026)
+1. **National from launch.** We already have three regions, so no state is left out. The approvals rules already cover all eight states and territories.
+2. **We are a platform, not a party to the build.** Builders show their own sample projects in their portfolios. Licensing, insurance, engineering and permits are the builder's responsibility. The Approvals tab is a tool *for the builder* to manage that, not a service we provide.
+3. **Revenue: a 1.5% platform fee on every contract signed through BuildYourOwn**, plus subscriptions. No escrow at first; it may come later.
+4. **No custom contract templates from us.** Builders use their own contracts. We record the signed contract value and charge the fee.
+
+### Still open
+- **Approvals tab:** builders only, or also a free read-only "what your build will need" view for homeowners? (Recommended: both.)
+- **Sample projects:** showcase only, so a homeowner gets the design by signing a build with that builder (and we earn the 1.5%)? Or can builders also sell plans on their own? (Recommended: showcase only.)
+
+### Making the 1.5% stick
+- The fee is charged when the contract is marked signed on the platform. The builder agrees to it in the platform terms when they sign up.
+- The weak point is leakage: a builder meets the client here, then signs off-platform. Make on-platform signing the easy path: e-sign, the client's quote stages and progress claims live here, and portfolio ranking only counts jobs signed here.
+- Platform terms must say plainly that BuildYourOwn is not the builder, does not check licences or permits, and is not a party to the contract. Show each builder's licence number on their profile so clients can check it themselves.
