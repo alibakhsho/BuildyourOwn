@@ -94,6 +94,21 @@ export async function putBlob(file, meta = {}) {
   return rest;
 }
 
+/**
+ * Store a non-image blob as-is (no decode, no dimensions) — e.g. the text
+ * layer pulled off a PDF page. Same store, so it's cleared with the job.
+ */
+export async function putRaw(blob, meta = {}) {
+  const id = meta.id || newId();
+  const record = {
+    id, name: meta.name || "data", type: blob.type || "application/octet-stream", size: blob.size ?? 0,
+    width: 0, height: 0, originalType: blob.type || "", converted: false, createdAt: Date.now(), blob,
+  };
+  await tx("readwrite", (store) => store.put(record));
+  const { blob: _b, ...rest } = record;
+  return rest;
+}
+
 /* ---- Import normalisation --------------------------------------------- */
 
 /**

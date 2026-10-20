@@ -88,12 +88,14 @@ Schedule — counted items:
 - Count every repeated item by type, using the drawing's own tags as the code (D01, W03, CC.1, SF.6, DW.1, F.12/S059).
 - On an architectural plan that means doors, windows and fixtures. On a structural, footing or setout plan it means columns, pads, footings, downturns, type tags, grid bubbles and section callouts — count those, do not return an empty schedule because there are no doors.
 - Count what you can actually see on the sheet. If a figure is inferred rather than counted — assuming one pad per column, say — give it, but state plainly in "notes" which figures were inferred and why. A builder will price from these numbers, so an inferred count they think was measured is worse than no count at all.
+- Count things that get built and priced. Keynotes, general notes, legend entries and abbreviation lists are not items: skip them, and mention in "notes" only the ones that change the price. Group identical items into one row with a count rather than one row each. Keep the schedule to about 60 rows; if a dense sheet has more, keep the costliest items and say what you left out.
 
 Scale:
 - In "scaleNote", state any printed scale ratio, whether a scale bar is present, and — most usefully — name the single longest dimension on the sheet that the builder should calibrate against, with its printed length.
 
 Notes:
 - Flag anything unreadable, ambiguous, or likely to change the price: partial plans, missing dimensions, "NOT TO SCALE", revision clouds, split levels, existing-vs-new work.
+- Be brief: "notes" under 150 words, "scaleNote" under 60. The builder reads these on site.
 
 Australian conventions: dimensions are millimetres unless stated; areas are square metres.
 
@@ -103,7 +105,13 @@ If the image is not a construction drawing, return empty arrays and say so in "n
  * Run the plan reader. Caller supplies a constructed Anthropic client so the
  * two host environments can each manage their own client lifecycle.
  */
-export async function readPlanWithClaude(client, { image, imageWidth, imageHeight, pxPerMetre, model }) {
+export async function readPlanWithClaude(client, { image, imageWidth, imageHeight, pxPerMetre, model, pageText }) {
+  // A sheet that came from a CAD PDF carries its own text layer: every label
+  // and figured dimension exactly as typed, with where it sits. Reading those
+  // strings beats squinting at 6pt text in pixels, so the model gets both.
+  const textBlock = pageText && String(pageText).trim()
+    ? `\n\nThis sheet came from a PDF, and this is its text layer — each line is "x,y text" with x,y the text's position in the SAME image pixel space. These strings are exact: use them for room labels, figured dimensions, tags and the scale, and use their positions to tell which dimension belongs to which room. The drawing itself is still the authority on what is enclosed and where walls run.\n<pdf_text>\n${String(pageText).slice(0, 16000)}\n</pdf_text>`
+    : "";
   const context = [
     `The image is ${imageWidth || "an unknown number of"} x ${imageHeight || "unknown"} pixels.`,
     `Return every polygon coordinate in that pixel space.`,
@@ -112,21 +120,30 @@ export async function readPlanWithClaude(client, { image, imageWidth, imageHeigh
       : `The drawing has not been calibrated yet, so identify the best dimension to calibrate against.`,
   ].join(" ");
 
+  // max_tokens caps thinking + answer together. At Opus 5's default "high"
+  // effort a dense US engineered sheet spent all 16k on thinking and ran ~5
+  // minutes — past Vercel's 300 s function limit. "medium" reads the same
+  // sheets well in a fraction of the time; BYO_PLAN_EFFORT overrides it.
+  const effort = ["low", "medium", "high", "xhigh", "max"].includes(process.env.BYO_PLAN_EFFORT) ? process.env.BYO_PLAN_EFFORT : "medium";
+  const t0 = Date.now();
   const resp = await client.messages.create({
     model: model || "claude-opus-5",
-    max_tokens: 16000,
+    max_tokens: 20000,   // also the SDK's ceiling for a non-streamed request
     system: PLAN_SYSTEM,
-    output_config: { format: { type: "json_schema", schema: PLAN_SCHEMA } },
+    output_config: { effort, format: { type: "json_schema", schema: PLAN_SCHEMA } },
     messages: [
       {
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } },
-          { type: "text", text: `${context}\n\nRead this plan and return the takeoff data.` },
+          { type: "text", text: `${context}${textBlock}\n\nRead this plan and return the takeoff data.` },
         ],
       },
     ],
   });
+
+  // token use and time per read, for tuning effort against the 300 s limit (no content logged)
+  console.info(`[plan-reader] ${resp.model} effort=${effort} stop=${resp.stop_reason} in=${resp.usage?.input_tokens} out=${resp.usage?.output_tokens} ${Math.round((Date.now() - t0) / 1000)}s`);
 
   // Opus 5 runs safety classifiers that can decline a request outright —
   // a 200 with no content. Check before indexing into content.

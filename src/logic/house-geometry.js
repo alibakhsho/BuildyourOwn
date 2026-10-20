@@ -25,7 +25,7 @@ export const STD = {
   gap: 0.25,               // min pier between two openings
   studSpacing: 0.6,        // 600 mm stud centres
   trussSpacing: 0.9,       // 900 mm truss centres
-  floorZoneM: 0.3,         // joist + flooring depth between storeys
+  floorZoneM: 0.26,        // 240 joist + 19 flooring between storeys (structure/foundation.js)
   wallThk: 0.11,           // 90 frame + cladding allowance (drawn)
   partThk: 0.09,
   stairWidth: 1.0,         // NCC min clear 1000
@@ -35,6 +35,8 @@ export const STD = {
   panel: { a: 1.722, b: 1.134, watts: 415 }, // 415 W module
   solarSystemW: 6600,      // materials.js: "Solar PV 6.6kW + inverter"
 };
+
+import { buildUp } from "./structure/standards.js";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -307,7 +309,9 @@ function squarify(items, rect) {
    building centred on the origin. */
 export function layoutFloors(spec) {
   const env = envelope(spec);
-  const t = STD.wallThk;
+  // rooms start at the inside face of the plasterboard: cladding + cavity +
+  // frame + lining (brick veneer ≈ 250 mm)
+  const t = buildUp(spec).total;
   const items = spaceSchedule(spec);
   const hasStair = env.floors > 1;
   const st = hasStair ? stairGeometry(spec) : null;

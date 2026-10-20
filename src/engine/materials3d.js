@@ -191,3 +191,143 @@ export function roofMaterial(roofType) {
   if (roofType === "shingle") return new THREE.MeshStandardMaterial({ map: roofTileTexture("#3a3a40"), roughness: 0.9 });
   return new THREE.MeshStandardMaterial({ map: corrugatedTexture("#4a4f56"), roughness: 0.42, metalness: 0.55 });
 }
+
+/* ---- Textures for individual members (structure-render.js) -------------
+   These map 0..1 onto each face of an instanced unit box, then stretch with
+   the member — so they're drawn as stripes ALONG u (the member's length),
+   which stretch invisibly, with detail only across. */
+
+export function pineTexture() {
+  return canvasTex("pine", 256, 1, (g, size) => {
+    g.fillStyle = "#e3cf9f"; g.fillRect(0, 0, size, size);
+    const r = rng(77);
+    for (let y = 0; y < size; y += 1 + Math.floor(r() * 3)) {
+      const dark = r() > 0.55;
+      g.fillStyle = dark ? `rgba(150,105,55,${0.08 + r() * 0.22})` : `rgba(255,240,205,${0.05 + r() * 0.15})`;
+      g.fillRect(0, y, size, 1 + Math.floor(r() * 2));
+    }
+  });
+}
+
+export function lvlTexture() {
+  return canvasTex("lvl", 256, 1, (g, size) => {
+    g.fillStyle = "#c99d63"; g.fillRect(0, 0, size, size);
+    const r = rng(81);
+    // veneer laminations: thin parallel plies
+    for (let y = 0; y < size; y += 9) {
+      g.fillStyle = `rgba(110,70,30,${0.25 + r() * 0.2})`; g.fillRect(0, y, size, 1);
+      g.fillStyle = `rgba(255,230,180,${0.08 + r() * 0.1})`; g.fillRect(0, y + 3, size, 2);
+    }
+  });
+}
+
+export function particleboardTexture() {
+  return canvasTex("particleboard", 256, 1, (g, size) => {
+    g.fillStyle = "#d9c27a"; g.fillRect(0, 0, size, size);
+    speckle(g, size, 9000, 0.18, 91); speckle(g, size, 4000, 0.12, 92, true);
+  });
+}
+
+export function insulationTexture() {
+  return canvasTex("insulation", 128, 1, (g, size) => {
+    g.fillStyle = "#f1d77a"; g.fillRect(0, 0, size, size);
+    const r = rng(95);
+    for (let i = 0; i < 900; i++) {
+      g.strokeStyle = `rgba(${r() > 0.5 ? "255,250,220" : "190,150,60"},${0.2 + r() * 0.3})`;
+      g.beginPath(); const x = r() * size, y = r() * size; g.moveTo(x, y); g.lineTo(x + (r() - 0.5) * 14, y + (r() - 0.5) * 14); g.stroke();
+    }
+  });
+}
+
+export function wrapTexture() {
+  return canvasTex("wrap", 256, 2, (g, size) => {
+    g.fillStyle = "#e9eef3"; g.fillRect(0, 0, size, size);
+    g.fillStyle = "rgba(40,90,170,0.55)"; g.font = "bold 14px sans-serif";
+    for (let y = 20; y < size; y += 64) for (let x = (y / 64) % 2 ? 0 : 60; x < size; x += 130) g.fillText("WALL WRAP", x, y);
+  });
+}
+
+export function pvTexture() {
+  return canvasTex("pv", 512, 1, (g, size) => {
+    g.fillStyle = "#0f1a2e"; g.fillRect(0, 0, size, size);
+    const cols = 10, rows = 6, cw = size / cols, ch = size / rows;
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      const grd = g.createLinearGradient(i * cw, j * ch, (i + 1) * cw, (j + 1) * ch);
+      grd.addColorStop(0, "#1c3157"); grd.addColorStop(1, "#0d1a33");
+      g.fillStyle = grd; g.fillRect(i * cw + 2, j * ch + 2, cw - 4, ch - 4);
+      g.fillStyle = "rgba(200,210,230,0.35)";
+      for (let k = 1; k < 4; k++) g.fillRect(i * cw + 2, j * ch + (ch * k) / 4, cw - 4, 1);
+    }
+    g.strokeStyle = "#b8bec7"; g.lineWidth = 6; g.strokeRect(0, 0, size, size);
+  });
+}
+
+export function garageDoorTexture() {
+  return canvasTex("garagedoor", 256, 1, (g, size) => {
+    g.fillStyle = "#d9dbd6"; g.fillRect(0, 0, size, size);
+    // horizontal ribs across the panel (u = along the door's height)
+    for (let y = 0; y < size; y += size / 4) {
+      g.fillStyle = "rgba(0,0,0,0.18)"; g.fillRect(0, y + size / 8, size, 3);
+      g.fillStyle = "rgba(255,255,255,0.35)"; g.fillRect(0, y + size / 8 + 3, size, 2);
+    }
+  });
+}
+
+export function brickFaceTexture() {
+  return canvasTex("brickface", 128, 1, (g, size) => {
+    g.fillStyle = "#ffffff"; g.fillRect(0, 0, size, size);
+    speckle(g, size, 2600, 0.28, 101); speckle(g, size, 900, 0.18, 102, true);
+    g.fillStyle = "rgba(0,0,0,0.12)"; g.fillRect(0, 0, size, 3); g.fillRect(0, size - 3, size, 3);
+  });
+}
+
+export function mortarTexture() {
+  return canvasTex("mortar", 128, 0.5, (g, size) => {
+    g.fillStyle = "#cbc3b4"; g.fillRect(0, 0, size, size);
+    speckle(g, size, 3000, 0.15, 111); speckle(g, size, 1500, 0.12, 112, true);
+  });
+}
+
+export function carpetTexture() {
+  return canvasTex("carpet", 128, 0.5, (g, size) => {
+    g.fillStyle = "#9d9189"; g.fillRect(0, 0, size, size);
+    speckle(g, size, 7000, 0.2, 121); speckle(g, size, 4000, 0.15, 122, true);
+  });
+}
+
+export function floorTileTexture() {
+  return canvasTex("floortile", 256, 1.2, (g, size, ppm) => {
+    g.fillStyle = "#d9d5cb"; g.fillRect(0, 0, size, size);
+    const t = 0.6 * ppm;
+    g.fillStyle = "rgba(120,110,95,0.45)";
+    for (let x = 0; x < size; x += t) g.fillRect(x, 0, 2, size);
+    for (let y = 0; y < size; y += t) g.fillRect(0, y, size, 2);
+    speckle(g, size, 3000, 0.05, 131);
+  });
+}
+
+/* Normal map for corrugated sheet: 10 sine corrugations across the sheet
+   width (v), constant along its length (u). Mipmapped, so the ribs read up
+   close and blend cleanly at a distance (no moiré). */
+export function corrugatedNormalMap() {
+  const key = "corr-normal";
+  if (cache.has(key)) return cache.get(key);
+  if (typeof document === "undefined") return null;
+  const W = 4, H = 640, c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const g = c.getContext("2d");
+  const img = g.createImageData(W, H);
+  for (let y = 0; y < H; y++) {
+    const slope = Math.cos((y / H) * Math.PI * 2 * 10) * 1.1;
+    const n = [0, -slope, 1];
+    const L = Math.hypot(...n);
+    const rgb = n.map((v) => Math.round((v / L * 0.5 + 0.5) * 255));
+    for (let x = 0; x < W; x++) { const i = (y * W + x) * 4; img.data[i] = rgb[0]; img.data[i + 1] = rgb[1]; img.data[i + 2] = rgb[2]; img.data[i + 3] = 255; }
+  }
+  g.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  cache.set(key, t);
+  return t;
+}
