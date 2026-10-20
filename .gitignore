@@ -18,3 +18,15 @@ admin-panel/
 
 # Mobile build config holds only the public backend URL (see the file).
 !.env.mobile
+
+# Raw Higgsfield API outputs (scripts/higgsfield-api.mjs) — review, then copy
+# the keepers into public/ deliberately
+generated/
+
+# Brand assets: commit the briefs, state and full-res JPEG finals (brandkit/finals);
+# keep the 4K PNG originals, raw downloads and video drafts local only.
+brandkit/**/*.png
+!brandkit/logo-v2/**/*.png
+brandkit/**/*.mp4
+brandkit/**/*.log
+brandkit/**/contact.jpg

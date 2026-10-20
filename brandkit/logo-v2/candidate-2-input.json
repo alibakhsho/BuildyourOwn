@@ -1,0 +1,36 @@
+{
+  "prompt": "Lettermark monogram of the single capital letter B, constructed as two stacked rounded rooms seen in plan, the upper room slightly smaller than the lower, drawn with thick uniform strokes and fully rounded corners and terminals, with one soft doorway gap in the lower room. Smooth, calm and approachable, premium modern tech register. Duotone vector gradient along the strokes from warm signal red at the bottom to soft blush pink at the top, smooth seamless blend. Centered and isolated on a plain light background with generous clear space, square composition, crisp clean vector paths, smooth curves, no hard sharp corners, no shadows, no 3D, no texture, no outlines around the mark, no text.",
+  "aspect_ratio": "1:1",
+  "output_format": "png",
+  "model_type": "vector",
+  "colors": [
+    {
+      "rgb": [
+        226,
+        72,
+        61
+      ]
+    },
+    {
+      "rgb": [
+        244,
+        182,
+        176
+      ]
+    },
+    {
+      "rgb": [
+        217,
+        211,
+        236
+      ]
+    }
+  ],
+  "background_color": {
+    "rgb": [
+      246,
+      246,
+      244
+    ]
+  }
+}

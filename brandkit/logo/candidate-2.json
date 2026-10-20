@@ -1,0 +1,40 @@
+{
+  "model": "recraft/v4.1/text-to-image",
+  "input": {
+    "prompt": "Pictorial mark of a single builder's plumb bob hanging perfectly still. The bob is an elongated symmetrical faceted diamond silhouette that tapers to a sharp point at the bottom, topped by a short cylindrical cap and suspended from one fine vertical line that rises to a short horizontal bar at the top. The distinctive element: the bob is split exactly down its vertical center into two flat facets, the left facet in the locked primary tone and the right facet in the locked secondary tone, a crisp jewel-like cut with no shading. Strict bilateral symmetry, clean geometric angles, line and bob on one vertical axis, minimal detail that holds at small sizes. Elegant, intimate, high-end register like a pendant fixture in a refined lounge, precise and quietly technical. Exactly two colors on the locked background, locked primary tone and locked secondary tone as solid flat fills, no gradient. Centered, isolated, tall vertical mark with generous clear space in a square composition. Flat vector design, clean lines, no shadows, no texture, no text. Clean editable vector paths, SVG-friendly, minimal anchor points.",
+    "aspect_ratio": "1:1",
+    "model_type": "vector",
+    "colors": [
+      {
+        "rgb": [
+          200,
+          162,
+          94
+        ]
+      },
+      {
+        "rgb": [
+          138,
+          106,
+          51
+        ]
+      }
+    ],
+    "background_color": {
+      "rgb": [
+        14,
+        20,
+        32
+      ]
+    }
+  },
+  "request_id": "5c3017c1-30ad-4308-9b1a-1c9d20f70fb6",
+  "status": "completed",
+  "error": null,
+  "outputs": [
+    "https://d3u0tzju9qaucj.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/81b5cd45-af30-47b5-a51e-197920771412.jpeg"
+  ],
+  "files": [
+    "C:\\Users\\great\\AI-Projects\\BuildyourOwn\\brandkit\\logo\\candidate-2.jpeg"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "prompt": "Pictorial logo mark of a single house silhouette: a simple home shape with a gently pitched roof and fully rounded, softened corners, with one tall rounded-top doorway cut out of its centre as negative space. Built from smooth continuous curves and soft geometric proportions, calm and friendly, premium modern tech register like a clean telecom or aerospace brand. Vector gradient fill flowing diagonally from warm signal red at the lower left through soft blush pink to pale lilac at the upper right, smooth seamless blend. Centered and isolated on a plain light background with generous clear space, square composition, crisp clean vector paths, smooth curves, no hard sharp corners, no shadows, no 3D, no texture, no outlines around the mark, no text.",
+  "aspect_ratio": "1:1",
+  "output_format": "png",
+  "model_type": "vector",
+  "colors": [
+    {
+      "rgb": [
+        226,
+        72,
+        61
+      ]
+    },
+    {
+      "rgb": [
+        244,
+        182,
+        176
+      ]
+    },
+    {
+      "rgb": [
+        217,
+        211,
+        236
+      ]
+    }
+  ],
+  "background_color": {
+    "rgb": [
+      246,
+      246,
+      244
+    ]
+  }
+}

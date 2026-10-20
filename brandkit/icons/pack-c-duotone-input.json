@@ -1,0 +1,27 @@
+{
+  "prompt": "A cohesive set of nine duotone icons arranged in a precise three by three grid with equal spacing and identical icon sizes: a calculator, a cube drawn in isometric wireframe, a stack of three timber boards, three staggered horizontal timeline bars, a floor plan with one door swing, a document with a dollar sign, a house, a builder's hard hat, and two people side by side. Each icon is a clean medium-weight line drawing in the locked light tone with rounded caps, layered over one simple soft flat shape in the locked secondary tone offset slightly behind it, like refined architectural plan symbols. Calm, warm, precise and premium. Exactly two colors on the locked background, solid flat fills, no gradient. Flat vector design, clean lines, no shadows, no texture, no text.",
+  "aspect_ratio": "1:1",
+  "colors": [
+    {
+      "rgb": [
+        244,
+        240,
+        232
+      ]
+    },
+    {
+      "rgb": [
+        138,
+        106,
+        51
+      ]
+    }
+  ],
+  "background_color": {
+    "rgb": [
+      14,
+      20,
+      32
+    ]
+  }
+}

@@ -13,6 +13,8 @@ import { MaterialsOnly } from "./logic/materials-only.js";
 import { Estimator, inferSpecFromImport } from "./logic/estimator.js";
 import { HighRiseEstimator } from "./logic/highrise-estimator.js";
 import { Engine3D } from "./engine/engine3D.js";
+import { materialFor } from "./engine/parts.js";
+import PartInspector from "./components/PartInspector.jsx";
 import { Equipment } from "./data/equipment.js";
 import {
   getSuppliers, addSupplierOverride, removeSupplierOverride,
@@ -1885,6 +1887,7 @@ export default function App() {
   const [projectNo] = useState(genProjectNo);
   const [autoRotate, setAutoRotate] = useState(true);
   const [viewMode, setViewMode] = useState("finished"); // 3D: finished | structural (skin faded)
+  const [partMode, setPartMode] = useState(false);       // 3D: click-to-select part editor open
   const [progress, setProgress] = useState(1); // start fully built
   const [walkMode, setWalkMode] = useState(false);
   const [walkRoom, setWalkRoom] = useState("");
@@ -1955,7 +1958,10 @@ export default function App() {
     };
   }, []);
 
-  /* Rebuild on spec or mode change (exit walkthrough first) */
+  /* Rebuild on spec or mode change (exit walkthrough first). Part edits are
+     left out of the key: they re-skin the existing model (effect below)
+     instead of rebuilding a thousand-piece house on every colour click. */
+  const buildKey = useMemo(() => { const { partEdits, ...rest } = spec; return JSON.stringify(rest); }, [spec]);
   useEffect(() => {
     const eng = engineRef.current;
     if (!eng) return;
@@ -1978,7 +1984,11 @@ export default function App() {
       eng.buildFromSpec(spec);
       eng.setProgress(progress);
     }
-  }, [spec, hrSpec, matSpec, mdSpec, buildMode, engineReady]);
+  }, [buildKey, hrSpec, matSpec, mdSpec, buildMode, engineReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (buildMode === "residential") engineRef.current?.applyPartEdits(spec.partEdits || {}, materialFor);
+  }, [spec.partEdits, buildKey, buildMode, engineReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (buildMode === "residential" || buildMode === "multi") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
@@ -2273,7 +2283,8 @@ export default function App() {
     <MotionConfig reducedMotion="user">
     <div style={{ minHeight: "100vh", color: TOKENS.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       {/* Ambient 3D: structure endlessly assembling & breaking apart behind the app */}
-      <BackgroundScene opacity={0.16} />
+      {/* not on the front page: it has its own scroll films, and the scene would only burn GPU behind them */}
+      {screen !== "landing" && <BackgroundScene opacity={0.16} />}
       {/* Content layer — translucent paper so the scene ghosts through between cards */}
       <div style={{ position: "relative", zIndex: 1, background: TOKENS.contentVeil }}>
       {/* Inline style block for fonts + custom colors (Tailwind core only supports utility classes) */}
@@ -2303,8 +2314,8 @@ export default function App() {
           color: var(--ink);
         }
         html { scroll-behavior: smooth; }
-        body { background: var(--paper); overflow-x: hidden; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
-        html { overflow-x: hidden; max-width: 100%; }
+        body { background: var(--paper); overflow-x: clip; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+        html { overflow-x: clip; max-width: 100%; }
         body, button, input, select, textarea { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
 
         /* ---- Type: one enterprise sans (Plus Jakarta Sans) for everything.
@@ -2880,6 +2891,11 @@ export default function App() {
                 </div>
               )}
             </div>
+            {partMode && buildMode === "residential" && !walkMode && engineReady && (
+              <PartInspector engine={engineRef.current} edits={spec.partEdits || {}}
+                onEdits={(partEdits) => setSpec((s) => ({ ...s, partEdits }))}
+                onClose={() => setPartMode(false)} />
+            )}
           </div>{/* end #ws-viewport */}
             {/* Controls — sit BELOW the live view, never over it (mobile-safe) */}
             <div className="ec-viewport-controls" style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: TOKENS.paperLight, padding: 8, borderRadius: 4, border: `1px solid ${TOKENS.rule}` }}>
@@ -2909,6 +2925,15 @@ export default function App() {
                   }}>
                     {viewMode === "finished" ? "Show skeleton" : "Show finished"}
                   </button>
+                  {buildMode === "residential" && (
+                    <button className={"ec-btn ec-btn-ghost" + (partMode ? " ec-btn-ghost-on" : "")} onClick={() => {
+                      const next = !partMode;
+                      setPartMode(next);
+                      if (next) { setAutoRotate(false); setProgress(1); engineRef.current?.setPlaying(false); }
+                    }}>
+                      {partMode ? "Editing parts" : "Edit parts"}
+                    </button>
+                  )}
                   <button className="ec-btn" onClick={toggleWalk} style={{ background: TOKENS.emberDeep, color: TOKENS.onEmber }}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/><path d="M12 7v6m0 0l-3 7m3-7l3 7M8 9h8" strokeLinecap="round"/></svg>
                     Walk through

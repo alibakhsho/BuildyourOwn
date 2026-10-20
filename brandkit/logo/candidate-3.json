@@ -1,0 +1,33 @@
+{
+  "model": "recraft/v4.1/text-to-image",
+  "input": {
+    "prompt": "Abstract mark of two identical thick right-angle L-shapes that interlock to complete one square frame: the upper-left L is a solid filled form and the lower-right L is drawn only as a thin uniform outline of the same shape, so the square reads half built and half drawn. The distinctive element: the solid form and the outline form meet at two crisp diagonally opposite joints, leaving a clean square of open negative space at the center. Strict orthogonal geometry, equal arm lengths and thicknesses, perfectly square overall footprint, slightly softened outer corners, no extra lines, holds clearly at small sizes. Quiet, precise, premium technical register, compact and confident like a modern tech glyph with a calm refined lounge restraint. Strictly one color: both forms in the locked primary tone on the locked background, solid flat fill for the solid form and a uniform thin stroke for the outline form, no gradient. Centered, isolated, generous clear space, square composition. Flat vector design, clean lines, no shadows, no texture, no text. Clean editable vector paths, SVG-friendly, minimal anchor points.",
+    "aspect_ratio": "1:1",
+    "model_type": "vector",
+    "colors": [
+      {
+        "rgb": [
+          200,
+          162,
+          94
+        ]
+      }
+    ],
+    "background_color": {
+      "rgb": [
+        14,
+        20,
+        32
+      ]
+    }
+  },
+  "request_id": "51bc7044-d5c9-40d0-85ea-9df7531aff06",
+  "status": "completed",
+  "error": null,
+  "outputs": [
+    "https://d3u0tzju9qaucj.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/3ac22cfe-3448-49ed-8c61-e2382ff7cc59.jpeg"
+  ],
+  "files": [
+    "C:\\Users\\great\\AI-Projects\\BuildyourOwn\\brandkit\\logo\\candidate-3.jpeg"
+  ]
+}

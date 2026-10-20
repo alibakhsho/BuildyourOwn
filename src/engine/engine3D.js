@@ -4,14 +4,18 @@
    the construction sequence.
    ========================================================================= */
 import * as THREE from "three";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { easeOutCubic } from "../lib/format.js";
+import { pickQuality, skyEnvironment, createComposer, frameGuard } from "./renderfx.js";
+
+// overshoot a touch and settle — pieces "land" rather than stop dead
+const easeOutBack = (t, s = 1.3) => 1 + (s + 1) * (t - 1) ** 3 + s * (t - 1) ** 2;
 import { buildHouse } from "./house-builder.js";
 import { grassTexture, gravelTexture } from "./materials3d.js";
 
 export class Engine3D {
-  constructor(mountEl) {
+  constructor(mountEl, { quality = "auto" } = {}) {
     this.mount = mountEl;
+    this.quality = pickQuality(quality);
     this.width = mountEl.clientWidth;
     this.height = mountEl.clientHeight;
     this.scene = new THREE.Scene();
@@ -40,9 +44,10 @@ export class Engine3D {
     this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
     this.renderer.setSize(this.width, this.height);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap; // cheaper than PCFSoft
+    // soft-edged sun shadows where the GPU can afford them
+    this.renderer.shadowMap.type = this.quality === "high" ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.0;
     if ("outputColorSpace" in this.renderer) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     mountEl.appendChild(this.renderer.domElement);
 
@@ -54,7 +59,8 @@ export class Engine3D {
     const dir = new THREE.DirectionalLight(0xfff4d6, 1.05);
     dir.position.set(24, 34, 18);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
+    const sm = this.quality === "high" ? 4096 : 2048;
+    dir.shadow.mapSize.set(sm, sm);
     dir.shadow.camera.left = -40;
     dir.shadow.camera.right = 40;
     dir.shadow.camera.top = 40;
@@ -62,6 +68,7 @@ export class Engine3D {
     dir.shadow.camera.near = 1;
     dir.shadow.camera.far = 120;
     dir.shadow.bias = -0.0004;
+    dir.shadow.normalBias = 0.02;
     this.scene.add(dir);
     // Cool fill from the opposite side to stop shadowed faces going dead black
     const fill = new THREE.DirectionalLight(0xcfe0ff, 0.25);
@@ -106,13 +113,21 @@ export class Engine3D {
     this.spec = null;
     this.viewMode = "finished"; // "finished" | "structural"
 
-    // Image-based lighting so glass, Colorbond and glazing pick up a sky
-    // reflection instead of reading as flat colour.
+    // Image-based lighting from an outdoor sky (sun where the key light is),
+    // so glass, Colorbond and glazing reflect daylight, not a studio box.
     try {
-      const pmrem = new THREE.PMREMGenerator(this.renderer);
-      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-      pmrem.dispose();
+      this.scene.environment = skyEnvironment(this.renderer, dir.position);
     } catch (e) { /* no WebGL — plain lighting still works */ }
+
+    // High tier: ambient occlusion + MSAA through a post chain. A frame-time
+    // guard falls back to the plain renderer if the machine can't keep up.
+    this.fx = null;
+    if (this.quality === "high") {
+      try {
+        this.fx = createComposer(this.renderer, this.scene, this.camera, this.width || 1, this.height || 1);
+        this._guard = frameGuard(() => this.setQuality("low"));
+      } catch (e) { this.fx = null; }
+    }
 
     // Walkthrough state
     this.mode = "orbit"; // "orbit" | "walk"
@@ -173,6 +188,99 @@ export class Engine3D {
         pinchDist = d;
       }
     }, { passive: true });
+
+    this._initPicking(el);
+  }
+
+  /* ---- Part picking & editing ------------------------------------------
+     A click (press + release without dragging) in pick mode raycasts into
+     the building and reports the nearest selectable part. Selected meshes
+     get a hi-vis edge outline drawn on top; material edits swap in shared
+     catalogue materials (see parts.js) and survive the x-ray view. */
+  _initPicking(el) {
+    this.pickEnabled = false;
+    this.onPick = null;
+    this._selected = [];
+    this._edgeCache = new Map();
+    this._selMat = new THREE.LineBasicMaterial({ color: 0xffc21a, depthTest: false, transparent: true, opacity: 0.95 });
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let downX = 0, downY = 0;
+    el.addEventListener("pointerdown", (e) => { downX = e.clientX; downY = e.clientY; });
+    el.addEventListener("pointerup", (e) => {
+      if (!this.pickEnabled || this.mode === "walk") return;
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return; // that was an orbit drag
+      const r = el.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, this.camera);
+      const xray = this.viewMode === "structural";
+      let picked = null;
+      for (const h of ray.intersectObjects(this.buildingGroup.children, true)) {
+        const o = h.object;
+        if (!o.isMesh || !o.userData.part) continue;
+        if (xray && o.userData.skin) continue;             // click through faded skins to the frame
+        let v = o, shown = true;
+        while (v) { if (!v.visible) { shown = false; break; } v = v.parent; }
+        if (!shown) continue;
+        picked = o; break;
+      }
+      this.onPick?.(picked, e);
+    });
+  }
+
+  setPickMode(on) {
+    this.pickEnabled = !!on;
+    this.renderer.domElement.style.cursor = on ? "crosshair" : "";
+    if (!on) this.setSelection([]);
+  }
+
+  /* All part meshes matching fn(part, mesh). */
+  partMeshes(fn = () => true) {
+    const out = [];
+    this.buildingGroup.traverse((o) => { if (o.isMesh && o.userData.part && fn(o.userData.part, o)) out.push(o); });
+    return out;
+  }
+
+  setSelection(meshes) {
+    for (const m of this._selected) {
+      const ln = m.userData._outline;
+      if (ln) { m.remove(ln); delete m.userData._outline; }
+    }
+    this._selected = meshes;
+    for (const m of meshes) {
+      let g = this._edgeCache.get(m.geometry.uuid);
+      if (!g) { g = new THREE.EdgesGeometry(m.geometry, 25); this._edgeCache.set(m.geometry.uuid, g); }
+      const ln = new THREE.LineSegments(g, this._selMat);
+      ln.renderOrder = 10;
+      ln.raycast = () => {};                               // outlines never steal clicks
+      m.add(ln);
+      m.userData._outline = ln;
+    }
+    this._needsRender = true;
+  }
+
+  /* Re-apply saved edits ({ partId: { preset?, color? } }) to the current
+     model. Pieces without an edit go back to the material they were built
+     with. */
+  applyPartEdits(edits = {}, materialFor) {
+    this.buildingGroup.traverse((o) => {
+      const p = o.isMesh && o.userData.part;
+      if (!p) return;
+      const ud = o.userData;
+      if (!ud._baseMat) ud._baseMat = ud._mat || o.material;
+      const e = edits[p.id];
+      const next = e ? materialFor(p.cat, e, ud._baseMat) : ud._baseMat;
+      if (ud.skin) {
+        if ((ud._mat || o.material) !== next) {
+          ud._mat = next;
+          if (ud._xray) { ud._xray.dispose(); ud._xray = null; }
+        }
+      } else {
+        o.material = next;
+      }
+    });
+    this.applyViewMode();
+    this._needsRender = true;
   }
 
   /* Sparse low-poly trees around the site edge — scale + life, not a forest. */
@@ -207,6 +315,7 @@ export class Engine3D {
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height);
+    if (this.fx && this.width && this.height) this.fx.composer.setSize(this.width, this.height);
     // setSize clears the canvas — when idle nothing else would redraw it
     this._needsRender = true;
   }
@@ -311,6 +420,8 @@ export class Engine3D {
         o.material = o.userData._xray; o.castShadow = false;
       } else { o.material = o.userData._mat; o.castShadow = true; }
     });
+    // AO darkens behind see-through skins — off in x-ray view
+    if (this.fx) this.fx.ao.enabled = !xray;
   }
 
   /* Orbit radius + height that frame the whole building whatever its size. */
@@ -331,6 +442,9 @@ export class Engine3D {
 
   _clearGroup() {
     const g = this.buildingGroup;
+    if (this._selected?.length) this.setSelection([]);
+    this._edgeCache?.forEach((eg) => eg.dispose());
+    this._edgeCache?.clear();
     g.traverse((o) => {
       if (!o.isMesh) return;
       o.geometry?.dispose();
@@ -338,6 +452,7 @@ export class Engine3D {
       if (o.userData._xray) o.userData._xray.dispose();
     });
     while (g.children.length) g.remove(g.children[0]);
+    this._staggerDirty = true;
   }
 
   /* Empty the model entirely — materials-only mode shows just the site. */
@@ -572,42 +687,91 @@ export class Engine3D {
     this.progress = Math.max(0, Math.min(1, p));
     this._needsRender = true;
     if (!this.spec) return;
+    if (this._staggerDirty !== false) this._computeStagger();
     const stageCount = this.stageOrder.length;
     const stageProgress = this.progress * stageCount;
+    const SPREAD = 0.6; // share of each stage spent staggering pieces in
     this.buildingGroup.traverse((obj) => {
       if (!obj.isMesh && !(obj.isGroup && obj.userData.stage)) return;
       const stage = obj.userData.stage;
       if (!stage) return;
+      const ud = obj.userData;
+      if (ud._origY === undefined) ud._origY = obj.position.y;
       const stageIdx = this.stageOrder.indexOf(stage);
-      const reveal = stageProgress - stageIdx; // 0..1+
+      // each piece gets its own window inside the stage, ordered bottom-up
+      // and around the plan, so the building assembles rather than inflates
+      const reveal = (stageProgress - stageIdx - (ud._k || 0) * SPREAD) / (1 - SPREAD);
       if (reveal <= 0) {
         obj.visible = false;
       } else if (reveal >= 1) {
         obj.visible = true;
         obj.scale.set(1, 1, 1);
-        if (obj.userData._origY === undefined) obj.userData._origY = obj.position.y;
-        obj.position.y = obj.userData._origY;
+        obj.position.y = ud._origY;
       } else {
         obj.visible = true;
         const e = easeOutCubic(reveal);
+        const b = easeOutBack(reveal);
         if (stage === "foundation") {
           obj.scale.set(e, 1, e);
-        } else if (stage === "frame") {
-          obj.scale.set(1, e, 1);
-          if (obj.userData._origY === undefined) obj.userData._origY = obj.position.y;
-        } else if (stage === "walls") {
-          obj.scale.set(1, e, 1);
-          if (obj.userData._origY === undefined) obj.userData._origY = obj.position.y;
-          /* Wall grows from the floor — shift down. Each wall is centred so scale Y is enough but visually a slide-up looks nicer */
+          obj.position.y = ud._origY;
+        } else if (stage === "frame" || stage === "walls") {
+          if (ud._half != null) {
+            // grow up from its own base instead of from the middle
+            obj.scale.set(1, Math.max(0.001, e), 1);
+            obj.position.y = ud._origY - (1 - e) * ud._half;
+          } else {
+            // sloped members (braces, rafters) are lowered into place
+            obj.scale.set(1, 1, 1);
+            obj.position.y = ud._origY + (1 - b) * 3;
+          }
         } else if (stage === "roof") {
-          if (obj.userData._origY === undefined) obj.userData._origY = obj.position.y;
-          obj.position.y = obj.userData._origY + (1 - e) * 8;
+          obj.position.y = ud._origY + (1 - b) * 6;
           obj.scale.set(1, 1, 1);
         } else if (stage === "finishes") {
-          obj.scale.set(e, e, e);
+          obj.scale.setScalar(Math.max(0.001, b));
+          obj.position.y = ud._origY;
         }
       }
     });
+  }
+
+  /* Give every staged piece a 0..1 order key within its stage: height first,
+     then a sweep around the plan; finishes pop in scattered. Sloped or
+     uncentred pieces are flagged so they're lowered in rather than grown. */
+  _computeStagger() {
+    this._staggerDirty = false;
+    const items = [];
+    const v = new THREE.Vector3();
+    this.buildingGroup.updateMatrixWorld(true);
+    this.buildingGroup.traverse((obj) => {
+      if (!obj.userData?.stage || (!obj.isMesh && !obj.isGroup)) return;
+      obj.getWorldPosition(v);
+      items.push({ obj, x: v.x, y: v.y, z: v.z });
+      const g = obj.isMesh && obj.geometry;
+      obj.userData._half = null;
+      if (g && Math.abs(obj.rotation.x) < 0.01 && Math.abs(obj.rotation.z) < 0.01) {
+        if (!g.boundingBox) g.computeBoundingBox();
+        const bb = g.boundingBox;
+        if (Math.abs(bb.max.y + bb.min.y) < 1e-3) obj.userData._half = (bb.max.y - bb.min.y) / 2;
+      }
+    });
+    const byStage = {};
+    for (const it of items) (byStage[it.obj.userData.stage] ||= []).push(it);
+    for (const [stage, list] of Object.entries(byStage)) {
+      let y0 = Infinity, y1 = -Infinity;
+      for (const it of list) { y0 = Math.min(y0, it.y); y1 = Math.max(y1, it.y); }
+      const dy = y1 - y0 || 1;
+      list.forEach((it, i) => {
+        const ang = (Math.atan2(it.z, it.x) + Math.PI) / (2 * Math.PI);
+        const ny = (it.y - y0) / dy;
+        let k;
+        if (stage === "foundation") k = Math.min(1, Math.hypot(it.x, it.z) / 30);
+        else if (stage === "finishes") k = ((i * 2654435761) >>> 0) / 4294967296;
+        else if (stage === "roof") k = ny * 0.6 + ang * 0.4;
+        else k = ny * 0.65 + ang * 0.35;
+        it.obj.userData._k = Math.min(1, Math.max(0, k));
+      });
+    }
   }
 
   setAutoRotate(v) { this.autoRotate = v; }
@@ -713,12 +877,13 @@ export class Engine3D {
       // turns auto-rotate off, so this is the path manual orbiting runs on.
       if (this._needsRender) {
         if (this.mode !== "walk" && this._userOrbiting) this._updateOrbitCamera();
-        this.renderer.render(this.scene, this.camera);
+        this._render();
         this._needsRender = false;
       }
       return;
     }
 
+    if (this._guard) this._guard.tick(performance.now());
     if (this.mode === "walk") {
       this.walkT += this.walkSpeed;
       if (this.walkT >= 1) this.walkT = 0; // loop the tour
@@ -726,7 +891,7 @@ export class Engine3D {
       this.camera.position.set(s.pos[0], s.pos[1], s.pos[2]);
       this.camera.lookAt(s.look[0], s.look[1], s.look[2]);
       if (this.onWalkProgress) this.onWalkProgress(this.walkT, s.name);
-      this.renderer.render(this.scene, this.camera);
+      this._render();
       return;
     }
 
@@ -743,7 +908,7 @@ export class Engine3D {
       }
       this.setProgress(this.progress);
     }
-    this.renderer.render(this.scene, this.camera);
+    this._render();
   }
 
   /* Place the orbit camera from cameraAngle / tiltFactor / zoomFactor. */
@@ -769,12 +934,31 @@ export class Engine3D {
     }
   }
 
-  setPaused(v) { this.paused = v; if (!v) this._needsRender = true; }
+  setPaused(v) { this.paused = v; if (!v) { this._needsRender = true; this._guard?.reset(); } }
+
+  _render() {
+    if (this.fx) this.fx.composer.render();
+    else this.renderer.render(this.scene, this.camera);
+  }
+
+  /* Drop to the plain renderer. Only "low" can be applied at runtime — the
+     post chain is built once, in the constructor. */
+  setQuality(q) {
+    if (q !== "low" || !this.fx) return;
+    this.fx.composer.dispose?.();
+    this.fx.rt.dispose();
+    this.fx = null;
+    this._guard = null;
+    this.quality = "low";
+    this._needsRender = true;
+  }
   requestRender() { this._needsRender = true; }
 
   dispose() {
     cancelAnimationFrame(this._animId);
     this._resizeObs.disconnect();
+    if (this.fx) { this.fx.composer.dispose?.(); this.fx.rt.dispose(); this.fx = null; }
+    this.scene.environment?.dispose?.();
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode === this.mount) {
       this.mount.removeChild(this.renderer.domElement);
