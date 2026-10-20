@@ -109,6 +109,10 @@ export function entitlementsFor(profile, now = new Date()) {
     ai: plan.ai || addon,
     aiAddon: addon,
     siteOffice: plan.siteOffice,
+    // Marketplace: Tradie shows a profile + portfolio, Builder also lists
+    // plans and prefab modules. The database enforces the same split.
+    marketProfile: planRank(plan.id) >= planRank("pro"),
+    marketListing: planRank(plan.id) >= planRank("business"),
     projects: plan.projects,
     planReads: onTrial ? Math.min(reads, TRIAL_PLAN_READS) : reads,
     canUseMode: (m) => plan.modes.includes(m),
@@ -129,7 +133,8 @@ export function planReadsUsedNow(profile, now = new Date()) {
 
 /** The cheapest public plan that unlocks a feature — for upgrade prompts. */
 export function planFor(feature) {
-  if (feature === "ai") return "pro";
+  if (feature === "ai" || feature === "marketProfile") return "pro";
+  if (feature === "marketListing") return "business";
   if (feature === "siteOffice") return "business";
   for (const id of PUBLIC_PLANS) if (PLANS[id].modes.includes(feature)) return id;
   return "business";

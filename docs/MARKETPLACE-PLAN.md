@@ -127,7 +127,15 @@ Four sides, one job record connecting them:
    - **Licence to build once:** pay per build.
    - **Build with this builder:** the design is a showcase and comes with a signed build contract.
    - **Prefab module:** a fixed price, paid in the app, *what you see is what you get*. Every listing must answer included/excluded for footings, transport and crane, service connections, and site approvals, so the buyer sees what else to budget for.
-   - Payment runs through Stripe Connect: the buyer pays price + GST, and the 1.5% comes out of the seller's payout.
+   - **Fees on plans and modules: discussed on contract** for now. Only the 1.5% on build contracts is fixed.
+7. **No payments in the app yet.** Buyers send an enquiry; Stripe (Connect) checkout comes later, set up from the owner's computer.
+
+### Live now (Oct 2026)
+The marketplace is in the app (**Marketplace** in the top bar, and on the landing page) on the live database (`supabase/migrations/20261020100000_marketplace.sql`):
+- **Plans & modules:** browse live listings by type, state and name; listing pages with photos, specs, "what's in the price" for prefab, and an enquiry form.
+- **Builders & tradies:** directory and public profiles with licence number, work, regions, portfolio and listings.
+- **My marketplace:** the seller dashboard. New enquiries, live listings, views and finished jobs at a glance; enquiry inbox with status; listing editor that says what's missing before Publish; portfolio and profile editors; plus "Sent" for buyers.
+- **Who can do what (enforced by the database):** anyone browses; Tradie plan (or trial) gets a profile + portfolio; Builder plan gets listings; signed-in users enquire (20 a day). Staff can take a listing down by setting `hidden` in the Supabase dashboard, and mark a profile `verified`.
 
 ### Making the 1.5% stick
 - The fee is charged when the contract is marked signed on the platform. The builder agrees to it in the platform terms when they sign up.

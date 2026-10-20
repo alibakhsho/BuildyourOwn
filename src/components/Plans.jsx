@@ -22,8 +22,8 @@ import AuthModal from "./AuthModal.jsx";
 
 const FEATURES = {
   free:     ["House estimates, priced line by line", "Live 3D model of your build", "Timeline & client-ready quote", "3 projects saved to your account", `AI assistant add-on · A$${AI_ADDON.price}/mo`],
-  pro:      ["Everything in Homeowner", "Custom quotes for any job", "AI crew & AI plan reading (25/mo)", "Unlimited projects", "Your own rates"],
-  business: ["Everything in Tradie", "Multi-dwelling quoting", "Developer: apartments & towers", "Site Office — jobs, POs, claims", "Xero / MYOB · 100 AI plan reads"],
+  pro:      ["Everything in Homeowner", "Custom quotes for any job", "AI crew & AI plan reading (25/mo)", "Unlimited projects", "Your own rates", "Marketplace profile & portfolio"],
+  business: ["Everything in Tradie", "Multi-dwelling quoting", "Developer: apartments & towers", "Site Office — jobs, POs, claims", "Xero / MYOB · 100 AI plan reads", "List house plans & prefab modules"],
 };
 
 /* The segment that trials each paid plan (see SEGMENT_PLAN). */
@@ -32,6 +32,8 @@ export const PLAN_SEGMENT = { pro: "tradie", business: "builder" };
 const FEATURE_NAME = {
   ai: "The AI crew",
   siteOffice: "Site Office",
+  marketProfile: "A marketplace profile and portfolio",
+  marketListing: "Listing plans and prefab modules",
   ...Object.fromEntries(Object.entries(MODE_LABEL).map(([k, v]) => [k, `${v} quoting`])),
 };
 
@@ -179,7 +181,8 @@ export function UpgradeModal({ feature, onClose }) {
   // A guest who signs up (or in) from here: once the account has loaded,
   // drop the sign-in form; when the trial it asked for is in effect — with
   // the account on sign-up, a moment later on sign-in — say so.
-  const unlocked = !feature ? can.onTrial : feature === "ai" ? can.ai : feature === "siteOffice" ? can.siteOffice : can.canUseMode(feature);
+  const unlocked = !feature ? can.onTrial : feature === "ai" ? can.ai : feature === "siteOffice" ? can.siteOffice
+    : feature === "marketProfile" ? can.marketProfile : feature === "marketListing" ? can.marketListing : can.canUseMode(feature);
   useEffect(() => {
     if (auth && user && profile) setAuth(null);
   }, [auth, user, profile]);

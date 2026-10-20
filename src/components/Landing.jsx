@@ -48,7 +48,7 @@ const AUDIENCES = [
     body: "Quote a duplex or a 40-lot estate in one go, cost an apartment block, then run every job from Site Office." },
 ];
 
-export default function Landing({ onStart, onPickAudience, onSignedIn, region, setRegion, howItWorks }) {
+export default function Landing({ onStart, onPickAudience, onSignedIn, onMarketplace, region, setRegion, howItWorks }) {
   const { user, profile, can, enabled } = useAuth();
   const [auth, setAuth] = useState(null);         // { mode, intent }
   // Outlives the modal, which closes itself on a successful sign-up before
@@ -98,7 +98,9 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
         .lp-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; flex-wrap: wrap; }
         .lp-nav a { color: #14171A; text-decoration: none; font: 500 14px 'Plus Jakarta Sans', sans-serif; opacity: .75; }
         .lp-nav a:hover { opacity: 1; }
+        .lp-mk-m { display: none; }
         @media (max-width: 900px) {
+          .lp-mk-m { display: inline-flex; }
           .lp-hero { padding: 40px 0 56px; }
           .lp-aud { grid-template-columns: 1fr; }
           .lp-nav { display: none !important; }
@@ -116,8 +118,17 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
           <nav className="lp-nav" style={{ display: "flex", gap: 26 }}>
             <a href="#how" onClick={(e) => { e.preventDefault(); document.getElementById("how")?.scrollIntoView({ behavior: "smooth" }); }}>How it works</a>
             <a href="#plans" onClick={(e) => { e.preventDefault(); plansRef.current?.scrollIntoView({ behavior: "smooth" }); }}>Plans</a>
+            {onMarketplace && <a href="#marketplace" onClick={(e) => { e.preventDefault(); onMarketplace(); }}>Marketplace</a>}
           </nav>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {/* The nav above is hidden on phones; the marketplace keeps a way in. */}
+            {onMarketplace && (
+              <button className="lp-mk-m" onClick={onMarketplace}
+                style={{ alignItems: "center", padding: "7px 13px", borderRadius: 999, border: "1px solid rgba(20,23,26,0.2)", background: "transparent",
+                  cursor: "pointer", font: "600 12px 'Plus Jakarta Sans', sans-serif", color: "#14171A" }}>
+                Marketplace
+              </button>
+            )}
             <AccountButton onSignedIn={onSignedIn} />
             <div role="group" aria-label="Region" style={{ display: "flex", border: "1px solid rgba(20,23,26,0.2)", borderRadius: 999, overflow: "hidden" }}>
               {["AU", "US", "UK"].map((r) => (
