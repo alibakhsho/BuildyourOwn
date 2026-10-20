@@ -1,0 +1,39 @@
+{
+  "model": "recraft/v4.1/text-to-image",
+  "input": {
+    "prompt": "A cohesive set of nine bold solid glyph icons arranged in a precise three by three grid with equal spacing and identical icon sizes: a calculator, a cube drawn in isometric wireframe, a stack of three timber boards, three staggered horizontal timeline bars, a floor plan with one door swing, a document with a dollar sign, a house, a builder's hard hat, and two people side by side. Each icon is built from simple solid geometric shapes with small crisp negative-space cutouts, softly rounded corners and the same optical weight, confident and compact like modern tech interface glyphs. Exactly two colors on the locked background: the main shapes in the locked light tone and one small accent detail per icon in the locked primary tone, solid flat fills, no gradient. Flat vector design, clean lines, no shadows, no texture, no text.",
+    "aspect_ratio": "1:1",
+    "colors": [
+      {
+        "rgb": [
+          244,
+          240,
+          232
+        ]
+      },
+      {
+        "rgb": [
+          200,
+          162,
+          94
+        ]
+      }
+    ],
+    "background_color": {
+      "rgb": [
+        14,
+        20,
+        32
+      ]
+    }
+  },
+  "request_id": "60feac00-c08b-41c4-826b-0c5802bce08e",
+  "status": "completed",
+  "error": null,
+  "outputs": [
+    "https://d3u0tzju9qaucj.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/809d30cb-7767-4929-bd08-ced580effcdd.jpeg"
+  ],
+  "files": [
+    "C:\\Users\\great\\AI-Projects\\BuildyourOwn\\brandkit\\icons\\pack-b-solid.jpeg"
+  ]
+}

@@ -2286,7 +2286,8 @@ export default function App() {
     <MotionConfig reducedMotion="user">
     <div style={{ minHeight: "100vh", color: TOKENS.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       {/* Ambient 3D: structure endlessly assembling & breaking apart behind the app */}
-      <BackgroundScene opacity={0.16} />
+      {/* not on the front page: it has its own scroll films, and the scene would only burn GPU behind them */}
+      {screen !== "landing" && <BackgroundScene opacity={0.16} />}
       {/* Content layer — translucent paper so the scene ghosts through between cards */}
       <div style={{ position: "relative", zIndex: 1, background: TOKENS.contentVeil }}>
       {/* Inline style block for fonts + custom colors (Tailwind core only supports utility classes) */}
@@ -2316,8 +2317,8 @@ export default function App() {
           color: var(--ink);
         }
         html { scroll-behavior: smooth; }
-        body { background: var(--paper); overflow-x: hidden; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
-        html { overflow-x: hidden; max-width: 100%; }
+        body { background: var(--paper); overflow-x: clip; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
+        html { overflow-x: clip; max-width: 100%; }
         body, button, input, select, textarea { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
 
         /* ---- Type: one enterprise sans (Plus Jakarta Sans) for everything.

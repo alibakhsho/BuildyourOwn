@@ -1,0 +1,57 @@
+{
+  "brandbookElements": [],
+  "essentialKitApproved": false,
+  "palette": {
+    "approvalSummary": "User selected the Cloud & Signal palette (light, grey and red, pastel blush-to-lilac haze), replacing Midnight Brass for a calm, rounded, SpaceX/Telstra-style direction.",
+    "colors": [
+      {
+        "hex": "#f6f6f4",
+        "name": "Cloud",
+        "role": "background"
+      },
+      {
+        "hex": "#22262b",
+        "name": "Graphite",
+        "role": "text"
+      },
+      {
+        "hex": "#e2483d",
+        "name": "Signal Red",
+        "role": "primary"
+      },
+      {
+        "hex": "#f4b6b0",
+        "name": "Blush",
+        "role": "accent"
+      },
+      {
+        "hex": "#d9d3ec",
+        "name": "Lilac Haze",
+        "role": "accent"
+      },
+      {
+        "hex": "#9aa1a8",
+        "name": "Concrete",
+        "role": "support"
+      }
+    ],
+    "gradients": [
+      {
+        "name": "Signal Haze",
+        "stops": [
+          "#e2483d",
+          "#f4b6b0",
+          "#d9d3ec"
+        ]
+      }
+    ],
+    "origin": "brandkit_generated",
+    "revision": 2
+  },
+  "version": 3,
+  "visualAxes": {
+    "familiarExperimental": 45,
+    "geometricOrganic": 20,
+    "restrainedExpressive": 25
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "status": "failed",
+  "error": "Your credit balance is too low to complete this request. Please top up your balance and try again.",
+  "request_id": "a0462810-16fe-4b68-a3fb-affa0895d4c0",
+  "status_url": "https://api.higgsfield.ai/requests/a0462810-16fe-4b68-a3fb-affa0895d4c0/status",
+  "cancel_url": "https://api.higgsfield.ai/requests/a0462810-16fe-4b68-a3fb-affa0895d4c0/cancel"
+}

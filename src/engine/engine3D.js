@@ -4,7 +4,7 @@
    the construction sequence.
    ========================================================================= */
 import * as THREE from "three";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { pickQuality, skyEnvironment, createComposer, frameGuard } from "./renderfx.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CadLines } from "./cad-lines.js";
 import { easeOutCubic } from "../lib/format.js";
@@ -14,8 +14,9 @@ import { SYSTEMS } from "../logic/structure/model.js";
 import { grassTexture, gravelTexture } from "./materials3d.js";
 
 export class Engine3D {
-  constructor(mountEl) {
+  constructor(mountEl, { quality = "auto" } = {}) {
     this.mount = mountEl;
+    this.quality = pickQuality(quality);
     this.width = mountEl.clientWidth;
     this.height = mountEl.clientHeight;
     this.scene = new THREE.Scene();
@@ -44,7 +45,8 @@ export class Engine3D {
     this.renderer.setPixelRatio(Math.min(1.5, window.devicePixelRatio || 1));
     this.renderer.setSize(this.width, this.height);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // soft-edged sun shadows where the GPU can afford them
+    this.renderer.shadowMap.type = this.quality === "high" ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     if ("outputColorSpace" in this.renderer) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -66,7 +68,8 @@ export class Engine3D {
     const dir = new THREE.DirectionalLight(0xfff4d6, 1.05);
     dir.position.set(24, 34, 18);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(4096, 4096);
+    const sm = this.quality === "high" ? 4096 : 2048;
+    dir.shadow.mapSize.set(sm, sm);
     dir.shadow.normalBias = 0.02;
     this.sun = dir;
     dir.shadow.camera.left = -40;
@@ -122,13 +125,22 @@ export class Engine3D {
     this.spec = null;
     this.viewMode = "finished"; // "finished" | "structural"
 
-    // Image-based lighting so glass, Colorbond and glazing pick up a sky
-    // reflection instead of reading as flat colour.
+    // Image-based lighting from an outdoor sky (sun where the key light is),
+    // so glass, Colorbond and glazing reflect daylight, not a studio box.
     try {
-      const pmrem = new THREE.PMREMGenerator(this.renderer);
-      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-      pmrem.dispose();
+      this.scene.environment = skyEnvironment(this.renderer, dir.position);
     } catch (e) { /* no WebGL — plain lighting still works */ }
+
+    // High tier: ambient occlusion + MSAA for the realistic perspective view
+    // (CAD lines and the orthographic plan/elevation views render as before).
+    // A frame-time guard drops a struggling machine back to the plain path.
+    this.fx = null;
+    if (this.quality === "high") {
+      try {
+        this.fx = createComposer(this.renderer, this.scene, this.persp, this.width || 1, this.height || 1);
+        this._guard = frameGuard(() => this.setQuality("low"));
+      } catch (e) { this.fx = null; }
+    }
 
     // Walkthrough state
     this.mode = "orbit"; // "orbit" | "walk"
@@ -207,6 +219,7 @@ export class Engine3D {
     this.persp.updateProjectionMatrix();
     this._fitOrtho();
     this.renderer.setSize(this.width, this.height);
+    if (this.fx && this.width && this.height) this.fx.composer.setSize(this.width, this.height);
     // setSize clears the canvas — when idle nothing else would redraw it
     this._needsRender = true;
   }
@@ -547,9 +560,25 @@ export class Engine3D {
       if (size.x !== this._linesW || size.y !== this._linesH) { this._linesW = size.x; this._linesH = size.y; this.cadLines.setSize(size.x, size.y); }
       this.cadLines.setCamera(this.camera);
       this.cadLines.render();
+    } else if (this.fx && this.camera === this.persp) {
+      this._guard?.tick(performance.now());
+      this.fx.ao.enabled = this.viewMode !== "structural"; // AO darkens behind see-through skins
+      this.fx.composer.render();
     } else {
       this.renderer.render(this.scene, this.camera);
     }
+  }
+
+  /* Drop to the plain renderer. Only "low" can be applied at runtime — the
+     post chain is built once, in the constructor. */
+  setQuality(q) {
+    if (q !== "low" || !this.fx) return;
+    this.fx.composer.dispose?.();
+    this.fx.rt.dispose();
+    this.fx = null;
+    this._guard = null;
+    this.quality = "low";
+    this._needsRender = true;
   }
 
   _clearGroup() {
@@ -1024,7 +1053,7 @@ export class Engine3D {
     }
   }
 
-  setPaused(v) { this.paused = v; if (!v) this._needsRender = true; }
+  setPaused(v) { this.paused = v; if (!v) { this._needsRender = true; this._guard?.reset(); } }
   requestRender() { this._needsRender = true; }
 
   dispose() {
@@ -1032,6 +1061,8 @@ export class Engine3D {
     this.controls?.dispose();
     this.cadLines?.dispose();
     this._resizeObs.disconnect();
+    if (this.fx) { this.fx.composer.dispose?.(); this.fx.rt.dispose(); this.fx = null; }
+    this.scene.environment?.dispose?.();
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode === this.mount) {
       this.mount.removeChild(this.renderer.domElement);

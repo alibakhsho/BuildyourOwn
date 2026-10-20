@@ -10,14 +10,15 @@
    plans · closing call to action.
    ========================================================================= */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useScroll, useTransform, useReducedMotion } from "framer-motion";
+import ScrollBuild from "./ScrollBuild.jsx";
+import DroneScroll from "./DroneScroll.jsx";
 import { colors as TOKENS, paletteFor, kebab } from "../design/system.js";
 
 /* The front page is always in daylight, whatever theme the app is in: pin
    the light palette's CSS variables on this subtree so the shared buttons,
    plan cards and sign-in modal inside it render light too. */
 const LIGHT_VARS = Object.fromEntries(Object.entries(paletteFor("light")).map(([k, v]) => [`--${kebab(k)}`, v]));
-import { Engine3D } from "../engine/engine3D.js";
 import { PlanCards, PLAN_SEGMENT, IntervalToggle, UpgradeModal } from "./Plans.jsx";
 import { hasSubscription, canPayHere } from "../lib/billing.js";
 import { AccountButton } from "./AuthModal.jsx";
@@ -26,7 +27,7 @@ import BYOLogo from "./ui/BYOLogo.jsx";
 import { useAuth } from "../state/auth.jsx";
 import { TRIAL_DAYS } from "../lib/entitlements.js";
 import { Estimator } from "../logic/estimator.js";
-import { fmt, currencySymbol } from "../lib/format.js";
+
 
 /* The house in the hero: a two-storey brick home with a garage and solar,
    built by the real engine from a real spec. */
@@ -36,32 +37,6 @@ const HERO_SPEC = {
   hasGarage: true, solar: true, staircaseType: "timber",
   openings: { windowsCount: 12, windowsM2: 17, doors: 2 },
   rooms: [], kitchens: [], bathrooms: [], extras: [],
-};
-
-function HeroHouse() {
-  const ref = useRef(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let eng;
-    try { eng = new Engine3D(el); } catch { return; } // no WebGL — the card just stays a sky gradient
-    eng.buildFromSpec(HERO_SPEC);
-    eng.setProgress(0);
-    // narrower card (phones) → pull the camera back so the whole house fits
-    eng.zoomFactor = el.clientWidth < 520 ? 1.3 : 1.0;
-    eng.tiltFactor = 0.85;
-    eng.setPlaying(true);           // builds itself once, then keeps turning
-    eng.onComplete = () => eng.setAutoRotate(true);
-    const io = new IntersectionObserver(([e]) => eng.setPaused(!e.isIntersecting), { threshold: 0.01 });
-    io.observe(el);
-    return () => { io.disconnect(); eng.dispose(); };
-  }, []);
-  return <div ref={ref} style={{ position: "absolute", inset: 0 }} aria-label="A house being built in 3D" role="img" />;
-}
-
-const chip = {
-  position: "absolute", background: "rgba(255,255,255,0.94)", color: "#14171A", padding: "10px 14px",
-  borderRadius: 12, boxShadow: "0 10px 30px rgba(20,23,26,0.16)", fontFamily: "'Plus Jakarta Sans', sans-serif",
 };
 
 const AUDIENCES = [
@@ -95,14 +70,19 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
   const plansRef = useRef(null);
   // The hero numbers are a real estimate of the house on screen, not copy.
   const est = useMemo(() => Estimator.buildEstimate(HERO_SPEC, region), [region]);
-  const gross = est.total * (1 + (est.taxRate || 0));
-  const taxName = String(est.taxLabel || "").replace(/\s*\(.*\)$/, "");
+  // hero drifts and fades as it scrolls away — depth, not decoration
+  const reduced = useReducedMotion();
+  const { scrollY } = useScroll();
+  const heroCopyY = useTransform(scrollY, [0, 700], [0, reduced ? 0 : -60]);
+  const heroFade = useTransform(scrollY, [0, 600], [1, reduced ? 1 : 0.35]);
 
   return (
     <div style={{ ...LIGHT_VARS, background: "linear-gradient(180deg, #F3EEE4 0%, #F7F4EE 46%, #FFFFFF 100%)", color: "#14171A" }}>
       <style>{`
         .lp-wrap { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
-        .lp-hero { display: grid; grid-template-columns: 1.02fr 1fr; gap: 48px; align-items: center; padding: 40px 0 72px; }
+        .lp-hero { display: flex; justify-content: center; text-align: center; padding: 72px 0 88px; }
+        .lp-hero .lp-lead { margin-left: auto; margin-right: auto; }
+        .lp-hero-row { justify-content: center; }
         .lp-h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: clamp(38px, 5.2vw, 70px); line-height: 1.04; letter-spacing: -0.035em; margin: 0 0 20px; }
         .lp-lead { font-size: 18px; line-height: 1.6; color: #4A4F55; max-width: 34em; margin: 0 0 28px; }
         .lp-cta { display: inline-flex; align-items: center; gap: 10px; padding: 16px 26px; border-radius: 999px; border: none; cursor: pointer; font: 600 15px 'Plus Jakarta Sans', sans-serif; }
@@ -110,7 +90,6 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
         .lp-cta-main:hover { background: #2a2f35; }
         .lp-cta-alt { background: transparent; color: #14171A; border: 1.5px solid rgba(20,23,26,0.25); }
         .lp-cta-alt:hover { border-color: #14171A; }
-        .lp-stage { position: relative; aspect-ratio: 4 / 3.4; border-radius: 28px; overflow: hidden; background: linear-gradient(#b6cddf, #e9eee9); box-shadow: 0 30px 80px rgba(20,23,26,0.18); }
         .lp-section { padding: 80px 0; }
         .lp-h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: clamp(28px, 3.4vw, 42px); line-height: 1.1; letter-spacing: -0.03em; margin: 0 0 14px; }
         .lp-aud { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
@@ -120,12 +99,11 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
         .lp-nav a { color: #14171A; text-decoration: none; font: 500 14px 'Plus Jakarta Sans', sans-serif; opacity: .75; }
         .lp-nav a:hover { opacity: 1; }
         @media (max-width: 900px) {
-          .lp-hero { grid-template-columns: 1fr; gap: 28px; padding: 16px 0 48px; }
+          .lp-hero { padding: 40px 0 56px; }
           .lp-aud { grid-template-columns: 1fr; }
           .lp-nav { display: none !important; }
           .lp-section { padding: 56px 0; }
         }
-        @media (max-width: 560px) { .lp-chip-hide { display: none; } }
       `}</style>
 
       {/* ---- top bar ---- */}
@@ -151,8 +129,15 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
           </div>
         </div>
 
+      </div>
+
+      {/* ---- opening flight: scroll-driven drone shot from the logo ---- */}
+      <DroneScroll onStart={onStart} />
+
+      <div className="lp-wrap">
         {/* ---- hero ---- */}
         <section className="lp-hero">
+          <motion.div style={{ y: heroCopyY, opacity: heroFade }}>
           <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "7px 14px", borderRadius: 999, background: "rgba(245,197,24,0.22)", font: "600 12px 'Plus Jakarta Sans', sans-serif", marginBottom: 22 }}>
               <span style={{ width: 7, height: 7, borderRadius: 99, background: TOKENS.hivisDeep }} /> Free for homeowners · no sign-up to start
@@ -161,29 +146,21 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, region, s
             <p className="lp-lead">
               Tell us the size of the house, or drop in your plans. Watch it go up in 3D, see every trade priced at today's rates, and walk away with a quote you can actually use.
             </p>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
               <button className="lp-cta lp-cta-main" onClick={onStart}>Price my build — it's free →</button>
               <button className="lp-cta lp-cta-alt" onClick={() => plansRef.current?.scrollIntoView({ behavior: "smooth" })}>For tradies &amp; builders</button>
             </div>
-            <div style={{ display: "flex", gap: 22, marginTop: 28, flexWrap: "wrap", font: "500 13px 'Plus Jakarta Sans', sans-serif", color: "#5A6067" }}>
+            <div style={{ display: "flex", gap: 22, marginTop: 28, flexWrap: "wrap", justifyContent: "center", font: "500 13px 'Plus Jakarta Sans', sans-serif", color: "#5A6067" }}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ color: "#157F3C", display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, marginTop: 0 }}><path d="M20 6L9 17l-5-5" /></svg></span>AU, US &amp; UK rates</span><span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ color: "#157F3C", display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, marginTop: 0 }}><path d="M20 6L9 17l-5-5" /></svg></span>GST shown, not hidden</span><span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}><span style={{ color: "#157F3C", display: "inline-flex" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0, marginTop: 0 }}><path d="M20 6L9 17l-5-5" /></svg></span>Works on your phone</span>
             </div>
           </motion.div>
-
-          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.6, delay: 0.1 }} style={{ position: "relative" }}>
-            <div className="lp-stage"><HeroHouse /></div>
-            <div style={{ ...chip, top: 20, left: -14 }} className="lp-chip-hide">
-              <div style={{ fontSize: 11, color: "#6B7279", fontWeight: 600 }}>ESTIMATED TOTAL</div>
-              <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 800, fontSize: 26 }}>{currencySymbol(region)}{fmt(gross)}</div>
-              <div style={{ fontSize: 11, color: "#6B7279" }}>{est.taxRate > 0 ? `incl. ${taxName}` : "before tax"} · priced live</div>
-            </div>
-            <div style={{ ...chip, bottom: 22, right: -12 }}>
-              <div style={{ fontSize: 12, fontWeight: 600 }}>{fmt(est.takeoff.gfaM2)} m² · 2 storeys · {est.timeline.totalWeeks} weeks</div>
-              <div style={{ fontSize: 11, color: "#6B7279" }}>Brick · Colorbond · 6.6 kW solar</div>
-            </div>
           </motion.div>
+
         </section>
       </div>
+
+      {/* ---- scroll-driven build of the same house ---- */}
+      <ScrollBuild spec={HERO_SPEC} est={est} region={region} />
 
       {/* ---- who it's for ---- */}
       <section className="lp-section" style={{ background: "#fff" }}>

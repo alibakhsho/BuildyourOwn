@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BYO Logo Concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --midnight: #0E1420;
+    --ivory: #F4F0E8;
+    --brass: #C8A25E;
+    --bronze: #8A6A33;
+    --smoke: #8B93A1;
+    --card: #141B29;
+    --line: #232C3D;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--midnight);
+    color: var(--ivory);
+    font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  main { max-width: 1160px; margin: 0 auto; padding: 48px 16px 80px; }
+  .eyebrow { color: var(--brass); font-size: 12px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; }
+  h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 600; letter-spacing: -.02em; margin: 8px 0 8px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 56px 0 4px; }
+  .lede { color: var(--smoke); max-width: 680px; margin: 0; }
+  .palette { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 28px; }
+  .swatch { border-radius: 12px; padding: 44px 12px 10px; border: 1px solid var(--line); font-size: 12px; }
+  .swatch b { display: block; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .card > img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+  .body { padding: 16px 18px 20px; }
+  .num { color: var(--brass); font-size: 12px; font-weight: 600; letter-spacing: .12em; }
+  .card h3 { margin: 2px 0 6px; font-size: 18px; font-weight: 600; }
+  .card p { margin: 0; color: var(--smoke); font-size: 14px; }
+  .sizes { display: flex; align-items: flex-end; gap: 14px; margin-top: 16px; }
+  .tile { background-repeat: no-repeat; background-position: center; border-radius: 22%; box-shadow: 0 0 0 1px rgba(255,255,255,.08); }
+  .light { background-color: var(--ivory); }
+  .label { color: var(--smoke); font-size: 11px; margin-top: 4px; text-align: center; }
+  .note { margin-top: 48px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; color: var(--smoke); font-size: 14px; }
+  .note b { color: var(--ivory); font-weight: 600; }
+  @media (max-width: 640px) { .palette { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">BuildYourOwn · Brand round 1</div>
+  <h1>Logo concepts &amp; icon packs</h1>
+  <p class="lede">Chic, minimal and tech-forward, with a low-lit lounge warmth. Concepts are image drafts: the chosen one gets rebuilt as a clean vector file in the exact colours below.</p>
+
+  <div class="palette">
+    <div class="swatch" style="background:#0E1420"><b>Midnight</b>#0E1420</div>
+    <div class="swatch" style="background:#F4F0E8;color:#0E1420"><b>Ivory</b>#F4F0E8</div>
+    <div class="swatch" style="background:#C8A25E;color:#0E1420"><b>Brass</b>#C8A25E</div>
+    <div class="swatch" style="background:#8A6A33"><b>Bronze</b>#8A6A33</div>
+    <div class="swatch" style="background:#8B93A1;color:#0E1420"><b>Smoke</b>#8B93A1</div>
+  </div>
+
+  <h2>Logo marks</h2>
+  <p class="lede">Each shown large, then cropped as an app icon at 64, 40 and 24 pixels.</p>
+  <div class="grid">
+    <div class="card">
+      <img src="logo/candidate-1.jpeg" alt="Plan B concept">
+      <div class="body">
+        <div class="num">01</div>
+        <h3>Plan B</h3>
+        <p>The B drawn as a floor plan: two stacked rooms and a doorway. Art-deco framing, the most "lounge" of the three.</p>
+        <div class="sizes">
+          <div><div class="tile" style="width:64px;height:64px;background-image:url(logo/candidate-1.jpeg);background-size:150%"></div><div class="label">64</div></div>
+          <div><div class="tile" style="width:40px;height:40px;background-image:url(logo/candidate-1.jpeg);background-size:150%"></div><div class="label">40</div></div>
+          <div><div class="tile" style="width:24px;height:24px;background-image:url(logo/candidate-1.jpeg);background-size:150%"></div><div class="label">24</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="logo/candidate-2.jpeg" alt="True concept">
+      <div class="body">
+        <div class="num">02</div>
+        <h3>True</h3>
+        <p>A plumb bob, the builder's tool for dead-accurate vertical. "Your numbers, true." It also reads like a brass pendant light.</p>
+        <div class="sizes">
+          <div><div class="tile" style="width:64px;height:64px;background-image:url(logo/candidate-2.jpeg);background-size:190%;background-position:50% 62%"></div><div class="label">64</div></div>
+          <div><div class="tile" style="width:40px;height:40px;background-image:url(logo/candidate-2.jpeg);background-size:190%;background-position:50% 62%"></div><div class="label">40</div></div>
+          <div><div class="tile" style="width:24px;height:24px;background-image:url(logo/candidate-2.jpeg);background-size:190%;background-position:50% 62%"></div><div class="label">24</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <img src="logo/candidate-3.jpeg" alt="Drawn and Built concept">
+      <div class="body">
+        <div class="num">03</div>
+        <h3>Drawn &amp; Built</h3>
+        <p>Half drawn, half built: the outline is the plan, the solid is the finished build. One compact square, the most "tech" of the three.</p>
+        <div class="sizes">
+          <div><div class="tile" style="width:64px;height:64px;background-image:url(logo/candidate-3.jpeg);background-size:170%"></div><div class="label">64</div></div>
+          <div><div class="tile" style="width:40px;height:40px;background-image:url(logo/candidate-3.jpeg);background-size:170%"></div><div class="label">40</div></div>
+          <div><div class="tile" style="width:24px;height:24px;background-image:url(logo/candidate-3.jpeg);background-size:170%"></div><div class="label">24</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Icon packs</h2>
+  <p class="lede">The same nine app icons in three styles: estimate, 3D model, materials, timeline, floor plan, quote, homeowner, tradie and crew.</p>
+  <div class="grid">
+    <div class="card">
+      <img src="icons/pack-a-hairline.jpeg" alt="Hairline icon pack">
+      <div class="body"><div class="num">A</div><h3>Hairline</h3><p>Fine brass outlines, rounded ends. Quiet and elegant, and closest to how the app's icons are built today.</p></div>
+    </div>
+    <div class="card">
+      <img src="icons/pack-b-solid.jpeg" alt="Solid icon pack">
+      <div class="body"><div class="num">B</div><h3>Solid</h3><p>Bold ivory shapes with a single brass detail. Punchy and app-like, and the most readable at small sizes.</p></div>
+    </div>
+    <div class="card">
+      <img src="icons/pack-c-duotone.jpeg" alt="Duotone icon pack">
+      <div class="body"><div class="num">C</div><h3>Duotone</h3><p>Ivory line drawings over warm bronze shapes. Editorial and expressive; the busiest of the three.</p></div>
+    </div>
+  </div>
+
+  <div class="note"><b>Next:</b> pick a logo and an icon style, plus any changes. Then the BuildYourOwn wordmark gets set in a real typeface beside the mark, and the final logo is rebuilt as a sharp vector file for the site, app icons and socials.</div>
+</main>
+</body>
+</html>

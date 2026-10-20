@@ -1,0 +1,64 @@
+{
+  "reviews": [
+    {
+      "stage": "palette",
+      "name": "Cloud & Signal",
+      "premise": "Telecom-calm: a bright cloud-white base, graphite type and one warm signal red, softened by a blush-to-lilac haze for glow effects.",
+      "keywords": ["calm", "trustworthy", "bright", "connected"],
+      "palette": [
+        { "hex": "#F6F6F4", "name": "Cloud" },
+        { "hex": "#22262B", "name": "Graphite" },
+        { "hex": "#E2483D", "name": "Signal Red" },
+        { "hex": "#F4B6B0", "name": "Blush" },
+        { "hex": "#D9D3EC", "name": "Lilac Haze" },
+        { "hex": "#9AA1A8", "name": "Concrete" }
+      ],
+      "logo_ideas": [
+        "A rounded house-and-frame glyph whose roofline fades from signal red into blush",
+        "A soft 'B' built from two stacked rounded rooms with a glowing doorway"
+      ],
+      "background_color": "#F6F6F4",
+      "text_color": "#22262B"
+    },
+    {
+      "stage": "palette",
+      "name": "Launch Haze",
+      "premise": "Aerospace-clean: lunar white and brushed aluminium greys, a deep ignition red used sparingly, and a dawn-mauve haze like a launch at first light.",
+      "keywords": ["precise", "premium", "engineered", "quiet"],
+      "palette": [
+        { "hex": "#F3F4F6", "name": "Lunar" },
+        { "hex": "#1B1E23", "name": "Carbon" },
+        { "hex": "#D7263D", "name": "Ignition Red" },
+        { "hex": "#C9CED6", "name": "Aluminium" },
+        { "hex": "#EADDE4", "name": "Dawn Mauve" },
+        { "hex": "#6E7680", "name": "Titanium" }
+      ],
+      "logo_ideas": [
+        "A smooth upward arc rising off a level base line, like a structure going up",
+        "A rounded monogram with a single red ignition point"
+      ],
+      "background_color": "#F3F4F6",
+      "text_color": "#1B1E23"
+    },
+    {
+      "stage": "palette",
+      "name": "Pastel Aurora",
+      "premise": "The softest of the three: a warm porcelain base, slate type, coral red, and a peach-to-periwinkle aurora that drifts behind marks and motion.",
+      "keywords": ["friendly", "soft", "optimistic", "modern"],
+      "palette": [
+        { "hex": "#FBF8F7", "name": "Porcelain" },
+        { "hex": "#3A3F47", "name": "Slate" },
+        { "hex": "#F0645A", "name": "Coral Red" },
+        { "hex": "#FFD6CF", "name": "Peach" },
+        { "hex": "#D9DCF2", "name": "Periwinkle" },
+        { "hex": "#B8BEC6", "name": "Mist Grey" }
+      ],
+      "logo_ideas": [
+        "Overlapping translucent rounded tiles forming a house, coral fading through peach to periwinkle",
+        "A friendly rounded roof-and-door mark with a soft aurora glow"
+      ],
+      "background_color": "#FBF8F7",
+      "text_color": "#3A3F47"
+    }
+  ]
+}

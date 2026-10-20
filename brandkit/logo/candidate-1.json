@@ -1,0 +1,33 @@
+{
+  "model": "recraft/v4.1/text-to-image",
+  "input": {
+    "prompt": "Lettermark monogram of the single capital letter B, constructed as a minimal architectural floor plan of two stacked rectangular rooms, the upper room slightly shorter than the lower room, drawn with thick uniform solid wall strokes, crisp right-angle inner corners and gently softened outer corners, the left side one continuous vertical wall. The distinctive element: the outer right wall of the lower room has one clean doorway gap, and a single quarter-circle door-swing arc of the same stroke weight sweeps into the room from that gap. Strictly orthogonal walls, generous even interior spaces that stay open at small sizes, no furniture and no extra detail. Refined, quiet, high-end technical register, compact and confident like a premium tech glyph. Strictly one color: walls and door arc in the locked primary tone on the locked background, solid flat fill, no gradient. Centered, isolated, generous clear space around the mark, square composition. Flat vector design, clean lines, no shadows, no texture, no text. Clean editable vector paths, SVG-friendly, minimal anchor points.",
+    "aspect_ratio": "1:1",
+    "model_type": "vector",
+    "colors": [
+      {
+        "rgb": [
+          200,
+          162,
+          94
+        ]
+      }
+    ],
+    "background_color": {
+      "rgb": [
+        14,
+        20,
+        32
+      ]
+    }
+  },
+  "request_id": "8cdee591-dbdb-4e27-b08d-c466f02c12f9",
+  "status": "completed",
+  "error": null,
+  "outputs": [
+    "https://d3u0tzju9qaucj.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/c00e5de0-0ec0-45c8-b25b-1af3939ac3b1.jpeg"
+  ],
+  "files": [
+    "C:\\Users\\great\\AI-Projects\\BuildyourOwn\\brandkit\\logo\\candidate-1.jpeg"
+  ]
+}

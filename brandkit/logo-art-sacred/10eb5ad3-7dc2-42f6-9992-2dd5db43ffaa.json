@@ -1,0 +1,11 @@
+{
+  "status": "completed",
+  "request_id": "10eb5ad3-7dc2-42f6-9992-2dd5db43ffaa",
+  "status_url": "https://api.higgsfield.ai/requests/10eb5ad3-7dc2-42f6-9992-2dd5db43ffaa/status",
+  "cancel_url": "https://api.higgsfield.ai/requests/10eb5ad3-7dc2-42f6-9992-2dd5db43ffaa/cancel",
+  "images": [
+    {
+      "url": "https://d3u0tzju9qaucj.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/fa466b3c-3923-4430-b047-f95abec9c46b.png"
+    }
+  ]
+}

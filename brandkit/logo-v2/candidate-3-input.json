@@ -1,0 +1,36 @@
+{
+  "prompt": "Abstract logo mark of three overlapping rounded squares stepping diagonally upward like storeys of a building rising, each tile with large soft corner radii, rendered as translucent layers so their overlaps blend into new intermediate tints. The lowest tile warm signal red, the middle soft blush pink, the top pale lilac, overlaps showing gentle mixed hues. Calm, airy, optimistic premium tech register. Centered and isolated on a plain light background with generous clear space, square composition, crisp clean vector paths, smooth curves, no hard sharp corners, no shadows, no 3D, no texture, no outlines around the mark, no text.",
+  "aspect_ratio": "1:1",
+  "output_format": "png",
+  "model_type": "vector",
+  "colors": [
+    {
+      "rgb": [
+        226,
+        72,
+        61
+      ]
+    },
+    {
+      "rgb": [
+        244,
+        182,
+        176
+      ]
+    },
+    {
+      "rgb": [
+        217,
+        211,
+        236
+      ]
+    }
+  ],
+  "background_color": {
+    "rgb": [
+      246,
+      246,
+      244
+    ]
+  }
+}
