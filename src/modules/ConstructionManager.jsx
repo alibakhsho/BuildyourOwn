@@ -36,6 +36,8 @@ import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
 import { track } from "../lib/analytics.js";
+import ContractDialog from "../components/ContractDialog.jsx";
+import { dollars, feePreviewCents } from "../logic/marketplace.js";
 
 const JOB_MODULES = [
   { id: "overview", label: "Overview" },
@@ -428,6 +430,8 @@ function Overview({ job, fin, cur, onOpenEstimator, onModule }) {
           </Panel>
         );
       })()}
+
+      {["won", "in_progress", "practical_completion", "closed"].includes(job.status) && <PlatformFeePanel job={job} fin={fin} />}
 
       {fin.atRiskCount > 0 && (
         <Panel title={`${fin.atRiskCount} cost centre${fin.atRiskCount === 1 ? "" : "s"} over budget`} tone="alert">
@@ -899,6 +903,50 @@ function Diary({ job }) {
         </div>
       )}
     </>
+  );
+}
+
+/* ---- Platform fee: record the signed contract --------------------------- */
+
+/* Once a job is won, the builder records the signed contract with
+   BuildYourOwn; the 1.5% platform fee is worked out from it and lands in
+   their fee ledger (My marketplace → Fees). The record lives in the cloud;
+   the job keeps a note of it so this panel knows it's done. */
+function PlatformFeePanel({ job, fin }) {
+  const [open, setOpen] = useState(false);
+  const rec = job.platformContract;
+  const client = job.clientId ? CM.getClient(job.clientId) : null;
+  const valueCents = Math.round((fin.contractSum || 0) * 100);
+  if (rec) {
+    return (
+      <Panel title="Contract recorded with BuildYourOwn">
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6 }}>
+          {dollars(rec.valueCents)} signed{rec.signedOn ? ` on ${new Date(rec.signedOn).toLocaleDateString("en-AU")}` : ""} · platform fee {dollars(rec.feeCents)} (1.5%).
+          Corrections for 14 days under Marketplace → My marketplace → Fees.
+        </p>
+      </Panel>
+    );
+  }
+  return (
+    <Panel title="Record the signed contract" tone="warn">
+      <p style={{ margin: "0 0 10px", fontSize: 13, lineHeight: 1.6 }}>
+        BuildYourOwn's platform fee is 1.5% of the signed contract value, ex GST
+        {valueCents > 0 ? <> — {dollars(feePreviewCents(valueCents))} on {dollars(valueCents)}</> : null}. It's invoiced separately; nothing is charged here.
+      </p>
+      <button className="ec-btn ec-btn-ghost" onClick={() => setOpen(true)}>Contract signed</button>
+      {open && (
+        <ContractDialog
+          initial={{ clientName: client?.company || client?.name || "", valueCents: valueCents > 0 ? valueCents : null,
+                     sitePostcode: (job.siteAddress || "").match(/\b(\d{4})\b(?!.*\b\d{4}\b)/)?.[1] || "" }}
+          link={{ source: "site_office", jobRef: job.id, jobName: job.name }}
+          context={`${job.jobNo} · ${job.name}`}
+          onClose={() => setOpen(false)}
+          onSaved={(c) => {
+            setOpen(false);
+            CM.updateJob(job.id, { platformContract: { id: c.id, valueCents: c.valueCents, feeCents: c.feeCents, signedOn: c.signedOn } });
+          }} />
+      )}
+    </Panel>
   );
 }
 

@@ -1,4 +1,4 @@
-/* Vercel serverless health check — GET /api/health → { ok, hasKey, billing }.
+/* Vercel serverless health check — GET /api/health → { ok, hasKey, billing, email }.
    Lets you confirm the deployment picked up its env vars without ever
    exposing a value: only whether each is set (and, for Stripe, whether the
    key is a test or live one). Mirrors server/index.js's /api/health. */
@@ -22,6 +22,11 @@ export function healthReport() {
       stripeKey: stripeKeyKind(process.env.STRIPE_SECRET_KEY || ""),
       supabaseSecretKey: set("SUPABASE_SECRET_KEY") || set("SUPABASE_SERVICE_ROLE_KEY"),
       webhookSecret: set("STRIPE_WEBHOOK_SECRET"),
+    },
+    // Marketplace enquiry alerts (api/market/notify.js).
+    email: {
+      resendKey: set("RESEND_API_KEY"),
+      fromSet: set("MARKET_EMAIL_FROM"),
     },
   };
 }

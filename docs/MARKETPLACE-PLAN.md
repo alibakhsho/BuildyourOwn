@@ -103,6 +103,13 @@ Four sides, one job record connecting them:
 
 ---
 
+### Enquiry alerts and the 1.5% fee (built Oct 2026)
+- **Alerts:** when a buyer sends an enquiry, the seller gets an email (Reply goes straight to the buyer) and a badge on **Marketplace** in the app. Server route `api/market/notify.js`; one email per enquiry, only triggered by the buyer who sent it, within 15 minutes.
+  - Setup: make a [Resend](https://resend.com) account, verify the sending domain (buildyourown.dev), then set on Vercel: `RESEND_API_KEY`, `MARKET_EMAIL_FROM` (e.g. `BuildYourOwn <enquiries@buildyourown.dev>`) and `SUPABASE_SECRET_KEY` (already used by billing). `/api/health` shows whether they're set. Without them, enquiries still arrive in the app; only the email is skipped.
+- **Contracts and fees:** a builder records a signed contract from an enquiry (**Contract signed**) or from a won Site Office job (Overview → **Record the signed contract**). The database works out the fee (1.5% ex GST, `contracts.fee_cents`) and the builder sees it under **My marketplace → Fees**. Builders can correct or void a record for 14 days while it's "recorded"; after that it's locked.
+  - Staff (Supabase dashboard → `contracts`): set `status` to `invoiced` / `paid`, or change `fee_rate` for a special deal. Billing the fee (Stripe invoice) is the next step.
+  - Migration: `supabase/migrations/20261021000000_enquiry_alerts_and_contract_fees.sql` (after the marketplace migration).
+
 ## 4. Roadmap
 
 | Phase | Scope | Builds on |

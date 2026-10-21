@@ -260,3 +260,90 @@ export function sellerStats({ listings = [], enquiries = [], portfolio = [] } = 
     portfolio: portfolio.length,
   };
 }
+
+/* ---- Signed contracts: the 1.5% platform fee ----------------------------
+   The database computes the fee (contracts.fee_cents) from the value and a
+   staff-set rate; this side previews it and checks the form. */
+
+export const CONTRACT_STATUS = {
+  recorded: { label: "Recorded", note: "Fee to be invoiced" },
+  invoiced: { label: "Invoiced", note: "Fee invoiced" },
+  paid: { label: "Paid", note: "Fee paid" },
+  void: { label: "Void", note: "No fee" },
+};
+/** How long a builder can correct or void their own record (matches the RLS policy). */
+export const CONTRACT_EDIT_DAYS = 14;
+
+export const feePreviewCents = (valueCents) =>
+  Math.round((Number(valueCents) || 0) * PLATFORM_FEES.contract.rate);
+
+/** YYYY-MM-DD in the user's own timezone (toISOString is UTC: in an
+ *  Australian morning that's still yesterday). */
+export function localDate(d = new Date()) {
+  const z = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+}
+
+export function contractProblems(c = {}, today = new Date()) {
+  const out = [];
+  if (!(c.clientName || "").trim()) out.push("Add the client's name");
+  if (!(Number.isInteger(c.valueCents) && c.valueCents > 0)) out.push("Enter the contract value (ex GST)");
+  else if (c.valueCents >= 100000000000000) out.push("That contract value looks too large");
+  if (c.sitePostcode && !/^\d{4}$/.test(c.sitePostcode)) out.push("A postcode is 4 digits");
+  if (c.signedOn) {
+    if (c.signedOn > localDate(today)) out.push("The signing date can't be in the future");
+  }
+  return out;
+}
+
+export function contractFromRow(r = {}) {
+  return {
+    id: r.id,
+    source: r.source,
+    enquiryId: r.enquiry_id || null,
+    listingId: r.listing_id || null,
+    jobRef: r.job_ref || null,
+    jobName: r.job_name || "",
+    clientName: r.client_name || "",
+    sitePostcode: r.site_postcode || "",
+    valueCents: Number(r.contract_value_cents) || 0,
+    feeCents: Number(r.fee_cents) || 0,
+    feeRate: Number(r.fee_rate) || 0,
+    signedOn: r.signed_on || "",
+    status: r.status || "recorded",
+    notes: r.notes || "",
+    createdAt: r.created_at,
+  };
+}
+
+/** Only what a builder may write (fee_rate and status are staff's). */
+export function contractToRow(c) {
+  return {
+    client_name: (c.clientName || "").trim(),
+    site_postcode: (c.sitePostcode || "").trim() || null,
+    contract_value_cents: Math.round(Number(c.valueCents) || 0),
+    signed_on: c.signedOn || null,
+    notes: (c.notes || "").trim() || null,
+  };
+}
+
+/** Can the builder still correct or void this record? */
+export function contractEditable(c, now = Date.now()) {
+  if (c.status !== "recorded" || !c.createdAt) return false;
+  return now - Date.parse(c.createdAt) < CONTRACT_EDIT_DAYS * 86400000;
+}
+
+/** Ledger roll-up for the builder's Fees view. Void records count for nothing. */
+export function feeSummary(contracts = []) {
+  const live = contracts.filter((c) => c.status !== "void");
+  const sum = (list, k) => list.reduce((n, c) => n + (c[k] || 0), 0);
+  return {
+    count: live.length,
+    valueCents: sum(live, "valueCents"),
+    feesCents: sum(live, "feeCents"),
+    owingCents: sum(live.filter((c) => c.status === "recorded" || c.status === "invoiced"), "feeCents"),
+    paidCents: sum(live.filter((c) => c.status === "paid"), "feeCents"),
+  };
+}
+
+export const dollars = (cents) => `A$${(Math.round(Number(cents) || 0) / 100).toLocaleString("en-AU", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;

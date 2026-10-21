@@ -21,7 +21,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowLeft, BadgeCheck, Bath, BedDouble, Building2, Eye, FileText, Hammer, ImagePlus, Inbox, Layers,
+  ArrowLeft, BadgeCheck, Bath, BedDouble, Building2, Eye, FileSignature, FileText, Hammer, ImagePlus, Inbox, Layers,
   MapPin, Plus, Ruler, Search, Store, Timer, Trash2, Truck, X,
 } from "lucide-react";
 
@@ -30,12 +30,14 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "../state/auth.jsx";
 import AuthModal from "../components/AuthModal.jsx";
+import ContractDialog from "../components/ContractDialog.jsx";
 import { planRank } from "../lib/entitlements.js";
 import { track } from "../lib/analytics.js";
 import * as MK from "../state/marketplace.js";
 import {
   STATES, LISTING_KINDS, SALE_MODES, PRO_KINDS, PREFAB_SITE_WORKS, PLATFORM_FEES,
   publishProblems, fieldProblems, listingFeeLabel, prefabExtras, priceLabel, sellerStats,
+  CONTRACT_STATUS, contractEditable, feeSummary, dollars,
 } from "../logic/marketplace.js";
 
 /* Open dialogs, newest last — the phone's Back button closes these first. */
@@ -71,9 +73,9 @@ function useLoad(fn, deps) {
 
 /* ======================================================================== */
 
-export default function Marketplace({ onUpgrade, backRef }) {
+export default function Marketplace({ onUpgrade, backRef, initialTab = "browse" }) {
   // { name: "browse" | "pros" | "listing" | "pro" | "mine", id? }
-  const [route, setRoute] = useState({ name: "browse" });
+  const [route, setRoute] = useState({ name: initialTab });
   const [history, setHistory] = useState([]);
   const go = (next) => { setHistory((h) => [...h, route]); setRoute(next); window.scrollTo({ top: 0 }); };
   const back = () => { setRoute(history[history.length - 1] || { name: "browse" }); setHistory((h) => h.slice(0, -1)); window.scrollTo({ top: 0 }); };
@@ -104,6 +106,30 @@ export default function Marketplace({ onUpgrade, backRef }) {
       {route.name === "pro" && <ProPage id={route.id} onBack={back} onListing={(id) => go({ name: "listing", id })} />}
       {route.name === "mine" && <MyMarket onUpgrade={onUpgrade} onOpenListing={(id) => go({ name: "listing", id })} onOpenPro={(id) => go({ name: "pro", id })} />}
     </Shell>
+  );
+}
+
+/* ---- Header badge: new enquiries waiting for the signed-in seller ------- */
+
+export function MarketBadge() {
+  const { user } = useAuth();
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    if (!user?.id) { setN(0); return; }
+    let live = true;
+    const check = () => MK.newEnquiryCount(user.id).then((c) => live && setN(c));
+    check();
+    const t = setInterval(check, 60_000);
+    window.addEventListener("focus", check);
+    window.addEventListener("byo:enquiries-changed", check);
+    return () => { live = false; clearInterval(t); window.removeEventListener("focus", check); window.removeEventListener("byo:enquiries-changed", check); };
+  }, [user?.id]);
+  if (!n) return null;
+  return (
+    <span aria-label={`${n} new enquir${n === 1 ? "y" : "ies"}`}
+      className="ml-1.5 inline-grid min-w-[18px] place-items-center rounded-full bg-hivis px-1 font-mono text-[10px] font-bold leading-[18px] text-on-hivis">
+      {n > 99 ? "99+" : n}
+    </span>
   );
 }
 
@@ -614,10 +640,10 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
   const pro = useLoad(() => (uid ? MK.getMyPro(uid) : Promise.resolve(null)), [uid]);
   const data = useLoad(async () => {
     if (!uid) return null;
-    const [listings, enquiries, portfolio, sent] = await Promise.all([
-      MK.myListings(uid), MK.myEnquiries(uid), MK.myPortfolio(uid), MK.mySentEnquiries(uid),
+    const [listings, enquiries, portfolio, sent, contracts] = await Promise.all([
+      MK.myListings(uid), MK.myEnquiries(uid), MK.myPortfolio(uid), MK.mySentEnquiries(uid), MK.myContracts(uid),
     ]);
-    return { listings, enquiries, portfolio, sent };
+    return { listings, enquiries, portfolio, sent, contracts };
   }, [uid]);
 
   if (!enabled || !user) {
@@ -643,6 +669,7 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
     return (
       <>
         <StartSelling can={can} onUpgrade={onUpgrade} onCreated={reload} uid={uid} />
+        {d.contracts.length > 0 && <div className="mb-8"><FeesLedger contracts={d.contracts} onChanged={data.reload} /></div>}
         <SentEnquiries sent={d.sent} onOpenListing={onOpenListing} onOpenPro={onOpenPro} />
       </>
     );
@@ -652,8 +679,9 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
   const canList = me.kind === "builder" && planRank(can.tier) >= planRank("business");
   const SUBS = [
     ["overview", "Overview"], ["enquiries", `Enquiries${stats.newEnquiries ? ` · ${stats.newEnquiries}` : ""}`],
-    ...(me.kind === "builder" ? [["listings", "Listings"]] : []), ["portfolio", "Portfolio"], ["profile", "Profile"], ["sent", "Sent"],
+    ...(me.kind === "builder" ? [["listings", "Listings"]] : []), ["portfolio", "Portfolio"], ["fees", "Fees"], ["profile", "Profile"], ["sent", "Sent"],
   ];
+  const fees = feeSummary(d.contracts);
 
   return (
     <>
@@ -688,7 +716,7 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
       {sub === "overview" && (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.4fr_1fr]">
           <Section title="Latest enquiries" action={<Button variant="subtle" size="xs" onClick={() => setSub("enquiries")}>All</Button>}>
-            <EnquiryList rows={d.enquiries.slice(0, 5)} onChanged={data.reload} compact />
+            <EnquiryList rows={d.enquiries.slice(0, 5)} onChanged={data.reload} contracts={d.contracts} compact />
           </Section>
           <div className="space-y-5">
             {me.kind === "builder" && (
@@ -705,7 +733,13 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
                 )}
               </Section>
             )}
-            <Section title="Fees">
+            <Section title="Fees" action={<Button variant="subtle" size="xs" onClick={() => setSub("fees")}>Ledger</Button>}>
+              {fees.count > 0 && (
+                <div className="mb-2 flex items-baseline justify-between gap-3 border border-rule bg-card px-3 py-2">
+                  <span className="text-sm text-ink-soft">{fees.count} signed contract{fees.count === 1 ? "" : "s"} · fees owing</span>
+                  <span className="font-mono text-sm font-bold tabular-nums text-ink">{dollars(fees.owingCents)}</span>
+                </div>
+              )}
               <div className="divide-y divide-rule border border-rule bg-card text-sm">
                 <div className="flex justify-between gap-3 px-3 py-2"><span className="text-ink-soft">Build contracts signed through BuildYourOwn</span><span className="shrink-0 font-semibold text-ink">1.5%</span></div>
                 <div className="flex justify-between gap-3 px-3 py-2"><span className="text-ink-soft">House plans & prefab modules</span><span className="shrink-0 font-semibold text-ink">{PLATFORM_FEES.plan.label}</span></div>
@@ -717,10 +751,11 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
       )}
 
       {sub === "enquiries" && (
-        <Section title="Enquiries" sub="Reply by email or phone, then mark them so nothing slips.">
-          <EnquiryList rows={d.enquiries} onChanged={data.reload} />
+        <Section title="Enquiries" sub="Reply by email or phone, then mark them so nothing slips. Won one? Record the signed contract.">
+          <EnquiryList rows={d.enquiries} onChanged={data.reload} contracts={d.contracts} />
         </Section>
       )}
+      {sub === "fees" && <FeesLedger contracts={d.contracts} onChanged={data.reload} />}
       {sub === "listings" && me.kind === "builder" && (
         <ListingsManager uid={uid} listings={d.listings} canList={canList} onUpgrade={onUpgrade} onChanged={data.reload} onPreview={onOpenListing} />
       )}
@@ -798,9 +833,11 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
 
 /* ---- Enquiries --------------------------------------------------------- */
 
-function EnquiryList({ rows, onChanged, compact }) {
+function EnquiryList({ rows, onChanged, compact, contracts = [] }) {
   const [open, setOpen] = useState(null);
   const [error, setError] = useState("");
+  const [signing, setSigning] = useState(null);
+  const contractFor = (e) => contracts.find((c) => c.enquiryId === e.id && c.status !== "void");
   if (!rows.length) return <Notice>No enquiries yet. They'll land here as buyers get in touch.</Notice>;
   const setStatus = async (e, status) => {
     setError("");
@@ -824,7 +861,7 @@ function EnquiryList({ rows, onChanged, compact }) {
                   {e.postcode ? ` · ${e.postcode}` : ""}
                 </div>
               </div>
-              <Badge variant={e.status === "new" ? "hivis" : e.status === "replied" ? "ok" : "muted"}>{e.status}</Badge>
+              <Badge variant={e.status === "new" ? "hivis" : e.status === "won" ? "emphasis" : e.status === "replied" ? "ok" : "muted"}>{e.status}</Badge>
             </button>
             {expanded && (
               <div className="mt-2 space-y-2">
@@ -832,10 +869,13 @@ function EnquiryList({ rows, onChanged, compact }) {
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <a className="ec-link" href={`mailto:${e.contact_email}?subject=${encodeURIComponent(e.listing?.title ? `Re: ${e.listing.title}` : "Your BuildYourOwn enquiry")}`}>{e.contact_email}</a>
                   {e.contact_phone && <a className="ec-link" href={`tel:${e.contact_phone}`}>{e.contact_phone}</a>}
-                  <span className="ml-auto flex gap-1">
-                    {e.status !== "replied" && <Button size="xs" variant="outline" onClick={() => setStatus(e, "replied")}>Mark replied</Button>}
-                    {e.status !== "closed" && <Button size="xs" variant="outline" onClick={() => setStatus(e, "closed")}>Close</Button>}
-                    {e.status !== "new" && <Button size="xs" variant="subtle" onClick={() => setStatus(e, "new")}>Reopen</Button>}
+                  <span className="ml-auto flex flex-wrap justify-end gap-1">
+                    {contractFor(e)
+                      ? <Badge variant="ok">Contract {dollars(contractFor(e).valueCents)} · fee {dollars(contractFor(e).feeCents)}</Badge>
+                      : <Button size="xs" variant="hivis" onClick={() => setSigning(e)}><FileSignature className="size-3" /> Contract signed</Button>}
+                    {!["replied", "won"].includes(e.status) && <Button size="xs" variant="outline" onClick={() => setStatus(e, "replied")}>Mark replied</Button>}
+                    {!["closed", "won"].includes(e.status) && <Button size="xs" variant="outline" onClick={() => setStatus(e, "closed")}>Close</Button>}
+                    {e.status !== "new" && e.status !== "won" && <Button size="xs" variant="subtle" onClick={() => setStatus(e, "new")}>Reopen</Button>}
                   </span>
                 </div>
               </div>
@@ -843,7 +883,78 @@ function EnquiryList({ rows, onChanged, compact }) {
           </div>
         );
       })}
+      {signing && (
+        <ContractDialog
+          initial={{ clientName: signing.contact_name, sitePostcode: signing.postcode || "" }}
+          link={{ source: "marketplace", enquiryId: signing.id, listingId: signing.listing_id || null }}
+          context={signing.listing?.title ? `From the enquiry about "${signing.listing.title}".` : "From a marketplace enquiry."}
+          onClose={() => setSigning(null)}
+          onSaved={() => { setSigning(null); onChanged(); }} />
+      )}
     </div>
+  );
+}
+
+/* ---- Fees ledger: signed contracts and the 1.5% ------------------------- */
+
+function FeesLedger({ contracts, onChanged }) {
+  const [editing, setEditing] = useState(null);
+  const [error, setError] = useState("");
+  const f = feeSummary(contracts);
+  const voidIt = async (c) => {
+    if (!confirm(`Void the contract with ${c.clientName}? No fee will be charged for it.`)) return;
+    setError("");
+    try { await MK.voidContract(c.id); onChanged(); } catch (e) { setError(e.message); }
+  };
+  const SOURCE = { marketplace: "Marketplace", site_office: "Site Office", other: "Other" };
+  return (
+    <Section title="Platform fees" sub="1.5% of each build contract signed through BuildYourOwn, ex GST. Invoiced separately; nothing is charged in the app.">
+      <HairGrid cols="grid-cols-2 lg:grid-cols-4" className="mb-4">
+        <Kpi label="Fees owing" value={dollars(f.owingCents)} foot="Recorded and invoiced" icon={FileSignature} accent />
+        <Kpi label="Fees paid" value={dollars(f.paidCents)} foot="All time" />
+        <Kpi label="Contracts" value={f.count} foot="Signed through BuildYourOwn" />
+        <Kpi label="Contract value" value={dollars(f.valueCents)} foot="Ex GST" />
+      </HairGrid>
+      {error && <p className="mb-2 text-xs text-alert">{error}</p>}
+      {!contracts.length ? (
+        <Notice>No contracts recorded yet. When an enquiry or a Site Office job turns into a signed contract, record it there.</Notice>
+      ) : (
+        <div className="overflow-x-auto border border-rule bg-card">
+          <table className="w-full min-w-[620px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-rule">
+                {["Signed", "Client", "From", "Value", "Fee", "Status", ""].map((h, i) => (
+                  <th key={i} className={cn("px-3 py-2 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-steel", i >= 3 && i <= 4 ? "text-right" : "text-left")}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {contracts.map((c) => (
+                <tr key={c.id} className={cn("border-b border-rule/60 last:border-0", c.status === "void" && "opacity-50")}>
+                  <td className="px-3 py-2 font-mono text-[11px] text-steel">{c.signedOn ? new Date(c.signedOn).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "—"}</td>
+                  <td className="max-w-[200px] truncate px-3 py-2 text-ink">{c.clientName}{c.jobName && <span className="text-steel"> · {c.jobName}</span>}</td>
+                  <td className="px-3 py-2 text-[11px] text-steel">{SOURCE[c.source] || c.source}</td>
+                  <td className="px-3 py-2 text-right font-mono text-[12px] tabular-nums text-ink-soft">{dollars(c.valueCents)}</td>
+                  <td className="px-3 py-2 text-right font-mono text-[12px] font-bold tabular-nums text-ink">{dollars(c.feeCents)}</td>
+                  <td className="px-3 py-2"><Badge variant={c.status === "paid" ? "ok" : c.status === "void" ? "muted" : c.status === "invoiced" ? "hivis" : "outline"}>{CONTRACT_STATUS[c.status]?.label || c.status}</Badge></td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right">
+                    {contractEditable(c) && (
+                      <>
+                        <Button size="xs" variant="subtle" onClick={() => setEditing(c)}>Edit</Button>
+                        <Button size="xs" variant="subtle" onClick={() => voidIt(c)}>Void</Button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {editing && (
+        <ContractDialog initial={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); onChanged(); }} />
+      )}
+    </Section>
   );
 }
 

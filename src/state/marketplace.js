@@ -18,6 +18,7 @@ import { supabase } from "../lib/supabase.js";
 import { normaliseImage, downscaleForVision } from "./blobstore.js";
 import {
   listingFromRow, listingToRow, proFromRow, proToRow, portfolioFromRow, portfolioToRow,
+  contractFromRow, contractToRow,
 } from "../logic/marketplace.js";
 
 const BUCKET = "marketplace";
@@ -179,9 +180,40 @@ export async function sendEnquiry({ sellerId, listingId = null, name, email, pho
     message: (message || "").trim(),
   };
   if (!row.contact_name || !row.contact_email || !row.message) throw new Error("Add your name, email and a message.");
-  // No .select(): the buyer can read their own enquiry, but returning it
-  // isn't needed and keeps this a plain insert.
-  await run(need().from("enquiries").insert(row), "This seller isn't taking enquiries right now.");
+  const saved = await run(need().from("enquiries").insert(row).select("id").single(), "This seller isn't taking enquiries right now.");
+  notifySeller(saved?.id);
+  return saved?.id;
+}
+
+const API = import.meta.env?.VITE_AI_BACKEND || "";
+
+/** Ask our server to email the seller. Fire-and-forget: the enquiry is
+ *  already in their inbox in the app, so a failed email never bothers the
+ *  buyer. The server checks it's this buyer's own, recent, un-notified one. */
+export async function notifySeller(enquiryId) {
+  if (!enquiryId || !supabase) return;
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return;
+    const res = await fetch(`${API}/api/market/notify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ enquiryId }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!json.sent && json.reason) console.info("[market] seller not emailed:", json.reason);
+  } catch (e) {
+    console.info("[market] seller not emailed:", e.message);
+  }
+}
+
+/** New enquiries waiting for the signed-in seller — the badge on Marketplace. */
+export async function newEnquiryCount(userId) {
+  if (!supabase || !userId) return 0;
+  const { count, error } = await supabase.from("enquiries").select("id", { count: "exact", head: true })
+    .eq("seller_id", userId).eq("status", "new");
+  return error ? 0 : count || 0;
 }
 
 /** Enquiries sent TO the signed-in seller. */
@@ -198,6 +230,8 @@ export async function mySentEnquiries(userId) {
 
 export async function setEnquiryStatus(id, status) {
   await run(need().from("enquiries").update({ status }).eq("id", id));
+  // The header badge counts new enquiries; let it refresh now.
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("byo:enquiries-changed"));
 }
 
 /* ---- The signed-in seller's own records -------------------------------- */
@@ -262,4 +296,52 @@ export async function savePortfolioItem(userId, item) {
 export async function deletePortfolioItem(item) {
   await run(need().from("portfolio_items").delete().eq("id", item.id));
   await removeMedia(item.mediaPaths);
+}
+
+/* ---- Signed contracts (the 1.5% fee) ----------------------------------- */
+
+/* Until the contracts migration is applied, the dashboard should still load. */
+const missingTable = (e) => /relation .* does not exist|Could not find the table|schema cache/i.test(e?.message || "");
+
+export async function myContracts(userId) {
+  if (!supabase || !userId) return [];
+  const { data, error } = await supabase.from("contracts").select("*").eq("builder_id", userId).order("signed_on", { ascending: false });
+  if (error) { if (missingTable(error)) return []; fail(error); }
+  return (data || []).map(contractFromRow);
+}
+
+/** Record a signed contract. `link` carries where it came from:
+ *  { source: "marketplace", enquiryId, listingId } or { source: "site_office", jobRef, jobName }. */
+export async function recordContract(userId, contract, link = {}) {
+  const row = {
+    ...contractToRow(contract),
+    builder_id: userId,
+    source: link.source || "other",
+    enquiry_id: link.enquiryId || null,
+    listing_id: link.listingId || null,
+    job_ref: link.jobRef || null,
+    job_name: link.jobName || null,
+  };
+  const { data, error } = await need().from("contracts").insert(row).select().single();
+  if (error) {
+    if (/contracts_one_per_enquiry|contracts_one_per_job|duplicate key/i.test(error.message)) {
+      throw new Error("A contract is already recorded for this. Find it under My marketplace → Fees.");
+    }
+    if (missingTable(error)) throw new Error("Contract recording isn't switched on yet — the database update still needs applying.");
+    fail(error, "You can only record contracts for your own enquiries, listings and jobs.");
+  }
+  if (link.enquiryId) await setEnquiryStatus(link.enquiryId, "won").catch(() => {});
+  return contractFromRow(data);
+}
+
+export async function updateContract(id, contract) {
+  const data = await run(need().from("contracts").update(contractToRow(contract)).eq("id", id).select().maybeSingle());
+  if (!data) throw new Error("This record is locked — it's been invoiced, or it's more than 14 days old. Contact us to change it.");
+  return contractFromRow(data);
+}
+
+export async function voidContract(id) {
+  const data = await run(need().from("contracts").update({ status: "void" }).eq("id", id).select().maybeSingle());
+  if (!data) throw new Error("This record is locked — contact us to void it.");
+  return contractFromRow(data);
 }

@@ -64,5 +64,24 @@ ok("seller stats", M.sellerStats({
   portfolio: [{}, {}, {}],
 }), { live: 1, drafts: 1, hidden: 1, views: 13, newEnquiries: 1, totalEnquiries: 2, portfolio: 3 });
 
+// --- Signed contracts and the 1.5% fee ---
+ok("fee preview is 1.5%", M.feePreviewCents(45000000), 675000);
+ok("a good contract has no problems", M.contractProblems({ clientName: "Priya", valueCents: 45000000, signedOn: "2026-10-20", sitePostcode: "4870" }, new Date("2026-10-21")), []);
+ok("contract needs a client and a value", M.contractProblems({}, new Date("2026-10-21")).length, 2);
+ok("future signing date refused", M.contractProblems({ clientName: "P", valueCents: 1, signedOn: "2026-12-01" }, new Date("2026-10-21")), ["The signing date can't be in the future"]);
+ok("bad postcode refused", M.contractProblems({ clientName: "P", valueCents: 1, sitePostcode: "48" }), ["A postcode is 4 digits"]);
+ok("builder can't write fee or status", Object.keys(M.contractToRow({ clientName: "P", valueCents: 1, feeRate: 0, status: "paid" })).some((k) => ["fee_rate", "status", "fee_cents", "builder_id"].includes(k)), false);
+const fresh = { status: "recorded", createdAt: new Date(Date.now() - 86400000).toISOString() };
+ok("editable for 14 days while recorded", [M.contractEditable(fresh), M.contractEditable({ ...fresh, status: "invoiced" }), M.contractEditable({ ...fresh, createdAt: new Date(Date.now() - 15 * 86400000).toISOString() })], [true, false, false]);
+ok("fee ledger ignores void, splits owing and paid", M.feeSummary([
+  { status: "recorded", valueCents: 45000000, feeCents: 675000 },
+  { status: "invoiced", valueCents: 10000000, feeCents: 150000 },
+  { status: "paid", valueCents: 20000000, feeCents: 300000 },
+  { status: "void", valueCents: 99900000, feeCents: 1498500 },
+]), { count: 3, valueCents: 75000000, feesCents: 1125000, owingCents: 825000, paidCents: 300000 });
+ok("dollars", M.dollars(675000), "A$6,750");
+ok("local date, not UTC", M.localDate(new Date(2026, 9, 21, 7, 30)), "2026-10-21");
+ok("today is allowed as a signing date", M.contractProblems({ clientName: "P", valueCents: 1, signedOn: M.localDate() }), []);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

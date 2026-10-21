@@ -60,7 +60,7 @@ import BuildRequirements from "./components/BuildRequirements.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
-import Marketplace from "./modules/Marketplace.jsx";
+import Marketplace, { MarketBadge } from "./modules/Marketplace.jsx";
 import { useNativeBack } from "./lib/native.js";
 import {
   updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
@@ -1828,7 +1828,19 @@ export default function App() {
   /* ---- Workspace navigation: landing → projects → project workspace ----
      Every project lives in ONE workspace, walked as a linear workflow:
      Estimate → 3D → Materials → Timeline → AI → Quote → Proposal. */
-  const [screen, setScreen] = useState("landing");     // landing | projects | workspace
+  // The seller's alert email links to /?open=market — land on their inbox.
+  const [marketDeepLink] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("open") === "market"; } catch { return false; }
+  });
+  const [screen, setScreen] = useState(() => (marketDeepLink ? "market" : "landing"));     // landing | projects | workspace | manage | market
+  useEffect(() => {
+    if (!marketDeepLink) return;
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("open");
+      window.history.replaceState(null, "", u.pathname + u.search + u.hash);
+    } catch { /* cosmetic only */ }
+  }, [marketDeepLink]);
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
   // Set when the estimator hands a quote to a specific job, so Site Office
@@ -2580,7 +2592,7 @@ export default function App() {
                 Open to everyone: browsing needs no account or plan. */}
             <button className={"ec-btn ec-btn-ghost" + (screen === "market" ? " ec-btn-ghost-on" : "")}
               onClick={() => { setScreen("market"); window.scrollTo({ top: 0 }); }}>
-              Marketplace
+              Marketplace<MarketBadge />
             </button>
             {screen === "workspace" && (
               <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
@@ -2659,7 +2671,7 @@ export default function App() {
       )}
 
       {/* ============== MARKETPLACE ============== */}
-      {screen === "market" && <Marketplace onUpgrade={setUpgrade} backRef={marketBack} />}
+      {screen === "market" && <Marketplace onUpgrade={setUpgrade} backRef={marketBack} initialTab={marketDeepLink ? "mine" : "browse"} />}
 
       {/* ============== CONSTRUCTION MANAGEMENT ============== */}
       {screen === "manage" && (
