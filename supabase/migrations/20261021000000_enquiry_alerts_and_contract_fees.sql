@@ -8,8 +8,8 @@
 --
 -- 2. Signed contracts. "Every contract signed through BuildYourOwn carries
 --    a 1.5% platform fee" (docs/MARKETPLACE-PLAN.md). A builder records the
---    contract when it's signed — from a marketplace enquiry, or from a Site
---    Office job — and the database works out the fee. The builder can correct
+--    contract when it's signed - from a marketplace enquiry, or from a Site
+--    Office job - and the database works out the fee. The builder can correct
 --    or void their own record for 14 days while it's still just "recorded";
 --    after that, or once staff have invoiced it, it's locked. Staff own
 --    `fee_rate` and the invoiced/paid status.

@@ -440,7 +440,7 @@ begin
   select count(*) into n from public.enquiries
    where buyer_id = new.buyer_id and created_at > now() - interval '1 day';
   if n >= 20 then
-    raise exception 'rate_limit: 20 enquiries a day — try again tomorrow' using errcode = 'P0001';
+    raise exception 'rate_limit: 20 enquiries a day - try again tomorrow' using errcode = 'P0001';
   end if;
   return new;
 end;
