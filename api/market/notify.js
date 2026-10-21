@@ -65,6 +65,12 @@ export default async function handler(req, res) {
       rest(`pro_profiles?user_id=eq.${enquiry.seller_id}&select=display_name`),
       enquiry.listing_id ? rest(`listings?id=eq.${enquiry.listing_id}&select=title`) : Promise.resolve([]),
     ]);
+    if (!sellerRes.ok && sellerRes.status !== 404) {
+      // Not "no email": the secret key was refused or Auth is down. Say so.
+      await release();
+      console.error("[market/notify] auth admin lookup failed:", sellerRes.status);
+      return res.status(503).json({ sent: false, reason: "unavailable" });
+    }
     const seller = sellerRes.ok ? await sellerRes.json() : null;
     if (!seller?.email) { await release(); return res.status(200).json({ sent: false, reason: "seller_has_no_email" }); }
 

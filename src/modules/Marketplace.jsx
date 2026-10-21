@@ -19,7 +19,7 @@
    flush cards (`gap-px bg-rule`), mono labels, one hi-vis accent.
    ========================================================================= */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ArrowLeft, BadgeCheck, Bath, BedDouble, Building2, Eye, FileSignature, FileText, Hammer, ImagePlus, Inbox, Layers,
   MapPin, Plus, Ruler, Search, Store, Timer, Trash2, Truck, X,
@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "../state/auth.jsx";
 import AuthModal from "../components/AuthModal.jsx";
 import ContractDialog from "../components/ContractDialog.jsx";
+import { useBackClose, closeTopDialog } from "../lib/back-stack.js";
 import { planRank } from "../lib/entitlements.js";
 import { track } from "../lib/analytics.js";
 import * as MK from "../state/marketplace.js";
@@ -40,8 +41,6 @@ import {
   CONTRACT_STATUS, contractEditable, feeSummary, dollars,
 } from "../logic/marketplace.js";
 
-/* Open dialogs, newest last — the phone's Back button closes these first. */
-const openModals = [];
 
 /* ---- tiny async helper: load, keep the error, reload on demand -------- */
 /* `ready` is true once the CURRENT deps have loaded at least once, so a
@@ -86,7 +85,7 @@ export default function Marketplace({ onUpgrade, backRef, initialTab = "browse" 
   useEffect(() => {
     if (!backRef) return;
     backRef.current = () => {
-      if (openModals.length) { openModals[openModals.length - 1](); return true; }
+      if (closeTopDialog()) return true;
       if (history.length) { back(); return true; }
       if (route.name !== "browse") { tab("browse"); return true; }
       return false;
@@ -873,9 +872,10 @@ function EnquiryList({ rows, onChanged, compact, contracts = [] }) {
                     {contractFor(e)
                       ? <Badge variant="ok">Contract {dollars(contractFor(e).valueCents)} · fee {dollars(contractFor(e).feeCents)}</Badge>
                       : <Button size="xs" variant="hivis" onClick={() => setSigning(e)}><FileSignature className="size-3" /> Contract signed</Button>}
-                    {!["replied", "won"].includes(e.status) && <Button size="xs" variant="outline" onClick={() => setStatus(e, "replied")}>Mark replied</Button>}
-                    {!["closed", "won"].includes(e.status) && <Button size="xs" variant="outline" onClick={() => setStatus(e, "closed")}>Close</Button>}
-                    {e.status !== "new" && e.status !== "won" && <Button size="xs" variant="subtle" onClick={() => setStatus(e, "new")}>Reopen</Button>}
+                    {/* "won" without a live contract (it was voided) behaves like any open enquiry */}
+                    {e.status !== "replied" && !contractFor(e) && <Button size="xs" variant="outline" onClick={() => setStatus(e, "replied")}>Mark replied</Button>}
+                    {e.status !== "closed" && !contractFor(e) && <Button size="xs" variant="outline" onClick={() => setStatus(e, "closed")}>Close</Button>}
+                    {e.status !== "new" && !contractFor(e) && <Button size="xs" variant="subtle" onClick={() => setStatus(e, "new")}>Reopen</Button>}
                   </span>
                 </div>
               </div>
@@ -904,7 +904,12 @@ function FeesLedger({ contracts, onChanged }) {
   const voidIt = async (c) => {
     if (!confirm(`Void the contract with ${c.clientName}? No fee will be charged for it.`)) return;
     setError("");
-    try { await MK.voidContract(c.id); onChanged(); } catch (e) { setError(e.message); }
+    try {
+      await MK.voidContract(c.id);
+      // The enquiry isn't "won" any more; put it back with the open ones.
+      if (c.enquiryId) await MK.setEnquiryStatus(c.enquiryId, "replied").catch(() => {});
+      onChanged();
+    } catch (e) { setError(e.message); }
   };
   const SOURCE = { marketplace: "Marketplace", site_office: "Site Office", other: "Other" };
   return (
@@ -1493,19 +1498,7 @@ function CardSkeletons({ n = 8 }) {
 }
 
 function Modal({ title, onClose, children, wide }) {
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  useEffect(() => {
-    const close = () => closeRef.current();
-    const onKey = (e) => e.key === "Escape" && close();
-    window.addEventListener("keydown", onKey);
-    openModals.push(close);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      const i = openModals.lastIndexOf(close);
-      if (i >= 0) openModals.splice(i, 1);
-    };
-  }, []);
+  useBackClose(onClose);   // Escape and the phone's Back button close it
   return (
     <div className="fixed inset-0 z-[80] grid place-items-center bg-black/50 p-3" onClick={onClose} role="dialog" aria-modal="true" aria-label={title}>
       <div onClick={(e) => e.stopPropagation()} className={cn("max-h-[92vh] w-full overflow-y-auto border border-rule bg-card p-5 shadow-xl", wide ? "max-w-3xl" : "max-w-lg")}>

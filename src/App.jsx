@@ -61,6 +61,7 @@ import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import Marketplace, { MarketBadge } from "./modules/Marketplace.jsx";
+import { closeTopDialog } from "./lib/back-stack.js";
 import { useNativeBack } from "./lib/native.js";
 import {
   updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
@@ -1829,10 +1830,12 @@ export default function App() {
      Every project lives in ONE workspace, walked as a linear workflow:
      Estimate → 3D → Materials → Timeline → AI → Quote → Proposal. */
   // The seller's alert email links to /?open=market — land on their inbox.
-  const [marketDeepLink] = useState(() => {
+  const [marketDeepLink, setMarketDeepLink] = useState(() => {
     try { return new URLSearchParams(window.location.search).get("open") === "market"; } catch { return false; }
   });
   const [screen, setScreen] = useState(() => (marketDeepLink ? "market" : "landing"));     // landing | projects | workspace | manage | market
+  // Used once: leaving the marketplace means the next visit opens on Browse.
+  useEffect(() => { if (marketDeepLink && screen !== "market") setMarketDeepLink(false); }, [screen, marketDeepLink]);
   useEffect(() => {
     if (!marketDeepLink) return;
     try {
@@ -1854,6 +1857,7 @@ export default function App() {
 
   // Android Back: close the upgrade prompt, then step up one level.
   useNativeBack(() => {
+    if (closeTopDialog()) return true;          // an open dialog (contract, enquiry…) closes first
     if (upgrade) { setUpgrade(null); return true; }
     if (screen === "market" && marketBack.current?.()) return true;
     if (screen === "workspace" || screen === "manage" || screen === "market") { setScreen("projects"); window.scrollTo({ top: 0 }); return true; }

@@ -15,7 +15,12 @@
 --    `fee_rate` and the invoiced/paid status.
 --
 --    Records outlive the builder's account (accounting): deleting an account
---    sets builder_id to null rather than deleting the fee.
+--    sets builder_id to null rather than deleting the fee, and a snapshot of
+--    who the builder was (builder_ref/name/email/abn, taken on insert by a
+--    trigger, no foreign key) keeps the record attributable.
+--
+--    Voiding frees the slot: one LIVE (not void) contract per enquiry and per
+--    Site Office job, so a mistake can be voided and recorded again.
 --
 -- Needs 20261020100000_marketplace.sql first. IDEMPOTENT: safe to re-run.
 -- =========================================================================
@@ -49,15 +54,31 @@ create table if not exists public.contracts (
   fee_cents            bigint generated always as (round(contract_value_cents * fee_rate)::bigint) stored,
   status               text not null default 'recorded' check (status in ('recorded', 'invoiced', 'paid', 'void')),
   notes                text check (char_length(notes) <= 2000),
+  -- Who the builder was, frozen at insert (staff's record if the account goes).
+  builder_ref          uuid,
+  builder_name         text,
+  builder_email        text,
+  builder_abn          text,
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now(),
   constraint contracts_signed_not_future check (signed_on <= current_date + 1)
 );
 
--- One contract per enquiry, and per Site Office job, per builder: a second
--- tap of "Contract signed" can't double-charge.
-create unique index if not exists contracts_one_per_enquiry on public.contracts (enquiry_id) where enquiry_id is not null;
-create unique index if not exists contracts_one_per_job on public.contracts (builder_id, job_ref) where job_ref is not null;
+-- If an earlier run created the table without the snapshot columns.
+alter table public.contracts add column if not exists builder_ref uuid;
+alter table public.contracts add column if not exists builder_name text;
+alter table public.contracts add column if not exists builder_email text;
+alter table public.contracts add column if not exists builder_abn text;
+
+-- One live contract per enquiry, and per Site Office job, per builder: a
+-- second tap of "Contract signed" can't double-charge, but a voided mistake
+-- can be recorded again. Dropped first so a re-run replaces older definitions.
+drop index if exists public.contracts_one_per_enquiry;
+drop index if exists public.contracts_one_per_job;
+create unique index contracts_one_per_enquiry on public.contracts (enquiry_id)
+  where enquiry_id is not null and status <> 'void';
+create unique index contracts_one_per_job on public.contracts (builder_id, job_ref)
+  where job_ref is not null and status <> 'void';
 create index if not exists contracts_builder on public.contracts (builder_id, signed_on desc);
 create index if not exists contracts_listing on public.contracts (listing_id);
 create index if not exists contracts_status on public.contracts (status, signed_on desc);
@@ -93,6 +114,33 @@ grant insert (builder_id, source, enquiry_id, listing_id, job_ref, job_name, cli
 grant update (client_name, site_postcode, contract_value_cents, signed_on, notes, status)
   on public.contracts to authenticated;
 -- No DELETE for users: a fee record is voided, never erased.
+
+-- Snapshot the builder on insert: name from their marketplace profile (or
+-- account), email from their login, ABN from their profile.
+create or replace function public.contracts_snapshot_builder()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  new.builder_ref := new.builder_id;
+  select coalesce(pp.display_name, pr.company, pr.full_name), u.email, pp.abn
+    into new.builder_name, new.builder_email, new.builder_abn
+    from auth.users u
+    left join public.pro_profiles pp on pp.user_id = u.id
+    left join public.profiles pr on pr.id = u.id
+   where u.id = new.builder_id;
+  return new;
+end;
+$$;
+
+revoke execute on function public.contracts_snapshot_builder() from public, anon, authenticated;
+
+drop trigger if exists contracts_snapshot on public.contracts;
+create trigger contracts_snapshot
+  before insert on public.contracts
+  for each row execute function public.contracts_snapshot_builder();
 
 drop trigger if exists contracts_touch_updated_at on public.contracts;
 create trigger contracts_touch_updated_at

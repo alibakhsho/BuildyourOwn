@@ -26,7 +26,7 @@ ok("newlines can't split the subject", !enquiryEmail({ enquiry: { ...enquiry, co
 /* ---- route ---- */
 const ENQ = "f0000000-0000-4000-8000-000000000001";
 const BUYER = "b0000000-0000-4000-8000-000000000001";
-let calls, claimRows, resendOk;
+let calls, claimRows, resendOk, adminDown = false;
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);
   calls.push({ url: u, method: init.method || "GET", body: init.body, headers: init.headers });
@@ -36,7 +36,7 @@ globalThis.fetch = async (url, init = {}) => {
     const body = JSON.parse(init.body);
     return body.notified_at === null ? json(200, []) : json(200, claimRows);
   }
-  if (u.includes("/auth/v1/admin/users/")) return json(200, { email: "seller@example.com" });
+  if (u.includes("/auth/v1/admin/users/")) return adminDown ? json(401, {}) : json(200, { email: "seller@example.com" });
   if (u.includes("/rest/v1/pro_profiles")) return json(200, [{ display_name: "Coastline Homes" }]);
   if (u.includes("/rest/v1/listings")) return json(200, [{ title: "The Kauri" }]);
   if (u.startsWith("https://api.resend.com")) return resendOk ? json(200, { id: "em_1" }) : json(422, { message: "domain not verified" });
@@ -73,6 +73,11 @@ ok("already notified (or not theirs) → nothing sent", r.body.sent === false &&
 reset(); resendOk = false; r = await run({ enquiryId: ENQ });
 const released = calls.filter((c) => c.method === "PATCH").some((c) => JSON.parse(c.body).notified_at === null);
 ok("email refused → claim released so a retry can send", r.code === 502 && released);
+
+reset(); adminDown = true; r = await run({ enquiryId: ENQ });
+const releasedAgain = calls.filter((c) => c.method === "PATCH").some((c) => JSON.parse(c.body).notified_at === null);
+ok("secret key refused by Auth → 503, logged, claim released", r.code === 503 && r.body.reason === "unavailable" && releasedAgain);
+adminDown = false;
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

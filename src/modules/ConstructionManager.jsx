@@ -38,6 +38,8 @@ import { Plus } from "lucide-react";
 import { track } from "../lib/analytics.js";
 import ContractDialog from "../components/ContractDialog.jsx";
 import { dollars, feePreviewCents } from "../logic/marketplace.js";
+import * as MK from "../state/marketplace.js";
+import { useAuth } from "../state/auth.jsx";
 
 const JOB_MODULES = [
   { id: "overview", label: "Overview" },
@@ -431,7 +433,8 @@ function Overview({ job, fin, cur, onOpenEstimator, onModule }) {
         );
       })()}
 
-      {["won", "in_progress", "practical_completion", "closed"].includes(job.status) && <PlatformFeePanel job={job} fin={fin} />}
+      {/* The fee is in A$: Australian jobs only for now. */}
+      {["won", "in_progress", "practical_completion", "closed"].includes(job.status) && (job.region || "AU") === "AU" && <PlatformFeePanel job={job} fin={fin} />}
 
       {fin.atRiskCount > 0 && (
         <Panel title={`${fin.atRiskCount} cost centre${fin.atRiskCount === 1 ? "" : "s"} over budget`} tone="alert">
@@ -913,10 +916,35 @@ function Diary({ job }) {
    their fee ledger (My marketplace → Fees). The record lives in the cloud;
    the job keeps a note of it so this panel knows it's done. */
 function PlatformFeePanel({ job, fin }) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
-  const rec = job.platformContract;
+  const [contracts, setContracts] = useState(null);   // null = not loaded (signed out / offline)
+  const [n, setN] = useState(0);
   const client = job.clientId ? CM.getClient(job.clientId) : null;
   const valueCents = Math.round((fin.contractSum || 0) * 100);
+
+  // The database record is the truth (edits, voids, other devices); the note
+  // saved on the job is only a fallback when we can't reach it.
+  useEffect(() => {
+    if (!user?.id) { setContracts(null); return; }
+    let live = true;
+    MK.myContracts(user.id).then((c) => live && setContracts(c), () => live && setContracts(null));
+    return () => { live = false; };
+  }, [user?.id, n]);
+  const note = job.platformContract;
+  const fromDb = contracts && (
+    contracts.find((c) => c.status !== "void" && c.jobRef === job.id) ||
+    (note?.id && contracts.find((c) => c.status !== "void" && c.id === note.id)));
+  const rec = contracts ? fromDb || null : note || null;
+  // Marketplace contracts not tied to a job — this job may be one of them.
+  const unlinked = (contracts || []).filter((c) => c.status !== "void" && c.source === "marketplace" && !c.jobRef);
+  useEffect(() => {
+    // Keep the job's note in step with the database (cleared when voided).
+    if (!contracts) return;
+    const want = fromDb ? { id: fromDb.id, valueCents: fromDb.valueCents, feeCents: fromDb.feeCents, signedOn: fromDb.signedOn } : null;
+    if (JSON.stringify(want) !== JSON.stringify(note || null)) CM.updateJob(job.id, { platformContract: want });
+  }, [contracts]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (rec) {
     return (
       <Panel title="Contract recorded with BuildYourOwn">
@@ -934,6 +962,19 @@ function PlatformFeePanel({ job, fin }) {
         {valueCents > 0 ? <> — {dollars(feePreviewCents(valueCents))} on {dollars(valueCents)}</> : null}. It's invoiced separately; nothing is charged here.
       </p>
       <button className="ec-btn ec-btn-ghost" onClick={() => setOpen(true)}>Contract signed</button>
+      {unlinked.length > 0 && (
+        <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.6 }}>
+          Already recorded from a marketplace enquiry? Link it instead — one contract, one fee:
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+            {unlinked.slice(0, 6).map((c) => (
+              <button key={c.id} className="ec-btn ec-btn-ghost" style={{ fontSize: 11, padding: "4px 10px" }}
+                onClick={() => CM.updateJob(job.id, { platformContract: { id: c.id, valueCents: c.valueCents, feeCents: c.feeCents, signedOn: c.signedOn } })}>
+                {c.clientName} · {dollars(c.valueCents)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {open && (
         <ContractDialog
           initial={{ clientName: client?.company || client?.name || "", valueCents: valueCents > 0 ? valueCents : null,
@@ -944,6 +985,7 @@ function PlatformFeePanel({ job, fin }) {
           onSaved={(c) => {
             setOpen(false);
             CM.updateJob(job.id, { platformContract: { id: c.id, valueCents: c.valueCents, feeCents: c.feeCents, signedOn: c.signedOn } });
+            setN((x) => x + 1);
           }} />
       )}
     </Panel>

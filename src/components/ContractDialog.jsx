@@ -7,13 +7,14 @@
    it's still only "recorded" — the database enforces the window).
    ========================================================================= */
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "../state/auth.jsx";
 import * as MK from "../state/marketplace.js";
 import { contractProblems, feePreviewCents, dollars, localDate, PLATFORM_FEES } from "../logic/marketplace.js";
 import { track } from "../lib/analytics.js";
+import { useBackClose } from "../lib/back-stack.js";
 
 const today = () => localDate();
 
@@ -32,11 +33,7 @@ export default function ContractDialog({ initial = {}, link = {}, context, onClo
   const problems = contractProblems(c);
   const editing = !!initial.id;
 
-  useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  useBackClose(onClose);   // Escape and the phone's Back button close it
 
   const save = async (e) => {
     e.preventDefault();
@@ -72,7 +69,7 @@ export default function ContractDialog({ initial = {}, link = {}, context, onClo
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <label className="block sm:col-span-1">
                 <span className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-[0.1em] text-steel">Contract value (A$)</span>
-                <input className="ec-input w-full" type="number" min="1" step="1" required inputMode="decimal"
+                <input className="ec-input w-full" type="number" min="0.01" step="0.01" required inputMode="decimal"
                   value={c.valueCents ? c.valueCents / 100 : ""}
                   onChange={(e) => set("valueCents", e.target.value === "" ? null : Math.round(Number(e.target.value) * 100))} />
                 <span className="mt-0.5 block text-[10px] text-steel">Ex GST</span>
