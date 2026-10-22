@@ -562,6 +562,8 @@ export class Engine3D {
       this.cadLines.render();
     } else if (this.fx && this.camera === this.persp) {
       this._guard?.tick(performance.now());
+      // a tripped guard has just dropped to "low" and freed the post chain
+      if (!this.fx) { this.renderer.render(this.scene, this.camera); return; }
       this.fx.ao.enabled = this.viewMode !== "structural"; // AO darkens behind see-through skins
       this.fx.composer.render();
     } else {
