@@ -56,9 +56,12 @@ import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, ho
 import DescribeCard from "./components/DescribeCard.jsx";
 import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/ModelTools.jsx";
 import Drawings from "./components/Drawings.jsx";
+import BuildRequirements from "./components/BuildRequirements.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
+import Marketplace, { MarketBadge } from "./modules/Marketplace.jsx";
+import { closeTopDialog } from "./lib/back-stack.js";
 import { useNativeBack } from "./lib/native.js";
 import {
   updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
@@ -1826,7 +1829,21 @@ export default function App() {
   /* ---- Workspace navigation: landing → projects → project workspace ----
      Every project lives in ONE workspace, walked as a linear workflow:
      Estimate → 3D → Materials → Timeline → AI → Quote → Proposal. */
-  const [screen, setScreen] = useState("landing");     // landing | projects | workspace
+  // The seller's alert email links to /?open=market — land on their inbox.
+  const [marketDeepLink, setMarketDeepLink] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get("open") === "market"; } catch { return false; }
+  });
+  const [screen, setScreen] = useState(() => (marketDeepLink ? "market" : "landing"));     // landing | projects | workspace | manage | market
+  // Used once: leaving the marketplace means the next visit opens on Browse.
+  useEffect(() => { if (marketDeepLink && screen !== "market") setMarketDeepLink(false); }, [screen, marketDeepLink]);
+  useEffect(() => {
+    if (!marketDeepLink) return;
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.delete("open");
+      window.history.replaceState(null, "", u.pathname + u.search + u.hash);
+    } catch { /* cosmetic only */ }
+  }, [marketDeepLink]);
   const [projectId, setProjectId] = useState(null);
   const [projectName, setProjectName] = useState("");
   // Set when the estimator hands a quote to a specific job, so Site Office
@@ -1835,10 +1852,15 @@ export default function App() {
   const [userType, setUserType] = useState(null);      // homeowner | tradie | developer — gates which build modes show
   const [stage, setStage] = useState("estimate");      // workflow stage id
 
+  // The marketplace keeps its own page history; Back walks that first.
+  const marketBack = useRef(null);
+
   // Android Back: close the upgrade prompt, then step up one level.
   useNativeBack(() => {
+    if (closeTopDialog()) return true;          // an open dialog (contract, enquiry…) closes first
     if (upgrade) { setUpgrade(null); return true; }
-    if (screen === "workspace" || screen === "manage") { setScreen("projects"); window.scrollTo({ top: 0 }); return true; }
+    if (screen === "market" && marketBack.current?.()) return true;
+    if (screen === "workspace" || screen === "manage" || screen === "market") { setScreen("projects"); window.scrollTo({ top: 0 }); return true; }
     if (screen === "projects") { setScreen("landing"); window.scrollTo({ top: 0 }); return true; }
     return false;
   });
@@ -2518,6 +2540,7 @@ export default function App() {
             setScreen("projects"); window.scrollTo({ top: 0 });
           }}
           onSignedIn={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
+          onMarketplace={() => { setScreen("market"); window.scrollTo({ top: 0 }); }}
           howItWorks={<HowItWorksSection />} />
         </div>
       )}
@@ -2536,8 +2559,24 @@ export default function App() {
       <header style={{
         borderBottom: screen === "workspace" ? `1px solid ${TOKENS.rule}` : "none",
       }}>
+        {/* Phone header: one row on every screen (the estimator's own copy of
+            these rules only loads inside the workspace). The nav buttons
+            scroll sideways rather than push the page wider than the phone. */}
+        <style>{`
+          @media (max-width: 880px) {
+            .hdr-in { padding: 8px 12px !important; gap: 8px !important; flex-wrap: nowrap !important; }
+            .hdr-word, .hdr-proj, .hdr-copy { display: none !important; }
+            .hdr-left { min-width: 0; flex: 1 1 auto; overflow-x: auto; scrollbar-width: none; gap: 6px !important; }
+            .hdr-left::-webkit-scrollbar { display: none; }
+            .hdr-left > * { flex-shrink: 0; }
+            .hdr-left .ec-btn { padding: 6px 10px; font-size: 12.5px; margin-left: 0 !important; }
+            .hdr-actions { gap: 8px !important; flex-wrap: nowrap !important; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+            .hdr-actions::-webkit-scrollbar { display: none; }
+            .hdr-actions > * { flex-shrink: 0; }
+          }
+        `}</style>
         <div className="hdr-in" style={{ maxWidth: 1480, margin: "0 auto", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="hdr-left" style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span onClick={() => setScreen("landing")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
               <BYOLogo size={28} />
               <div className="ec-display hdr-word" style={{ fontSize: 16, color: TOKENS.ink, letterSpacing: "0.02em" }}>BUILD YOUR OWN</div>
@@ -2552,6 +2591,12 @@ export default function App() {
             <button className={"ec-btn ec-btn-ghost" + (screen === "manage" ? " ec-btn-ghost-on" : "")}
               onClick={() => { if (!can.siteOffice) { setUpgrade("siteOffice"); return; } setManageJobId(null); setScreen("manage"); }}>
               Site Office{can.siteOffice ? null : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-label="Locked" style={{ marginLeft: 6, opacity: 0.8 }}><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>}
+            </button>
+            {/* Plans, prefab modules and the builders and tradies behind them.
+                Open to everyone: browsing needs no account or plan. */}
+            <button className={"ec-btn ec-btn-ghost" + (screen === "market" ? " ec-btn-ghost-on" : "")}
+              onClick={() => { setScreen("market"); window.scrollTo({ top: 0 }); }}>
+              Marketplace<MarketBadge />
             </button>
             {screen === "workspace" && (
               <input className="ec-input" value={projectName} onChange={(e) => setProjectName(e.target.value)}
@@ -2628,6 +2673,9 @@ export default function App() {
         <ProjectsScreen onOpen={openProject} onNew={newProject}
           onOpenSiteOffice={() => { if (!can.siteOffice) { setUpgrade("siteOffice"); return; } setManageJobId(null); setScreen("manage"); window.scrollTo({ top: 0 }); }} />
       )}
+
+      {/* ============== MARKETPLACE ============== */}
+      {screen === "market" && <Marketplace onUpgrade={setUpgrade} backRef={marketBack} initialTab={marketDeepLink ? "mine" : "browse"} />}
 
       {/* ============== CONSTRUCTION MANAGEMENT ============== */}
       {screen === "manage" && (
@@ -3023,7 +3071,7 @@ export default function App() {
             {activeTab === "sketchup" && buildMode === "materials" && <SketchUpTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {activeTab === "cadbim" && buildMode === "residential" && <CadBimTab region={region} currency={currency} onApply={applyImport} onApplyTemplate={applyImportTemplate} />}
             {activeTab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
-            {activeTab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} />}
+            {activeTab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} floors={spec?.floors} currency={currency} />}
             {activeTab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
             {activeTab === "layers" && <LayersPanel engine={engineRef.current} version={modelVersion} />}
             {activeTab === "cutlist" && (buildMode === "residential" ? spec : quoteMassingSpec) && <CutList spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
@@ -3066,9 +3114,15 @@ export default function App() {
         <div style={{ maxWidth: 1480, margin: "0 auto", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 24, flexWrap: "wrap" }}>
           <div style={{ maxWidth: 720 }}>
             <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Disclaimer</div>
+            {screen === "market" ? (
+              <p style={{ fontSize: 12, lineHeight: 1.6, color: TOKENS.inkSoft, margin: 0 }}>
+                BuildYourOwn is a marketplace, not a builder or a party to any contract. Sellers are responsible for their designs, prices, licences, insurance, engineering and permits. Check a builder's licence on the state register before you sign.
+              </p>
+            ) : (
             <p style={{ fontSize: 12, lineHeight: 1.6, color: TOKENS.inkSoft, margin: 0 }}>
               All figures are <em>indicative estimates</em> generated from market-rate guides and the inputs above. Real costs vary by supplier, region, season, and scope. Use this as a planning tool — not a contract. Engage a licensed builder, quantity surveyor, and certifier before relying on these numbers.
             </p>
+            )}
           </div>
           <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, letterSpacing: "0.12em" }}>
             BUILD YOUR OWN · 3D ESTIMATOR<br />
@@ -4250,7 +4304,7 @@ function TimelineTab({ estimate }) {
 }
 
 /* ---- Codes tab ---- */
-function CodesTab({ region, highrise }) {
+function CodesTab({ region, highrise, floors, currency }) {
   const code = highrise ? HighRiseCodes[region] : BuildingCodes[region];
   const leg = Legislation[region];
   const [juris, setJuris] = useState(0);
@@ -4258,6 +4312,8 @@ function CodesTab({ region, highrise }) {
   return (
     <div>
       <SectionHeader index="F" title="Code & compliance reference" />
+      {/* AU residential: what this build needs signed off. Read-only — the builder manages it in Site Office. */}
+      {region === "AU" && !highrise && <BuildRequirements floors={floors || 1} currency={currency} />}
       <div className="ec-card" style={{ padding: 16, marginBottom: 16, background: TOKENS.paperLight }}>
         <div className="ec-eyebrow" style={{ marginBottom: 6 }}>Authority</div>
         <div className="ec-display" style={{ fontSize: 20, lineHeight: 1.2, marginBottom: 4 }}>{code.name}</div>

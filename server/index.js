@@ -26,6 +26,7 @@ import billingPortal from "../api/billing/portal.js";
 import billingSync from "../api/billing/sync.js";
 import billingWebhook from "../api/billing/webhook.js";
 import accountDelete from "../api/account/delete.js";
+import marketNotify from "../api/market/notify.js";
 import { healthReport } from "../api/health.js";
 
 // Load server/.env regardless of the cwd the process was started from.
@@ -47,6 +48,7 @@ app.post("/api/billing/checkout", billingCheckout);
 app.post("/api/billing/portal", billingPortal);
 app.post("/api/billing/sync", billingSync);
 app.post("/api/account/delete", accountDelete);
+app.post("/api/market/notify", marketNotify);
 
 const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim());
 // Default model for every AI feature. Override per request with `model`.

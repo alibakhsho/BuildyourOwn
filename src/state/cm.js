@@ -16,7 +16,8 @@
                     ├───n ProgressClaim    (invoices the client)
                     ├───n ScheduleTask     (Gantt, with dependencies)
                     ├───n DiaryEntry       (site diary / daily log)
-                    └───n Document         (plans, permits, photos → blobstore)
+                    ├───n Document         (plans, permits, photos → blobstore)
+                    └───n Approval         (engineering, certifier, council → final quote)
 
    Persistence is localStorage today. Every accessor is written as if it were
    an async-capable repository over a real API — single-entity get, filtered
@@ -28,6 +29,7 @@
    ========================================================================= */
 
 import { listProjects, getProject } from "./projects.js";
+import { requiredApprovals, quoteReadiness, DEFAULT_SITE } from "../logic/approvals.js";
 
 const LS = "byo.cm.v2";
 
@@ -92,6 +94,7 @@ const EMPTY = {
   diary: [],
   documents: [],
   takeoffs: [],
+  approvals: [],
   counters: { job: 1, po: 1, variation: 1, claim: 1 },
   settings: {
     company: { name: "", abn: "", address: "", email: "", phone: "", logoBlobId: null },
@@ -270,6 +273,7 @@ export function deleteJob(id) {
     diary: owned("diary"),
     documents: owned("documents"),
     takeoffs: owned("takeoffs"),
+    approvals: owned("approvals"),
   });
 }
 
@@ -652,6 +656,108 @@ export function createDocument(jobId, data = {}) {
 }
 export const updateDocument = (id, changes) => patch("documents", id, changes);
 export const deleteDocument = (id) => remove("documents", id);
+
+/* ---- Approvals (engineering, certifier, council) ------------------------ */
+
+/**
+ * The approvals a job needs before its quote can be called final. Seeded
+ * from the job's site profile by logic/approvals.js; each record then
+ * carries who is doing it, their real fee, the documents they sent and how
+ * much their report moved the construction cost.
+ */
+export function listApprovals(jobId) {
+  return all("approvals").filter((a) => a.jobId === jobId);
+}
+
+/** The job's site profile, with defaults for anything not yet answered. */
+export function getSite(jobId) {
+  const job = getJob(jobId);
+  return { ...DEFAULT_SITE, contractValue: Number(job?.contractValue) || 0, ...(job?.site || {}) };
+}
+
+/**
+ * Save the site profile and re-derive the checklist. Items the new profile
+ * no longer needs are dropped only if nobody has started on them; anything
+ * with a provider, a document or a status beyond "required" is kept and
+ * flagged `stale` so work and money already spent never vanish silently.
+ */
+export function setSite(jobId, changes = {}) {
+  const job = getJob(jobId);
+  if (!job) return null;
+  updateJob(jobId, { site: { ...(job.site || {}), ...changes } });
+  return syncApprovals(jobId);
+}
+
+export function syncApprovals(jobId) {
+  const wanted = requiredApprovals(getSite(jobId));
+  const wantedKeys = new Set(wanted.map((w) => w.key));
+  const db = read();
+  const mine = (db.approvals || []).filter((a) => a.jobId === jobId);
+  const byKey = new Map(mine.map((a) => [a.key, a]));
+  const started = (a) => a.status !== "required" || a.provider?.name || (a.documentIds || []).length || a.feeActual != null;
+
+  const kept = mine
+    .filter((a) => wantedKeys.has(a.key) || started(a))
+    .map((a) => {
+      const w = wanted.find((x) => x.key === a.key);
+      // Refresh catalogue text and allowance; never touch what a person entered.
+      return w ? { ...a, ...w, stale: false } : { ...a, stale: true };
+    });
+  const added = wanted
+    .filter((w) => !byKey.has(w.key))
+    .map((w) => ({
+      id: uid("apv"),
+      jobId,
+      ...w,
+      status: "required",
+      provider: { name: "", email: "", licence: "" },
+      feeActual: null,
+      costImpact: 0,
+      documentIds: [],
+      notes: "",
+      requestedAt: null,
+      submittedAt: null,
+      approvedAt: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }));
+  write({
+    ...db,
+    approvals: [...(db.approvals || []).filter((a) => a.jobId !== jobId), ...kept, ...added],
+  });
+  return listApprovals(jobId);
+}
+
+export function updateApproval(id, changes) {
+  const stamp = {};
+  if (changes.status === "requested") stamp.requestedAt = Date.now();
+  if (changes.status === "submitted") stamp.submittedAt = Date.now();
+  if (changes.status === "approved") stamp.approvedAt = Date.now();
+  return patch("approvals", id, { ...changes, ...stamp });
+}
+
+/**
+ * File an engineer's / certifier's document against an approval. The
+ * binary is already in the blobstore; this records it as a job Document
+ * (so it shows in Documents too) and links it to the approval.
+ */
+export function attachApprovalDocument(approvalId, data = {}) {
+  const a = all("approvals").find((x) => x.id === approvalId);
+  if (!a) return null;
+  const doc = createDocument(a.jobId, { ...data, kind: data.kind || "permit", notes: data.notes || a.label });
+  updateApproval(approvalId, { documentIds: [...(a.documentIds || []), doc.id] });
+  return doc;
+}
+
+/**
+ * Where the job's quote stands: indicative, fixed (subject to approvals) or
+ * approved. The base is the job's contract value (the estimate's price).
+ */
+export function jobQuoteReadiness(jobId) {
+  const job = getJob(jobId);
+  if (!job) return null;
+  return quoteReadiness(listApprovals(jobId), Number(job.contractValue) || 0);
+}
 
 /* ---- Takeoffs ---------------------------------------------------------- */
 
