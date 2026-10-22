@@ -62,6 +62,7 @@ import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import Marketplace, { MarketBadge } from "./modules/Marketplace.jsx";
 import { closeTopDialog } from "./lib/back-stack.js";
+import LegalPage, { LEGAL_DOCS } from "./components/LegalPage.jsx";
 import { useNativeBack } from "./lib/native.js";
 import {
   updateJob as updateCmJob, listJobs as listCmJobs, createJob as createCmJob,
@@ -1833,7 +1834,23 @@ export default function App() {
   const [marketDeepLink, setMarketDeepLink] = useState(() => {
     try { return new URLSearchParams(window.location.search).get("open") === "market"; } catch { return false; }
   });
-  const [screen, setScreen] = useState(() => (marketDeepLink ? "market" : "landing"));     // landing | projects | workspace | manage | market
+  // Terms / Privacy by link: /?page=terms, /?page=privacy (the app-store URLs).
+  const [legalDoc, setLegalDoc] = useState(() => {
+    try { const p = new URLSearchParams(window.location.search).get("page"); return LEGAL_DOCS[p] ? p : null; } catch { return null; }
+  });
+  const [legalFrom, setLegalFrom] = useState("landing");
+  const [screen, setScreen] = useState(() => (legalDoc ? "legal" : marketDeepLink ? "market" : "landing"));     // landing | projects | workspace | manage | market | legal
+  const openLegal = useCallback((doc) => {
+    setLegalFrom((prev) => (screen === "legal" ? prev : screen));
+    setLegalDoc(doc); setScreen("legal"); window.scrollTo({ top: 0 });
+  }, [screen]);
+  const closeLegal = () => {
+    setScreen(legalFrom || "landing"); window.scrollTo({ top: 0 });
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.has("page")) { u.searchParams.delete("page"); window.history.replaceState(null, "", u.pathname + u.search + u.hash); }
+    } catch { /* cosmetic only */ }
+  };
   // Used once: leaving the marketplace means the next visit opens on Browse.
   useEffect(() => { if (marketDeepLink && screen !== "market") setMarketDeepLink(false); }, [screen, marketDeepLink]);
   useEffect(() => {
@@ -1860,6 +1877,7 @@ export default function App() {
     if (closeTopDialog()) return true;          // an open dialog (contract, enquiry…) closes first
     if (upgrade) { setUpgrade(null); return true; }
     if (screen === "market" && marketBack.current?.()) return true;
+    if (screen === "legal") { closeLegal(); return true; }
     if (screen === "workspace" || screen === "manage" || screen === "market") { setScreen("projects"); window.scrollTo({ top: 0 }); return true; }
     if (screen === "projects") { setScreen("landing"); window.scrollTo({ top: 0 }); return true; }
     return false;
@@ -2541,6 +2559,7 @@ export default function App() {
           }}
           onSignedIn={() => { setScreen("projects"); window.scrollTo({ top: 0 }); }}
           onMarketplace={() => { setScreen("market"); window.scrollTo({ top: 0 }); }}
+          onLegal={openLegal}
           howItWorks={<HowItWorksSection />} />
         </div>
       )}
@@ -2673,6 +2692,9 @@ export default function App() {
         <ProjectsScreen onOpen={openProject} onNew={newProject}
           onOpenSiteOffice={() => { if (!can.siteOffice) { setUpgrade("siteOffice"); return; } setManageJobId(null); setScreen("manage"); window.scrollTo({ top: 0 }); }} />
       )}
+
+      {/* ============== TERMS / PRIVACY ============== */}
+      {screen === "legal" && <LegalPage doc={legalDoc || "terms"} onBack={closeLegal} onOpen={openLegal} />}
 
       {/* ============== MARKETPLACE ============== */}
       {screen === "market" && <Marketplace onUpgrade={setUpgrade} backRef={marketBack} initialTab={marketDeepLink ? "mine" : "browse"} />}
@@ -3124,9 +3146,12 @@ export default function App() {
             </p>
             )}
           </div>
-          <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, letterSpacing: "0.12em" }}>
-            BUILD YOUR OWN · 3D ESTIMATOR<br />
-            REGION · {region} · REV A
+          <div className="ec-mono" style={{ fontSize: 10, color: TOKENS.steel, letterSpacing: "0.12em", display: "grid", gap: 6, justifyItems: "end" }}>
+            <span>BUILD YOUR OWN · 3D ESTIMATOR<br />REGION · {region} · REV A</span>
+            <span style={{ display: "flex", gap: 12 }}>
+              <button onClick={() => openLegal("terms")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: TOKENS.steel, font: "inherit", letterSpacing: "inherit", textDecoration: "underline" }}>TERMS</button>
+              <button onClick={() => openLegal("privacy")} style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: TOKENS.steel, font: "inherit", letterSpacing: "inherit", textDecoration: "underline" }}>PRIVACY</button>
+            </span>
           </div>
         </div>
       </footer>

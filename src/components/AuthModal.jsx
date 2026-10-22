@@ -15,6 +15,7 @@
                     reset link, or why a link didn't work
    ========================================================================= */
 import { useEffect, useState } from "react";
+import { SITE_URL } from "../lib/public-config.js";
 import { createPortal } from "react-dom";
 import { colors as TOKENS } from "../design/system.js";
 import { useAuth, SEGMENTS, TIERS } from "../state/auth.jsx";
@@ -182,6 +183,14 @@ export default function AuthModal({ onClose, initialMode = "signup", intent = nu
           style={{ width: "100%", justifyContent: "center", marginTop: 4 }}>
           {busy ? "Working…" : isReset ? "Send reset link" : isSignup ? (planLabel ? "Start free trial" : "Create account") : "Sign in"}
         </button>
+        {!isReset && (
+          <p style={{ fontSize: 11, lineHeight: 1.5, color: TOKENS.steel, margin: "2px 0 0", textAlign: "center" }}>
+            By {isSignup ? "creating an account" : "continuing"} you agree to the{" "}
+            <a href={`${SITE_URL}/?page=terms`} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>Terms of Use</a>
+            {" "}and{" "}
+            <a href={`${SITE_URL}/?page=privacy`} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>Privacy Policy</a>.
+          </p>
+        )}
       </form>
 
       <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, marginTop: 16, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>

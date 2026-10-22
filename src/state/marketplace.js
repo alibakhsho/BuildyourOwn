@@ -247,11 +247,18 @@ export async function saveMyPro(userId, profile, { create = false } = {}) {
   const sb = need();
   const row = proToRow(profile);
   if (create) {
-    const data = await run(sb.from("pro_profiles").insert({ ...row, user_id: userId, kind: profile.kind }).select().single());
+    if (!profile.termsVersion) throw new Error("Please agree to the Terms of Use first.");
+    const data = await run(sb.from("pro_profiles").insert({ ...row, user_id: userId, kind: profile.kind, terms_version: profile.termsVersion }).select().single());
     return proFromRow(data);
   }
   const patch = profile.kind ? { ...row, kind: profile.kind } : row;
   const data = await run(sb.from("pro_profiles").update(patch).eq("user_id", userId).select().single());
+  return proFromRow(data);
+}
+
+/** Accept a (newer) version of the Terms; the database stamps the time. */
+export async function acceptTerms(userId, version) {
+  const data = await run(need().from("pro_profiles").update({ terms_version: version }).eq("user_id", userId).select().single());
   return proFromRow(data);
 }
 

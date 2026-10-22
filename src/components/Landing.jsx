@@ -48,7 +48,7 @@ const AUDIENCES = [
     body: "Quote a duplex or a 40-lot estate in one go, cost an apartment block, then run every job from Site Office." },
 ];
 
-export default function Landing({ onStart, onPickAudience, onSignedIn, onMarketplace, region, setRegion, howItWorks }) {
+export default function Landing({ onStart, onPickAudience, onSignedIn, onMarketplace, onLegal, region, setRegion, howItWorks }) {
   const { user, profile, can, enabled } = useAuth();
   const [auth, setAuth] = useState(null);         // { mode, intent }
   // Outlives the modal, which closes itself on a successful sign-up before
@@ -222,6 +222,18 @@ export default function Landing({ onStart, onPickAudience, onSignedIn, onMarketp
           <button className="lp-cta" style={{ background: TOKENS.hivis, color: "#14171A" }} onClick={onStart}>Price my build →</button>
         </div>
       </section>
+      {/* ---- footer ---- */}
+      <footer style={{ background: "#14171A", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+        <div className="lp-wrap" style={{ display: "flex", flexWrap: "wrap", gap: 16, justifyContent: "space-between", alignItems: "center", padding: "18px 0", color: "rgba(255,255,255,0.55)", fontSize: 12.5 }}>
+          <span>© {new Date().getFullYear()} BuildYourOwn</span>
+          {onLegal && (
+            <span style={{ display: "flex", gap: 18 }}>
+              <a href="?page=terms" onClick={(e) => { e.preventDefault(); onLegal("terms"); }} style={{ color: "rgba(255,255,255,0.75)" }}>Terms of Use</a>
+              <a href="?page=privacy" onClick={(e) => { e.preventDefault(); onLegal("privacy"); }} style={{ color: "rgba(255,255,255,0.75)" }}>Privacy Policy</a>
+            </span>
+          )}
+        </div>
+      </footer>
       {auth && <AuthModal initialMode={auth.mode} intent={auth.intent} onClose={() => setAuth(null)} />}
       {plansOpen && <UpgradeModal onClose={() => setPlansOpen(false)} />}
     </div>

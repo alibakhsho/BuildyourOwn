@@ -201,6 +201,8 @@ export function proFromRow(r = {}) {
     coverPath: r.cover_path || null,
     published: !!r.published,
     verified: !!r.verified,
+    termsVersion: r.terms_version || null,
+    termsAcceptedAt: r.terms_accepted_at || null,
   };
 }
 

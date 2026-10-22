@@ -10,6 +10,7 @@
    the product.
    ========================================================================= */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from "react";
+import { LEGAL } from "../legal/company.js";
 import { supabase, isAuthConfigured, redirectTo, authLinkState, onAuthLink, finishRecovery, clearLinkProblem } from "../lib/supabase.js";
 import { isNative, openExternal, onAppResume } from "../lib/native.js";
 import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
@@ -121,7 +122,7 @@ export function AuthProvider({ children }) {
       options: {
         // These land in raw_user_meta_data and are picked up by the signup
         // trigger. They are self-declared and carry no privileges.
-        data: { full_name: fullName ?? null, segment: segment ?? null },
+        data: { full_name: fullName ?? null, segment: segment ?? null, terms_version: LEGAL.termsVersion, privacy_version: LEGAL.privacyVersion },
         emailRedirectTo: redirectTo(),
       },
     });

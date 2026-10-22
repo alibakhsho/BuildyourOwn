@@ -79,5 +79,23 @@ const releasedAgain = calls.filter((c) => c.method === "PATCH").some((c) => JSON
 ok("secret key refused by Auth → 503, logged, claim released", r.code === 503 && r.body.reason === "unavailable" && releasedAgain);
 adminDown = false;
 
+/* ---- account deletion removes the user's marketplace photos ---- */
+const { removeMarketplacePhotos } = await import("../api/account/delete.js");
+const UID = "c0000000-0000-4000-8000-000000000001";
+let storageCalls = [];
+globalThis.fetch = async (url, init = {}) => {
+  storageCalls.push({ url: String(url), method: init.method, body: init.body ? JSON.parse(init.body) : null });
+  if (String(url).includes("/storage/v1/object/list/marketplace")) {
+    const listed = storageCalls.filter((c) => c.url.includes("/list/")).length;
+    return { ok: true, json: async () => (listed === 1 ? [{ name: "a.jpg", id: "1" }, { name: "b.jpg", id: "2" }] : []) };
+  }
+  return { ok: true, json: async () => ({}) };
+};
+const n = await removeMarketplacePhotos(UID);
+const del = storageCalls.find((c) => c.method === "DELETE");
+ok("deletes every photo in the user's own folder, and only there", n === 2 && JSON.stringify(del?.body?.prefixes) === JSON.stringify([`${UID}/a.jpg`, `${UID}/b.jpg`]) && storageCalls[0].body.prefix === UID);
+storageCalls = [];
+ok("refuses anything that isn't a user id", (await removeMarketplacePhotos("../other")) === 0 && storageCalls.length === 0);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

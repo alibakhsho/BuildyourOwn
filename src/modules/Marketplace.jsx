@@ -32,6 +32,8 @@ import { useAuth } from "../state/auth.jsx";
 import AuthModal from "../components/AuthModal.jsx";
 import ContractDialog from "../components/ContractDialog.jsx";
 import { useBackClose, closeTopDialog } from "../lib/back-stack.js";
+import { LEGAL } from "../legal/company.js";
+import { SITE_URL } from "../lib/public-config.js";
 import { planRank } from "../lib/entitlements.js";
 import { track } from "../lib/analytics.js";
 import * as MK from "../state/marketplace.js";
@@ -447,7 +449,7 @@ function ListingPage({ id, onBack, onPro }) {
 function Responsibility({ seller }) {
   return (
     <p className="mt-3 text-[11px] leading-relaxed text-steel">
-      BuildYourOwn is a marketplace, not the builder. The seller is responsible for their designs, licences, engineering and permits.
+      BuildYourOwn is a marketplace, not the builder (see our <a href={`${SITE_URL}/?page=terms#terms-buyers`} target="_blank" rel="noopener noreferrer" className="underline">Terms of Use</a>). The seller is responsible for their designs, licences, engineering and permits.
       {seller?.licenceNumber
         ? ` Licence ${seller.licenceNumber}${seller.licenceState ? ` (${seller.licenceState})` : ""} — check it on the state register before you sign.`
         : " Ask for their licence number and check it on the state register before you sign."}
@@ -684,6 +686,7 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
 
   return (
     <>
+      {me.termsVersion !== LEGAL.termsVersion && <TermsUpdate uid={uid} onAccepted={reload} first={!me.termsVersion} />}
       {!me.published && (
         <Notice tone="warn">
           Your profile is hidden from buyers. <button className="font-semibold underline" onClick={() => setSub("profile")}>Publish it</button> when you're ready — your listings and portfolio only show once it's public.
@@ -765,6 +768,27 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
   );
 }
 
+/* The Terms changed since this seller last agreed (or they joined before
+   agreement was recorded): ask once, record it, carry on. */
+function TermsUpdate({ uid, onAccepted, first }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const accept = async () => {
+    setBusy(true); setError("");
+    try { await MK.acceptTerms(uid, LEGAL.termsVersion); onAccepted(); } catch (e) { setError(e.message); setBusy(false); }
+  };
+  return (
+    <Notice tone="warn">
+      {first ? "Please confirm our Terms of Use to keep selling." : "Our Terms of Use have changed."}{" "}
+      <a href={`${SITE_URL}/?page=terms`} target="_blank" rel="noopener noreferrer" className="font-semibold underline">Read them</a>, including the 1.5% platform fee on building contracts.
+      <div className="mt-2 flex items-center gap-3">
+        <Button size="sm" variant="hivis" disabled={busy} onClick={accept}>{busy ? "Saving…" : "I agree"}</Button>
+        {error && <span className="text-xs text-alert">{error}</span>}
+      </div>
+    </Notice>
+  );
+}
+
 function StatusBadge({ l }) {
   if (l.hidden) return <Badge variant="alert">Taken down</Badge>;
   if (l.status === "live") return <Badge variant="ok">Live</Badge>;
@@ -777,6 +801,7 @@ function StatusBadge({ l }) {
 function StartSelling({ can, onUpgrade, onCreated, uid }) {
   const [kind, setKind] = useState(null);
   const [name, setName] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const allowed = (k) => planRank(can.tier) >= planRank(PRO_KINDS[k].plan);
@@ -784,7 +809,7 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
   const create = async () => {
     setBusy(true); setError("");
     try {
-      await MK.saveMyPro(uid, { kind, displayName: name, published: false }, { create: true });
+      await MK.saveMyPro(uid, { kind, displayName: name, published: false, termsVersion: LEGAL.termsVersion }, { create: true });
       track("market_profile_created", { kind });
       onCreated();
     } catch (e) { setError(e.message); }
@@ -821,8 +846,15 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
           <Field label="Business name">
             <input className="ec-input w-72 max-w-full" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="e.g. Coastline Homes" />
           </Field>
-          <Button variant="hivis" disabled={busy || name.trim().length < 2} onClick={create}>{busy ? "Creating…" : "Create my profile"}</Button>
+          <Button variant="hivis" disabled={busy || name.trim().length < 2 || !agreed} onClick={create}>{busy ? "Creating…" : "Create my profile"}</Button>
           <span className="text-[11px] text-steel">A tradie or designer can switch to a builder profile later, on the Builder plan.</span>
+          <label className="flex w-full cursor-pointer items-start gap-2 text-sm text-ink-soft">
+            <input type="checkbox" className="mt-1" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+            <span>
+              I agree to the <a href={`${SITE_URL}/?page=terms`} target="_blank" rel="noopener noreferrer" className="underline">Terms of Use</a>,
+              including the 1.5% platform fee on building contracts with clients I meet through BuildYourOwn, and that I hold the licences and insurance my work needs.
+            </span>
+          </label>
         </div>
       )}
       {error && <p className="mt-2 text-xs text-alert">{error}</p>}

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/takeoff.test.mjs && node test/cm.test.mjs && node test/exif.test.mjs && node test/model-parity.test.mjs && node test/guard.test.mjs && node test/house-geometry.test.mjs && node test/cloud-sync.test.mjs && node test/multi-dwelling.test.mjs && node test/entitlements.test.mjs && node test/billing.test.mjs && node test/describe.test.mjs && node test/structure.test.mjs && node test/pdf-sheets.test.mjs && node test/approvals.test.mjs && node test/partners.test.mjs && node test/marketplace.test.mjs && node test/market-notify.test.mjs",
+    "test": "node test/takeoff.test.mjs && node test/cm.test.mjs && node test/exif.test.mjs && node test/model-parity.test.mjs && node test/guard.test.mjs && node test/house-geometry.test.mjs && node test/cloud-sync.test.mjs && node test/multi-dwelling.test.mjs && node test/entitlements.test.mjs && node test/billing.test.mjs && node test/describe.test.mjs && node test/structure.test.mjs && node test/pdf-sheets.test.mjs && node test/approvals.test.mjs && node test/partners.test.mjs && node test/marketplace.test.mjs && node test/market-notify.test.mjs && node test/legal.test.mjs",
     "server": "node server/index.js",
     "dev:all": "concurrently -n web,ai -c cyan,yellow \"vite\" \"node server/index.js\"",
     "build:mobile": "vite build --mode mobile && cap sync",

@@ -15,6 +15,7 @@ import * as MK from "../state/marketplace.js";
 import { contractProblems, feePreviewCents, dollars, localDate, PLATFORM_FEES } from "../logic/marketplace.js";
 import { track } from "../lib/analytics.js";
 import { useBackClose } from "../lib/back-stack.js";
+import { SITE_URL } from "../lib/public-config.js";
 
 const today = () => localDate();
 
@@ -98,7 +99,7 @@ export default function ContractDialog({ initial = {}, link = {}, context, onClo
 
             {error && <p className="text-xs text-alert">{error}</p>}
             <p className="text-[11px] text-steel">
-              {editing ? "You can correct or void a record for 14 days, until it's invoiced." : "By recording it you confirm this contract came through BuildYourOwn. You can correct it for 14 days."}
+              {editing ? "You can correct or void a record for 14 days, until it's invoiced." : <>By recording it you confirm this contract came through BuildYourOwn, under our <a href={`${SITE_URL}/?page=terms#terms-fees`} target="_blank" rel="noopener noreferrer" className="underline">Terms of Use</a>. You can correct it for 14 days.</>}
             </p>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
