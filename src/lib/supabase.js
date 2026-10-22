@@ -100,6 +100,12 @@ if (supabase) {
     if (event === "PASSWORD_RECOVERY") emitLink({ recovering: true, problem: null });
   });
   supabase.auth.initialize().then(async ({ error }) => {
+    // Links that carry a token_hash (our email templates use this form) work
+    // in ANY browser on any device: the hash is checked by Supabase directly,
+    // with no code verifier from the browser that asked. A reset requested
+    // on a PC and opened on a phone just works. verifyOtp fires
+    // PASSWORD_RECOVERY for a reset, which opens "set a new password".
+    if (await finishTokenHashLink()) return;
     const hadCode = /[?&]code=/.test(landedUrl);
     const hadError = /[#?&]error(_code|_description)?=/.test(landedUrl);
     if (!hadCode && !hadError) return;
@@ -118,6 +124,31 @@ if (supabase) {
       window.history.replaceState(window.history.state, "", clean.toString());
     } catch { /* not fatal */ }
   });
+}
+
+const EMAIL_LINK_TYPES = new Set(["recovery", "signup", "email", "invite", "magiclink", "email_change"]);
+
+async function finishTokenHashLink() {
+  let u;
+  try { u = new URL(landedUrl); } catch { return false; }
+  const tokenHash = u.searchParams.get("token_hash");
+  const type = u.searchParams.get("type");
+  if (!tokenHash || !EMAIL_LINK_TYPES.has(type)) return false;
+  const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+  if (error) {
+    emitLink({
+      problem: /expired|invalid|not found/i.test(error.message)
+        ? "That email link has expired or has already been used. Request a new one below."
+        : `That link didn't work: ${error.message}.`,
+    });
+  }
+  // One-time link: never leave it in the address bar to be retried or shared.
+  try {
+    const clean = new URL(window.location.href);
+    ["token_hash", "type"].forEach((k) => clean.searchParams.delete(k));
+    window.history.replaceState(window.history.state, "", clean.toString());
+  } catch { /* not fatal */ }
+  return true;
 }
 
 /* Where Google should send the user back to. Uses the live origin so the
