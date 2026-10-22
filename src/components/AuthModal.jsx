@@ -146,6 +146,16 @@ export default function AuthModal({ onClose, initialMode = "signup", intent = nu
       <h2 className="ec-display" style={H2}>{title}</h2>
       <p style={{ fontSize: 12.5, lineHeight: 1.5, color: TOKENS.steel, marginBottom: 16 }}>{lead}</p>
 
+      {/* Above both ways in, so it covers Google sign-in too. Agreeing is to
+          the Terms; the Privacy Policy is information, not a consent. */}
+      {!isReset && (
+        <p style={{ fontSize: 11, lineHeight: 1.5, color: TOKENS.steel, margin: "-6px 0 14px" }}>
+          By {GOOGLE_ENABLED ? "continuing with Google or " : ""}{isSignup ? "creating an account" : "signing in"} you agree to our{" "}
+          <a href={`${SITE_URL}/?page=terms`} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>Terms of Use</a>.
+          Our <a href={`${SITE_URL}/?page=privacy`} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>Privacy Policy</a> explains how we handle your information.
+        </p>
+      )}
+
       {!isReset && GOOGLE_ENABLED && (
         <button type="button" className="ec-btn ec-btn-ghost" disabled={busy}
           style={{ width: "100%", justifyContent: "center", marginBottom: 14 }}
@@ -183,14 +193,6 @@ export default function AuthModal({ onClose, initialMode = "signup", intent = nu
           style={{ width: "100%", justifyContent: "center", marginTop: 4 }}>
           {busy ? "Working…" : isReset ? "Send reset link" : isSignup ? (planLabel ? "Start free trial" : "Create account") : "Sign in"}
         </button>
-        {!isReset && (
-          <p style={{ fontSize: 11, lineHeight: 1.5, color: TOKENS.steel, margin: "2px 0 0", textAlign: "center" }}>
-            By {isSignup ? "creating an account" : "continuing"} you agree to the{" "}
-            <a href={`${SITE_URL}/?page=terms`} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>Terms of Use</a>
-            {" "}and{" "}
-            <a href={`${SITE_URL}/?page=privacy`} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>Privacy Policy</a>.
-          </p>
-        )}
       </form>
 
       <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, marginTop: 16, display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
@@ -315,9 +317,9 @@ function AccountPanel({ onClose }) {
       <Backdrop onClose={onClose}>
         <h2 className="ec-display" style={{ ...H2, color: TOKENS.alert }}>Delete your account</h2>
         <p style={{ fontSize: 13, lineHeight: 1.6, color: TOKENS.inkSoft, margin: "8px 0 12px" }}>
-          This permanently deletes your account and every project saved to it in the cloud. It can't be undone.
-          {profile?.stripe_customer_id ? " Any subscription is cancelled first, so you won't be charged again." : ""}
-          Projects saved in this browser stay on this device until you remove them.
+          This permanently deletes your account, every project saved to it in the cloud, and any marketplace profile, listings and photos. It can't be undone.
+          {profile?.stripe_customer_id ? " Any subscription is cancelled first, so you won't be charged again. Your paid plan ends now, and the rest of the period isn't refunded unless our Terms or the law say otherwise. To use it until then, cancel under Manage billing and delete later." : ""}
+          {" "}Projects saved in this browser stay on this device until you remove them.
         </p>
         <label style={LBL}>
           <span className="ec-label">Type DELETE to confirm</span>
@@ -506,7 +508,7 @@ const SEGMENT_DETAIL = {
   },
   builder: {
     blurb: "Running jobs, small to large. Multi-dwelling and developer quoting, then run the build from Site Office — budgets, purchase orders and progress claims.",
-    plan: "Builder plan: everything, plus Site Office and Xero / MYOB.",
+    plan: "Builder plan: everything, plus Site Office. Xero / MYOB coming soon.",
   },
 };
 

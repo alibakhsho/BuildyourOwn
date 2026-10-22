@@ -100,6 +100,19 @@ export async function uploadMedia(file, userId) {
   return path;
 }
 
+/* Photos taken off a saved listing, portfolio job or profile are deleted
+   from the public bucket too (the Privacy Policy says removed photos go).
+   Each upload has its own path, so nothing else can be using them. */
+async function previousMedia(table, key, id, columns) {
+  const { data } = await need().from(table).select(columns).eq(key, id).maybeSingle();
+  if (!data) return [];
+  return columns.split(",").flatMap((c) => data[c] ?? []).filter(Boolean);
+}
+async function removeDropped(before, after) {
+  const keep = new Set(after.filter(Boolean));
+  await removeMedia(before.filter((p) => !keep.has(p)));
+}
+
 export async function removeMedia(paths = []) {
   if (!paths.length) return;
   const { error } = await need().storage.from(BUCKET).remove(paths);
@@ -252,7 +265,9 @@ export async function saveMyPro(userId, profile, { create = false } = {}) {
     return proFromRow(data);
   }
   const patch = profile.kind ? { ...row, kind: profile.kind } : row;
+  const before = await previousMedia("pro_profiles", "user_id", userId, "logo_path,cover_path");
   const data = await run(sb.from("pro_profiles").update(patch).eq("user_id", userId).select().single());
+  await removeDropped(before, [data.logo_path, data.cover_path]);
   return proFromRow(data);
 }
 
@@ -270,9 +285,10 @@ export async function myListings(userId) {
 export async function saveListing(userId, listing) {
   const sb = need();
   const row = listingToRow(listing);
-  const data = listing.id
-    ? await run(sb.from("listings").update(row).eq("id", listing.id).select().single())
-    : await run(sb.from("listings").insert({ ...row, seller_id: userId, status: "draft" }).select().single());
+  if (!listing.id) return listingFromRow(await run(sb.from("listings").insert({ ...row, seller_id: userId, status: "draft" }).select().single()));
+  const before = await previousMedia("listings", "id", listing.id, "media_paths");
+  const data = await run(sb.from("listings").update(row).eq("id", listing.id).select().single());
+  await removeDropped(before, data.media_paths || []);
   return listingFromRow(data);
 }
 
@@ -294,9 +310,10 @@ export async function myPortfolio(userId) {
 export async function savePortfolioItem(userId, item) {
   const sb = need();
   const row = portfolioToRow(item);
-  const data = item.id
-    ? await run(sb.from("portfolio_items").update(row).eq("id", item.id).select().single())
-    : await run(sb.from("portfolio_items").insert({ ...row, owner_id: userId }).select().single());
+  if (!item.id) return portfolioFromRow(await run(sb.from("portfolio_items").insert({ ...row, owner_id: userId }).select().single()));
+  const before = await previousMedia("portfolio_items", "id", item.id, "media_paths");
+  const data = await run(sb.from("portfolio_items").update(row).eq("id", item.id).select().single());
+  await removeDropped(before, data.media_paths || []);
   return portfolioFromRow(data);
 }
 

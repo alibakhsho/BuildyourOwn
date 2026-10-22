@@ -298,6 +298,18 @@ export function contractProblems(c = {}, today = new Date()) {
   return out;
 }
 
+/* The fee covers clients met through BuildYourOwn: an enquiry in the 12
+   months before signing (Terms, "fees"). True when a contract was signed
+   more than 12 months after the enquiry, so no fee applies to it. */
+export const INTRO_WINDOW_MONTHS = 12;
+export function outsideIntroWindow(enquiryCreatedAt, signedOn) {
+  if (!enquiryCreatedAt || !signedOn) return false;
+  const from = new Date(enquiryCreatedAt);
+  if (Number.isNaN(from.getTime())) return false;
+  const limit = new Date(from.getFullYear(), from.getMonth() + INTRO_WINDOW_MONTHS, from.getDate());
+  return signedOn > localDate(limit);
+}
+
 export function contractFromRow(r = {}) {
   return {
     id: r.id,

@@ -30,6 +30,9 @@
 --
 -- IDEMPOTENT: safe to re-run; every object is created if-not-exists or
 -- replaced, and policies are dropped before being recreated.
+-- AFTER re-running it, re-run 20261022000000_seller_terms_acceptance.sql:
+-- this file revokes the terms_version grants and resets the pro_profiles
+-- insert policy, and seller sign-up fails until that file runs again.
 -- =========================================================================
 
 

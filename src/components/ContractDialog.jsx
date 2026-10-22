@@ -12,7 +12,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "../state/auth.jsx";
 import * as MK from "../state/marketplace.js";
-import { contractProblems, feePreviewCents, dollars, localDate, PLATFORM_FEES } from "../logic/marketplace.js";
+import { contractProblems, feePreviewCents, dollars, localDate, outsideIntroWindow, PLATFORM_FEES } from "../logic/marketplace.js";
 import { track } from "../lib/analytics.js";
 import { useBackClose } from "../lib/back-stack.js";
 import { SITE_URL } from "../lib/public-config.js";
@@ -33,6 +33,8 @@ export default function ContractDialog({ initial = {}, link = {}, context, onClo
   const set = (k, v) => setC((x) => ({ ...x, [k]: v }));
   const problems = contractProblems(c);
   const editing = !!initial.id;
+  // An enquiry more than 12 months before signing isn't an introduction under the Terms.
+  const noFee = !editing && outsideIntroWindow(link.enquiryCreatedAt, c.signedOn);
 
   useBackClose(onClose);   // Escape and the phone's Back button close it
 
@@ -92,18 +94,23 @@ export default function ContractDialog({ initial = {}, link = {}, context, onClo
             <div className="flex items-center justify-between gap-3 border border-rule bg-paper-light px-3 py-2.5">
               <div>
                 <div className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-steel">Platform fee · {PLATFORM_FEES.contract.label}</div>
-                <div className="text-[11px] text-steel">Ex GST. Invoiced separately — nothing is charged now.</div>
+                <div className="text-[11px] text-steel">Plus GST if it applies. Invoiced separately — nothing is charged now.</div>
               </div>
               <div className="font-mono text-lg font-bold tabular-nums text-ink">{dollars(feePreviewCents(c.valueCents))}</div>
             </div>
 
+            {noFee && (
+              <p className="border border-rule bg-paper-light px-3 py-2 text-xs text-ink">
+                This enquiry came in more than 12 months before the signing date, so under our Terms no platform fee applies. You don't need to record it.
+              </p>
+            )}
             {error && <p className="text-xs text-alert">{error}</p>}
             <p className="text-[11px] text-steel">
-              {editing ? "You can correct or void a record for 14 days, until it's invoiced." : <>By recording it you confirm this contract came through BuildYourOwn, under our <a href={`${SITE_URL}/?page=terms#terms-fees`} target="_blank" rel="noopener noreferrer" className="underline">Terms of Use</a>. You can correct it for 14 days.</>}
+              {editing ? "You can correct or void a record for 14 days, until it's invoiced." : <>By recording it you confirm the client first contacted you through BuildYourOwn, under our <a href={`${SITE_URL}/?page=terms#terms-fees`} target="_blank" rel="noopener noreferrer" className="underline">Terms of Use</a>. You can correct it for 14 days.</>}
             </p>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-              <Button type="submit" variant="hivis" disabled={busy || problems.length > 0}>{busy ? "Saving…" : editing ? "Save" : "Record contract"}</Button>
+              <Button type="submit" variant="hivis" disabled={busy || noFee || problems.length > 0}>{busy ? "Saving…" : editing ? "Save" : "Record contract"}</Button>
             </div>
           </form>
         )}

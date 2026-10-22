@@ -16,7 +16,7 @@ import { missingDetails, versionDate } from "../legal/company.js";
 export const LEGAL_DOCS = { terms: termsOfUse, privacy: privacyPolicy };
 
 export default function LegalPage({ doc = "terms", onBack, onOpen }) {
-  const d = (LEGAL_DOCS[doc] || termsOfUse)();
+  const d = (Object.prototype.hasOwnProperty.call(LEGAL_DOCS, doc) ? LEGAL_DOCS[doc] : termsOfUse)();
   const missing = missingDetails();
   useEffect(() => {
     const before = document.title;
@@ -39,7 +39,7 @@ export default function LegalPage({ doc = "terms", onBack, onOpen }) {
         )}
         <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-steel">BuildYourOwn</div>
         <h1 className="mt-1 font-display text-3xl leading-tight text-ink">{d.title}</h1>
-        <p className="mt-1 text-xs text-steel">Last updated {versionDate(d.version)}</p>
+        <p className="mt-1 text-xs text-steel">Effective {versionDate(d.version)}</p>
 
         {missing.length > 0 && (
           <div className="mt-4 border border-hivis-deep bg-warn-wash px-4 py-3 text-sm text-ink" role="note">

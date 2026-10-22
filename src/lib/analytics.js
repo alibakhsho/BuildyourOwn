@@ -67,9 +67,15 @@ export function track(event, props = {}) {
 }
 
 /* Convenience: track page view on load */
+/* Only the site someone came from (https://www.google.com), never the full
+   address, which can carry search terms or other people's links. */
+function referrerSite() {
+  try { return typeof document !== "undefined" && document.referrer ? new URL(document.referrer).origin : ""; } catch { return ""; }
+}
+
 export function trackPageView() {
   track("page_view", {
-    referrer: typeof document !== "undefined" ? document.referrer : "",
+    referrer: referrerSite(),
     ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
   });
 }

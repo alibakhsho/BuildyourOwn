@@ -82,6 +82,10 @@ ok("fee ledger ignores void, splits owing and paid", M.feeSummary([
 ok("dollars", M.dollars(675000), "A$6,750");
 ok("local date, not UTC", M.localDate(new Date(2026, 9, 21, 7, 30)), "2026-10-21");
 ok("today is allowed as a signing date", M.contractProblems({ clientName: "P", valueCents: 1, signedOn: M.localDate() }), []);
+ok("signed within 12 months of the enquiry: fee applies", M.outsideIntroWindow("2025-10-23T12:00:00Z", "2026-10-22"), false);
+ok("signed on the anniversary: still inside", M.outsideIntroWindow("2025-10-22T12:00:00Z", "2026-10-22"), false);
+ok("signed more than 12 months later: no fee", M.outsideIntroWindow("2025-10-01T12:00:00Z", "2026-10-22"), true);
+ok("no enquiry date: not judged", M.outsideIntroWindow(null, "2026-10-22"), false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

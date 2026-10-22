@@ -27,12 +27,15 @@ ok("terms: plans/modules fee only when agreed in writing", terms.includes("agree
 ok("terms: Australian Consumer Law rights preserved", terms.includes("can't be excluded"));
 ok("terms: notice before changes, with a way out", terms.includes("at least 30 days before it takes effect"));
 ok("terms: governing law is the configured state", terms.includes(`laws of ${LEGAL.state}`));
-ok("terms: section links used in the app exist", ["fees", "buyers"].every((id) => termsOfUse(filled).sections.some((s) => s.id === id)));
+ok("terms: section links used in the app exist", ["fees", "buyers", "sellers"].every((id) => termsOfUse(filled).sections.some((s) => s.id === id)));
+ok("privacy: section links used in the app exist", ["share"].every((id) => privacyPolicy(filled).sections.some((s) => s.id === id)));
 
 const privacy = text(privacyPolicy(filled));
 ok("privacy: names every service provider the code uses", ["Supabase", "Vercel", "Stripe", "Resend", "Anthropic", "Google", "Xero"].every((p) => privacy.includes(p)));
 ok("privacy: discloses overseas storage (India, United States)", privacy.includes("India") && privacy.includes("United States"));
-ok("privacy: enquiry details go to the seller", privacy.includes("your enquiry details go to that seller"));
+ok("privacy: enquiry details go to the seller", privacy.includes("send it to that seller, by email and in the app"));
+ok("privacy: AI content and fonts disclosed", privacy.includes("what you type to the AI assistant") && privacy.includes("fonts used on the site"));
+ok("privacy: deletion by email", privacy.includes("ask us to delete your account by emailing"));
 ok("privacy: contract records kept after deletion", privacy.includes("kept after an account is deleted"));
 ok("privacy: OAIC complaints route", privacy.includes("oaic.gov.au"));
 

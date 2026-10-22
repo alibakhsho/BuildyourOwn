@@ -137,6 +137,14 @@ Four sides, one job record connecting them:
    - **Fees on plans and modules: discussed on contract** for now. Only the 1.5% on build contracts is fixed.
 7. **No payments in the app yet.** Buyers send an enquiry; Stripe (Connect) checkout comes later, set up from the owner's computer.
 
+### Terms of Use and Privacy Policy (Oct 2026)
+- Text in `src/legal/` (terms.js, privacy.js; operator details in company.js), shown at `/?page=terms` and `/?page=privacy`. **Before launch:** fill in `legalName`, `abn` and `contactEmail` in company.js, and set `termsVersion` / `privacyVersion` to that day's date.
+- Sellers agree to the Terms (and the fee) before they get a profile; existing sellers are asked once before the seller tools open. Migration `20261022000000_seller_terms_acceptance.sql` records the version and a server-stamped time, keeps it from going backwards, and takes the **Verified** tick off when a seller changes their ABN or licence. Run it before deploying the app code that needs it.
+- **Verified** means staff checked the ABN on the ABN Register and the licence on the state register (Terms, "Selling"). Only tick a seller after doing both.
+- Prices: homeowners see the AI add-on including GST; Tradie and Builder show + GST with the total. Listing prices are entered and shown including GST. If the business isn't registered for GST, set `GST_RATE = 0` in `src/lib/entitlements.js` and turn off automatic tax in checkout.
+- The fee applies only to clients who sent an enquiry through the Marketplace in the 12 months before signing. Site Office asks rather than assumes, and the contract dialog won't record an enquiry that's more than 12 months old.
+- Still to do: a scheduled purge of contract records after 7 years; a `verified_on` date; e-mailing sellers 30 days before a Terms change.
+
 ### Live now (Oct 2026)
 The marketplace is in the app (**Marketplace** in the top bar, and on the landing page) on the live database (`supabase/migrations/20261020100000_marketplace.sql`):
 - **Plans & modules:** browse live listings by type, state and name; listing pages with photos, specs, "what's in the price" for prefab, and an enquiry form.
@@ -147,4 +155,4 @@ The marketplace is in the app (**Marketplace** in the top bar, and on the landin
 ### Making the 1.5% stick
 - The fee is charged when the contract is marked signed on the platform. The builder agrees to it in the platform terms when they sign up.
 - The weak point is leakage: a builder meets the client here, then signs off-platform. Make on-platform signing the easy path: e-sign, the client's quote stages and progress claims live here, and portfolio ranking only counts jobs signed here.
-- Platform terms must say plainly that BuildYourOwn is not the builder, does not check licences or permits, and is not a party to the contract. Show each builder's licence number on their profile so clients can check it themselves.
+- The Terms say plainly that BuildYourOwn is not the builder and is not a party to the contract, and that apart from the ABN and licence check behind the Verified tick we don't check licences, insurance or permits. Each builder's licence number shows on their profile so clients can check it themselves.

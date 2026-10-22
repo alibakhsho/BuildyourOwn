@@ -5,9 +5,14 @@
    pages show a visible "[ … ]" placeholder in their place, so a missing
    detail is obvious rather than silently wrong.
 
-   Bump the version dates when the wording of a document changes in a way
-   people should agree to again (the app records which Terms version a
-   seller accepted).
+   A version is the date that version takes effect (YYYY-MM-DD; the app
+   compares them as strings). Bump it when the wording changes in a way
+   people should agree to again: sellers are asked to accept the new Terms,
+   and the Terms promise 30 days' notice of a change to someone's detriment,
+   so set such a date at least 30 days after you publish the change.
+   Filling in legalName, abn or contactEmail is such a change: set
+   termsVersion and privacyVersion to that day's date so every seller who
+   accepted the draft is asked again.
    ========================================================================= */
 
 export const LEGAL = {
@@ -41,7 +46,7 @@ export function missingDetails(L = LEGAL) {
   ].filter(Boolean);
 }
 
-/** Human date for "Last updated", from a YYYY-MM-DD version. */
+/** Human date for "Effective …", from a YYYY-MM-DD version. */
 export function versionDate(v) {
   const [y, m, d] = String(v).split("-").map(Number);
   if (!y || !m || !d) return String(v);

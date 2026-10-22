@@ -1836,7 +1836,7 @@ export default function App() {
   });
   // Terms / Privacy by link: /?page=terms, /?page=privacy (the app-store URLs).
   const [legalDoc, setLegalDoc] = useState(() => {
-    try { const p = new URLSearchParams(window.location.search).get("page"); return LEGAL_DOCS[p] ? p : null; } catch { return null; }
+    try { const p = new URLSearchParams(window.location.search).get("page"); return Object.prototype.hasOwnProperty.call(LEGAL_DOCS, p) ? p : null; } catch { return null; }
   });
   const [legalFrom, setLegalFrom] = useState("landing");
   const [screen, setScreen] = useState(() => (legalDoc ? "legal" : marketDeepLink ? "market" : "landing"));     // landing | projects | workspace | manage | market | legal
@@ -1844,13 +1844,19 @@ export default function App() {
     setLegalFrom((prev) => (screen === "legal" ? prev : screen));
     setLegalDoc(doc); setScreen("legal"); window.scrollTo({ top: 0 });
   }, [screen]);
-  const closeLegal = () => {
-    setScreen(legalFrom || "landing"); window.scrollTo({ top: 0 });
+  const closeLegal = () => { setScreen(legalFrom || "landing"); window.scrollTo({ top: 0 }); };
+  // However the legal screen is left (Back, header, a link), drop its address.
+  useEffect(() => {
+    if (screen === "legal") return;
     try {
       const u = new URL(window.location.href);
-      if (u.searchParams.has("page")) { u.searchParams.delete("page"); window.history.replaceState(null, "", u.pathname + u.search + u.hash); }
+      const anchor = /^#(terms|privacy)-/.test(u.hash);
+      if (u.searchParams.has("page") || anchor) {
+        u.searchParams.delete("page");
+        window.history.replaceState(null, "", u.pathname + u.search + (anchor ? "" : u.hash));
+      }
     } catch { /* cosmetic only */ }
-  };
+  }, [screen]);
   // Used once: leaving the marketplace means the next visit opens on Browse.
   useEffect(() => { if (marketDeepLink && screen !== "market") setMarketDeepLink(false); }, [screen, marketDeepLink]);
   useEffect(() => {
