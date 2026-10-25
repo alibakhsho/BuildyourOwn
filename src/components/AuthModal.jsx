@@ -22,7 +22,10 @@ import { useAuth, SEGMENTS, TIERS } from "../state/auth.jsx";
 import { PLANS, SEGMENT_PLAN, TRIAL_DAYS } from "../lib/entitlements.js";
 import { canPayHere, openBillingPortal } from "../lib/billing.js";
 
-const MIN_PASSWORD = 6;   // Supabase Auth's minimum; keep in step with the dashboard setting
+// New passwords only; keep in step with Supabase (Authentication → Sign In /
+// Providers → Email → Minimum password length). Sign-in doesn't check it, so
+// accounts made under the old 6-character minimum can still get in.
+const MIN_PASSWORD = 8;
 
 /* tone="dark" is for the landing hero, where the normal ghost button would be
    dark-on-dark. onSignedIn fires once a sign-in/up started here succeeds, and
@@ -180,8 +183,8 @@ export default function AuthModal({ onClose, initialMode = "signup", intent = nu
         {!isReset && (
           <label style={LBL}>
             <span className="ec-label">Password</span>
-            <input className="ec-input" type="password" required minLength={MIN_PASSWORD} value={form.password}
-              onChange={set("password")} placeholder={`At least ${MIN_PASSWORD} characters`}
+            <input className="ec-input" type="password" required minLength={isSignup ? MIN_PASSWORD : undefined} value={form.password}
+              onChange={set("password")} placeholder={isSignup ? `At least ${MIN_PASSWORD} characters` : ""}
               autoComplete={isSignup ? "new-password" : "current-password"} />
           </label>
         )}
