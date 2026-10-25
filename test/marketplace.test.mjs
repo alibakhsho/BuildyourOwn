@@ -25,6 +25,13 @@ ok("no photo, no listing", M.publishProblems({ kind: "plan", saleMode: "build_on
   ["Add at least one photo or render"]);
 ok("a plan can't be sold as prefab", M.publishProblems({ ...prefab, kind: "plan" }).length > 0, true);
 
+// --- Who sells what: builders and architects/designers list, tradies don't ---
+const modeIds = (k, who) => M.saleModesFor(k, who).map(([id]) => id);
+ok("builders and architects sell, tradies show work", Object.keys(M.PRO_KINDS).filter((k) => M.PRO_KINDS[k].sells), ["builder", "designer"]);
+ok("builder plan modes", modeIds("plan", "builder"), ["plan_purchase", "plan_licence", "build_only"]);
+ok("architect sells plans but can't offer to build", modeIds("plan", "designer"), ["plan_purchase", "plan_licence"]);
+ok("architect can list a prefab design", modeIds("module", "designer"), ["prefab"]);
+
 // --- Values the database would refuse are caught before Save ---
 ok("in-range values pass", M.fieldProblems({ bedrooms: "4", bathrooms: "2", storeys: "2", floorAreaM2: "214.5", priceCents: 32500000, leadTimeWeeks: 10 }), []);
 ok("out-of-range values are named", M.fieldProblems({ bedrooms: "25", storeys: "0", floorAreaM2: "-3", leadTimeWeeks: 200 }).length, 4);

@@ -39,15 +39,22 @@ export const LISTING_KINDS = {
 export const SALE_MODES = {
   plan_purchase: { kind: "plan", label: "Buy the plans", blurb: "Buy the plans outright and build with any builder." },
   plan_licence: { kind: "plan", label: "Licence to build", blurb: "Pay to build this design once, with any builder." },
-  build_only: { kind: "plan", label: "Build with this builder", blurb: "This design comes with a build contract from this builder." },
+  build_only: { kind: "plan", label: "Build with this builder", blurb: "This design comes with a build contract from this builder.", builderOnly: true },
   prefab: { kind: "module", label: "Prefab, delivered", blurb: "Built off site at a fixed price — what you see is what you get." },
 };
 
+/* `sells`: lists house plans and prefab modules (on the Builder plan; the
+   database checks the plan, not the kind). Architects and designers sell
+   their designs too — they just can't offer to build them. */
 export const PRO_KINDS = {
-  builder: { label: "Builder", plan: "business" },
+  builder: { label: "Builder", plan: "business", sells: true },
   tradie: { label: "Tradie", plan: "pro" },
-  designer: { label: "Designer", plan: "pro" },
+  designer: { label: "Architect / designer", plan: "pro", sells: true },
 };
+
+/** The sale modes a seller of this kind can offer for a listing kind. */
+export const saleModesFor = (listingKind, proKind) =>
+  Object.entries(SALE_MODES).filter(([, m]) => m.kind === listingKind && (proKind === "builder" || !m.builderOnly));
 
 /** Site works a prefab price usually doesn't cover. A live prefab listing
  *  must answer each one — "included" or "excluded" — so the buyer knows
