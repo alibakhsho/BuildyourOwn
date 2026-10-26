@@ -30,8 +30,8 @@ export const TIERS = Object.fromEntries(Object.entries(PLANS).map(([id, p]) => [
    target developers directly. */
 export const SEGMENTS = [
   { id: "homeowner", label: "Homeowner", hint: "Planning a build or renovation" },
-  { id: "tradie",    label: "Tradie",    hint: "Sole trader or subcontractor" },
-  { id: "builder",   label: "Builder",   hint: "Running jobs, small to large" },
+  { id: "tradie",    label: "Tradie",    hint: "Sole trader, subcontractor or designer" },
+  { id: "builder",   label: "Builder",   hint: "Running jobs, or an architect selling plans & prefab" },
 ];
 
 export function AuthProvider({ children }) {

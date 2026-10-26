@@ -37,7 +37,7 @@ import { track } from "../lib/analytics.js";
 import * as MK from "../state/marketplace.js";
 import {
   STATES, LISTING_KINDS, SALE_MODES, PRO_KINDS, PREFAB_SITE_WORKS, PLATFORM_FEES,
-  publishProblems, fieldProblems, listingFeeLabel, prefabExtras, priceLabel, sellerStats,
+  publishProblems, fieldProblems, listingFeeLabel, prefabExtras, priceLabel, sellerStats, saleModesFor,
   CONTRACT_STATUS, contractEditable, feeSummary, dollars,
 } from "../logic/marketplace.js";
 
@@ -189,7 +189,7 @@ function Browse({ onOpen, onPros }) {
         <Kpi label="House plans" value={counts.loading ? "–" : c.plans} foot="Ready to buy, licence or build" icon={FileText} accent />
         <Kpi label="Prefab modules" value={counts.loading ? "–" : c.modules} foot="Fixed price, delivered" icon={Truck} />
         <Kpi label="Builders" value={counts.loading ? "–" : c.builders} foot="With portfolios" icon={Building2} onClick={onPros} />
-        <Kpi label="Tradies & designers" value={counts.loading ? "–" : c.tradies} foot="Showing their work" icon={Hammer} onClick={onPros} />
+        <Kpi label="Tradies & architects" value={counts.loading ? "–" : c.tradies} foot="Showing their work" icon={Hammer} onClick={onPros} />
       </HairGrid>
 
       <Filters q={q} onQ={setQ} state={state} onState={setState}
@@ -295,7 +295,7 @@ function Pros({ onOpen }) {
   return (
     <>
       <Filters q={q} onQ={setQ} state={state} onState={setState}
-        chips={[[null, "Everyone"], ["builder", "Builders"], ["tradie", "Tradies"], ["designer", "Designers"]]} chip={kind} onChip={setKind}
+        chips={[[null, "Everyone"], ["builder", "Builders"], ["tradie", "Tradies"], ["designer", "Architects"]]} chip={kind} onChip={setKind}
         placeholder="Search by name" />
       {list.error ? <Notice tone="alert">{list.error}</Notice>
         : list.loading ? <CardSkeletons />
@@ -675,10 +675,11 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
   }
 
   const stats = sellerStats(d);
-  const canList = me.kind === "builder" && planRank(can.tier) >= planRank("business");
+  const sells = !!PRO_KINDS[me.kind]?.sells;
+  const canList = sells && planRank(can.tier) >= planRank("business");
   const SUBS = [
     ["overview", "Overview"], ["enquiries", `Enquiries${stats.newEnquiries ? ` · ${stats.newEnquiries}` : ""}`],
-    ...(me.kind === "builder" ? [["listings", "Listings"]] : []), ["portfolio", "Portfolio"], ["fees", "Fees"], ["profile", "Profile"], ["sent", "Sent"],
+    ...(sells ? [["listings", "Listings"]] : []), ["portfolio", "Portfolio"], ["fees", "Fees"], ["profile", "Profile"], ["sent", "Sent"],
   ];
   const fees = feeSummary(d.contracts);
 
@@ -692,9 +693,9 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
 
       <HairGrid cols="grid-cols-2 lg:grid-cols-4" className="mb-5">
         <Kpi label="New enquiries" value={stats.newEnquiries} foot={`${stats.totalEnquiries} in total`} icon={Inbox} accent onClick={() => setSub("enquiries")} />
-        <Kpi label={me.kind === "builder" ? "Live listings" : "Profile"} value={me.kind === "builder" ? stats.live : me.published ? "Live" : "Hidden"}
-          foot={me.kind === "builder" ? `${stats.drafts} draft${stats.drafts === 1 ? "" : "s"}${stats.hidden ? ` · ${stats.hidden} taken down` : ""}` : PRO_KINDS[me.kind]?.label}
-          icon={Store} onClick={() => setSub(me.kind === "builder" ? "listings" : "profile")} />
+        <Kpi label={sells ? "Live listings" : "Profile"} value={sells ? stats.live : me.published ? "Live" : "Hidden"}
+          foot={sells ? `${stats.drafts} draft${stats.drafts === 1 ? "" : "s"}${stats.hidden ? ` · ${stats.hidden} taken down` : ""}` : PRO_KINDS[me.kind]?.label}
+          icon={Store} onClick={() => setSub(sells ? "listings" : "profile")} />
         <Kpi label="Listing views" value={stats.views.toLocaleString("en-AU")} foot="All time, across listings" icon={Eye} />
         <Kpi label="Finished jobs" value={stats.portfolio} foot="In your portfolio" icon={Hammer} onClick={() => setSub("portfolio")} />
       </HairGrid>
@@ -718,7 +719,7 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
             <EnquiryList rows={d.enquiries.slice(0, 5)} onChanged={data.reload} contracts={d.contracts} compact />
           </Section>
           <div className="space-y-5">
-            {me.kind === "builder" && (
+            {sells && (
               <Section title="Your listings" action={<Button variant="subtle" size="xs" onClick={() => setSub("listings")}>Manage</Button>}>
                 {!d.listings.length ? <Notice>No listings yet. Add a house plan or a prefab module.</Notice> : (
                   <div className="divide-y divide-rule border border-rule bg-card">
@@ -755,8 +756,8 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
         </Section>
       )}
       {sub === "fees" && <FeesLedger contracts={d.contracts} onChanged={data.reload} />}
-      {sub === "listings" && me.kind === "builder" && (
-        <ListingsManager uid={uid} listings={d.listings} canList={canList} onUpgrade={onUpgrade} onChanged={data.reload} onPreview={onOpenListing} />
+      {sub === "listings" && sells && (
+        <ListingsManager uid={uid} proKind={me.kind} listings={d.listings} canList={canList} onUpgrade={onUpgrade} onChanged={data.reload} onPreview={onOpenListing} />
       )}
       {sub === "portfolio" && <PortfolioManager uid={uid} items={d.portfolio} onChanged={data.reload} />}
       {sub === "profile" && <ProfileEditor uid={uid} pro={me} canBuild={can.marketListing} onSaved={reload} />}
@@ -796,7 +797,7 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
       <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-steel">Sell on BuildYourOwn</div>
       <h2 className="mt-1 font-display text-2xl text-ink">Show your work. List your plans and modules.</h2>
       <p className="mt-1 max-w-[70ch] text-sm text-ink-soft">
-        Builders list house plans and prefab modules and show finished jobs. Tradies and designers show their portfolio and take enquiries.
+        Builders, architects and designers list house plans and prefab modules and show their work. Tradies show their portfolio and take enquiries.
         Fees: 1.5% of build contracts signed through us; plans and modules discussed on contract.
       </p>
       <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -810,7 +811,8 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
                 {!ok && <Badge variant="hivis">{v.plan === "business" ? "Builder plan" : "Tradie plan"}</Badge>}
               </div>
               <div className="mt-1 text-xs text-steel">
-                {k === "builder" ? "Profile, portfolio, house plans and prefab modules." : k === "tradie" ? "Profile and portfolio of finished jobs." : "Profile and portfolio of your designs."}
+                {k === "builder" ? "Profile, portfolio, house plans and prefab modules." : k === "tradie" ? "Profile and portfolio of finished jobs."
+                  : "Profile and portfolio of your designs. Sell plans and prefab designs on the Builder plan."}
               </div>
             </button>
           );
@@ -822,7 +824,7 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
             <input className="ec-input w-72 max-w-full" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="e.g. Coastline Homes" />
           </Field>
           <Button variant="hivis" disabled={busy || name.trim().length < 2} onClick={create}>{busy ? "Creating…" : "Create my profile"}</Button>
-          <span className="text-[11px] text-steel">A tradie or designer can switch to a builder profile later, on the Builder plan.</span>
+          <span className="text-[11px] text-steel">A tradie can switch to a builder profile later, on the Builder plan.</span>
         </div>
       )}
       {error && <p className="mt-2 text-xs text-alert">{error}</p>}
@@ -985,18 +987,23 @@ function SentEnquiries({ sent, onOpenListing, onOpenPro, bare }) {
 
 /* ---- Listings manager + editor ----------------------------------------- */
 
-const BLANK_LISTING = (kind) => ({
-  kind, saleMode: kind === "module" ? "prefab" : "build_only", title: "", summary: "", description: "",
+// a builder's plan starts as build-only; an architect's as a plan sale
+const firstMode = (kind, proKind) => {
+  const ids = saleModesFor(kind, proKind).map(([id]) => id);
+  return ids.includes("build_only") ? "build_only" : ids[0];
+};
+const BLANK_LISTING = (kind, proKind) => ({
+  kind, saleMode: firstMode(kind, proKind), title: "", summary: "", description: "",
   priceCents: null, bedrooms: "", bathrooms: "", storeys: "", floorAreaM2: "", inclusions: [], siteWorks: {},
   leadTimeWeeks: null, regions: [], mediaPaths: [], ownsCopyright: false, status: "draft",
 });
 
-function ListingsManager({ uid, listings, canList, onUpgrade, onChanged, onPreview }) {
+function ListingsManager({ uid, proKind, listings, canList, onUpgrade, onChanged, onPreview }) {
   const [editing, setEditing] = useState(null);
   if (editing) {
-    return <ListingEditor uid={uid} initial={editing} canList={canList} onUpgrade={onUpgrade} onClose={() => { setEditing(null); onChanged(); }} onPreview={onPreview} />;
+    return <ListingEditor uid={uid} proKind={proKind} initial={editing} canList={canList} onUpgrade={onUpgrade} onClose={() => { setEditing(null); onChanged(); }} onPreview={onPreview} />;
   }
-  const add = (kind) => (canList ? setEditing(BLANK_LISTING(kind)) : onUpgrade?.("marketListing"));
+  const add = (kind) => (canList ? setEditing(BLANK_LISTING(kind, proKind)) : onUpgrade?.("marketListing"));
   return (
     <Section title="Listings" sub="Drafts are only visible to you. Publish when the photos and details are right."
       action={<div className="flex gap-2">
@@ -1023,7 +1030,7 @@ function ListingsManager({ uid, listings, canList, onUpgrade, onChanged, onPrevi
   );
 }
 
-function ListingEditor({ uid, initial, canList, onUpgrade, onClose, onPreview }) {
+function ListingEditor({ uid, proKind, initial, canList, onUpgrade, onClose, onPreview }) {
   const [l, setL] = useState(initial);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -1031,7 +1038,9 @@ function ListingEditor({ uid, initial, canList, onUpgrade, onClose, onPreview })
   const set = (k, v) => setL((x) => ({ ...x, [k]: typeof v === "function" ? v(x[k]) : v }));
   const problems = publishProblems(l);
   const saveBlockers = fieldProblems(l);
-  const modes = Object.entries(SALE_MODES).filter(([, m]) => m.kind === l.kind);
+  // keep a saved listing's own mode on screen even if this seller couldn't pick it now
+  const modes = Object.entries(SALE_MODES).filter(([id, m]) => m.kind === l.kind
+    && (id === initial.saleMode || saleModesFor(l.kind, proKind).some(([ok]) => ok === id)));
 
   const act = async (label, fn) => {
     setBusy(label); setError("");
@@ -1304,7 +1313,7 @@ function ProfileEditor({ uid, pro, canBuild, onSaved }) {
               ? <Button variant="subtle" disabled={busy} onClick={() => save({ published: false })}>Hide from buyers</Button>
               : <Button variant="hivis" disabled={busy || p.displayName.trim().length < 2} onClick={() => save({ published: true })}>Save & publish</Button>}
           </div>
-          {p.kind !== "builder" && canBuild && (
+          {p.kind === "tradie" && canBuild && (
             <div className="border-t border-rule pt-3">
               <p className="text-xs text-ink-soft">You're on the Builder plan. Switch this profile to a builder to list house plans and prefab modules — your portfolio and enquiries stay.</p>
               <Button className="mt-2" size="sm" variant="outline" disabled={busy}
