@@ -1,12 +1,17 @@
 {
+  "id": "/",
   "name": "Build Your Own",
   "short_name": "BYO",
-  "description": "Guest-first construction estimator and quote app",
+  "description": "Price your build trade by trade, see it in 3D, and find builders, architects, house plans and prefab homes.",
+  "lang": "en-AU",
+  "dir": "ltr",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#171210",
   "theme_color": "#171210",
-  "orientation": "portrait",
+  "orientation": "any",
+  "categories": ["business", "productivity"],
   "icons": [
     {
       "src": "/icon-192.png",
