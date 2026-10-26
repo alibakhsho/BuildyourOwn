@@ -208,6 +208,8 @@ export function proFromRow(r = {}) {
     coverPath: r.cover_path || null,
     published: !!r.published,
     verified: !!r.verified,
+    termsVersion: r.terms_version || null,
+    termsAcceptedAt: r.terms_accepted_at || null,
   };
 }
 
@@ -301,6 +303,18 @@ export function contractProblems(c = {}, today = new Date()) {
     if (c.signedOn > localDate(today)) out.push("The signing date can't be in the future");
   }
   return out;
+}
+
+/* The fee covers clients met through BuildYourOwn: an enquiry in the 12
+   months before signing (Terms, "fees"). True when a contract was signed
+   more than 12 months after the enquiry, so no fee applies to it. */
+export const INTRO_WINDOW_MONTHS = 12;
+export function outsideIntroWindow(enquiryCreatedAt, signedOn) {
+  if (!enquiryCreatedAt || !signedOn) return false;
+  const from = new Date(enquiryCreatedAt);
+  if (Number.isNaN(from.getTime())) return false;
+  const limit = new Date(from.getFullYear(), from.getMonth() + INTRO_WINDOW_MONTHS, from.getDate());
+  return signedOn > localDate(limit);
 }
 
 export function contractFromRow(r = {}) {

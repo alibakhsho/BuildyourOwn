@@ -30,6 +30,9 @@
 --
 -- IDEMPOTENT: safe to re-run; every object is created if-not-exists or
 -- replaced, and policies are dropped before being recreated.
+-- AFTER re-running it, re-run 20261022000000_seller_terms_acceptance.sql:
+-- this file revokes the terms_version grants and resets the pro_profiles
+-- insert policy, and seller sign-up fails until that file runs again.
 -- =========================================================================
 
 
@@ -440,7 +443,7 @@ begin
   select count(*) into n from public.enquiries
    where buyer_id = new.buyer_id and created_at > now() - interval '1 day';
   if n >= 20 then
-    raise exception 'rate_limit: 20 enquiries a day — try again tomorrow' using errcode = 'P0001';
+    raise exception 'rate_limit: 20 enquiries a day - try again tomorrow' using errcode = 'P0001';
   end if;
   return new;
 end;

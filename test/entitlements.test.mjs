@@ -1,5 +1,5 @@
 /* Plan rules — and the server check that enforces AI access with them. */
-import { entitlementsFor, planFor, PLANS } from "../src/lib/entitlements.js";
+import { entitlementsFor, planFor, PLANS, withGst, AI_ADDON } from "../src/lib/entitlements.js";
 
 let pass = 0, fail = 0;
 const ok = (name, good, detail = "") => {
@@ -176,6 +176,9 @@ ok("server: Supabase unreachable → fails closed (503)", (await checkAiAccess(r
   try { await withPlanRead({ user: { id: "u2", token: "tok-tradie" }, ent: { planReads: 25 } }, async () => "x"); } catch (e) { err = e; }
   ok("metering: can't reserve → fails closed (503), no model call", err?.status === 503 && err?.code === "unavailable");
 }
+
+// Consumers see GST-inclusive prices (single-price rule)
+ok("GST-inclusive prices read cleanly", withGst(49) === "53.90" && withGst(490) === "539" && withGst(AI_ADDON.price) === "20.90" && withGst(1490) === "1,639");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
