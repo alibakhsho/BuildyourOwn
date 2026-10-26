@@ -15,15 +15,15 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { colors as TOKENS } from "../design/system.js";
-import { PLANS, PUBLIC_PLANS, AI_ADDON, MODE_LABEL, TRIAL_DAYS, planFor } from "../lib/entitlements.js";
+import { PLANS, PUBLIC_PLANS, AI_ADDON, MODE_LABEL, TRIAL_DAYS, planFor, withGst, GST_RATE } from "../lib/entitlements.js";
 import { canPayHere, startCheckout, openBillingPortal, hasSubscription } from "../lib/billing.js";
 import { useAuth } from "../state/auth.jsx";
 import AuthModal from "./AuthModal.jsx";
 
 const FEATURES = {
-  free:     ["House estimates, priced line by line", "Live 3D model of your build", "Timeline & client-ready quote", "3 projects saved to your account", `AI assistant add-on · A$${AI_ADDON.price}/mo`],
+  free:     ["House estimates, priced line by line", "Live 3D model of your build", "Timeline & client-ready quote", "3 projects saved to your account", `AI assistant add-on · A$${withGst(AI_ADDON.price)}/mo`],
   pro:      ["Everything in Homeowner", "Custom quotes for any job", "AI crew & AI plan reading (25/mo)", "Unlimited projects", "Your own rates", "Marketplace profile & portfolio"],
-  business: ["Everything in Tradie", "Multi-dwelling quoting", "Developer: apartments & towers", "Site Office — jobs, POs, claims", "Xero / MYOB · 100 AI plan reads", "List house plans & prefab modules"],
+  business: ["Everything in Tradie", "Multi-dwelling quoting", "Developer: apartments & towers", "Site Office — jobs, POs, claims", "100 AI plan reads · Xero / MYOB soon", "List house plans & prefab modules"],
 };
 
 /* The segment that trials each paid plan (see SEGMENT_PLAN). */
@@ -81,7 +81,7 @@ export function PlanCards({ current, highlight, onChoose, onTrial = false, trial
             <div className="ec-display" style={{ fontSize: 22 }}>{p.label}</div>
             <div>
               <span className="ec-display" style={{ fontSize: 30 }}>{amount ? `A$${amount.toLocaleString()}` : "Free"}</span>
-              {amount ? <span className="ec-mono" style={{ fontSize: 11, opacity: 0.7 }}> /{yearly ? "year" : "month"} + GST</span> : null}
+              {amount ? <span className="ec-mono" style={{ fontSize: 11, opacity: 0.7 }}> /{yearly ? "year" : "month"}{GST_RATE ? ` + GST (A$${withGst(amount)} incl. GST)` : ""}</span> : null}
             </div>
             <p style={{ fontSize: 13, lineHeight: 1.5, margin: 0, opacity: 0.8 }}>{p.blurb}</p>
             <ul style={{ listStyle: "none", padding: 0, margin: "4px 0 0", display: "flex", flexDirection: "column", gap: 7 }}>
@@ -201,10 +201,10 @@ export function UpgradeModal({ feature, onClose }) {
       </h2>
       <p style={{ fontSize: 13, color: TOKENS.steel, margin: "0 0 16px", maxWidth: "70ch" }}>
         {feature === "ai"
-          ? `Homeowners can add just the AI assistant for A$${AI_ADDON.price}/month, or move to Tradie or Builder where AI is included.`
+          ? `Homeowners can add just the AI assistant for A$${withGst(AI_ADDON.price)}/month${GST_RATE ? " including GST" : ""}, or move to Tradie or Builder where AI is included.`
           : "Everything you've already built stays as it is — upgrading only adds."}
         {can.trialAvailable ? ` Tradie and Builder can be tried free for ${TRIAL_DAYS} days, no card needed.` : ""}
-        {canPayHere ? " Prices in AUD; GST is added at checkout. Cancel any time." : ""}
+        {canPayHere ? (GST_RATE ? " Prices in AUD. Tradie and Builder are shown before GST, which is added at checkout. Cancel any time." : " Prices in AUD. Cancel any time.") : ""}
       </p>
       {started ? <TrialStarted plan={started} onClose={onClose} />
         : appNotice ? <AppNotice onBack={() => setAppNotice(false)} />
@@ -223,7 +223,7 @@ export function UpgradeModal({ feature, onClose }) {
                 <strong>Just want the AI?</strong> Keep Homeowner and add the AI assistant — the AI crew plus {AI_ADDON.planReads} AI plan reads a month.
               </div>
               <button className="ec-btn ec-btn-ghost" disabled={!!busy} onClick={() => choose("ai")}>
-                Add AI · A${interval === "year" ? `${AI_ADDON.priceYear}/yr` : `${AI_ADDON.price}/mo`}
+                Add AI · A${interval === "year" ? `${withGst(AI_ADDON.priceYear)}/yr` : `${withGst(AI_ADDON.price)}/mo`}{GST_RATE ? " incl. GST" : ""}
               </button>
             </div>
           )}
@@ -254,7 +254,7 @@ export function AiUpsell() {
         AI isn't part of the free Homeowner plan because every answer costs us to run.
       </p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
-        <button className="ec-btn ec-btn-hivis" onClick={() => setOpen(true)}>{canPayHere ? `Add the AI assistant · A$${AI_ADDON.price}/mo` : "See plans"}</button>
+        <button className="ec-btn ec-btn-hivis" onClick={() => setOpen(true)}>{canPayHere ? `Add the AI assistant · A$${withGst(AI_ADDON.price)}/mo${GST_RATE ? " incl. GST" : ""}` : "See plans"}</button>
         <button className="ec-btn ec-btn-ghost" onClick={() => setOpen(true)}>Compare plans</button>
       </div>
       {open && <UpgradeModal feature="ai" onClose={() => setOpen(false)} />}

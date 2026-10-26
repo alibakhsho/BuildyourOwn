@@ -29,6 +29,18 @@ export const MODE_LABEL = {
   multi: "Multi-dwelling",
 };
 
+/* Plan prices are set ex GST (they match the Stripe prices; checkout adds
+   GST). Homeowners are consumers, so what they're shown must be the total
+   they pay (ACL single-price rule); trade plans show both. If the business
+   isn't registered for GST, set this to 0 and turn off automatic tax in
+   api/billing/checkout.js. */
+export const GST_RATE = 0.1;
+/** "53.90" for 49, "539" for 490: the GST-inclusive amount, no stray cents. */
+export function withGst(amount) {
+  const cents = Math.round(amount * (1 + GST_RATE) * 100);
+  return cents % 100 ? (cents / 100).toFixed(2) : (cents / 100).toLocaleString("en-AU");
+}
+
 export const AI_ADDON = {
   label: "AI assistant",
   price: 19,           // A$/month, ex GST — must match Stripe price byo_ai_month
@@ -51,7 +63,7 @@ export const PLANS = {
   },
   business: {
     id: "business", label: "Builder", price: 149, priceYear: 1490,   // byo_business_month / byo_business_year
-    blurb: "Everything: multi-dwelling and developer quoting, Site Office job management, Xero / MYOB.",
+    blurb: "Everything: multi-dwelling and developer quoting, Site Office job management. Xero / MYOB connection coming soon.",
     modes: ["residential", "materials", "highrise", "multi"], ai: true, siteOffice: true,
     projects: Infinity, planReads: 100,
   },

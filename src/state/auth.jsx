@@ -10,6 +10,7 @@
    the product.
    ========================================================================= */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef } from "react";
+import { LEGAL } from "../legal/company.js";
 import { supabase, isAuthConfigured, redirectTo, authLinkState, onAuthLink, finishRecovery, clearLinkProblem } from "../lib/supabase.js";
 import { isNative, openExternal, onAppResume } from "../lib/native.js";
 import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
@@ -17,6 +18,7 @@ import { deleteAccountOnServer, BillingError } from "../lib/billing.js";
 import { PLANS, entitlementsFor, SEGMENT_PLAN, planRank } from "../lib/entitlements.js";
 
 const AuthCtx = createContext(null);
+const OAUTH_TERMS_KEY = "byo.oauthTerms";
 
 /* Plans and what they unlock live in lib/entitlements.js, shared with the
    AI routes so the server enforces exactly what the UI shows. TIERS is kept
@@ -70,6 +72,19 @@ export function AuthProvider({ children }) {
      tier, because guessing "free" here could mask a real failure. */
   const userId = session?.user?.id ?? null;
 
+  /* Google sign-ups skip signUp(), so note the documents they agreed to (the
+     notice sits above the Google button) once they're back. Same place and
+     same caveat as email sign-up: user metadata, timed by the account's
+     creation. Sellers' acceptance is recorded properly in pro_profiles. */
+  useEffect(() => {
+    const meta = session?.user?.user_metadata;
+    if (!meta || meta.terms_version) return;
+    let pending = false;
+    try { pending = localStorage.getItem(OAUTH_TERMS_KEY) === "1"; localStorage.removeItem(OAUTH_TERMS_KEY); } catch { /* storage blocked */ }
+    if (!pending) return;
+    supabase.auth.updateUser({ data: { terms_version: LEGAL.termsVersion, privacy_version: LEGAL.privacyVersion } }).catch(() => {});
+  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Mirror local projects to the account while signed in.
   useEffect(() => {
     if (!isAuthConfigured) return;
@@ -119,9 +134,11 @@ export function AuthProvider({ children }) {
       email,
       password,
       options: {
-        // These land in raw_user_meta_data and are picked up by the signup
-        // trigger. They are self-declared and carry no privileges.
-        data: { full_name: fullName ?? null, segment: segment ?? null },
+        // full_name and segment are picked up by the signup trigger
+        // (self-declared, no privileges). terms_version / privacy_version stay
+        // in raw_user_meta_data only: user-editable, timed by the account's
+        // creation. Sellers' acceptance is recorded properly in pro_profiles.
+        data: { full_name: fullName ?? null, segment: segment ?? null, terms_version: LEGAL.termsVersion, privacy_version: LEGAL.privacyVersion },
         emailRedirectTo: redirectTo(),
       },
     });
@@ -138,6 +155,7 @@ export function AuthProvider({ children }) {
 
   const signInWithGoogle = useCallback(async () => {
     if (!isAuthConfigured) throw new Error("Sign-in isn't configured yet.");
+    try { localStorage.setItem(OAUTH_TERMS_KEY, "1"); } catch { /* storage blocked */ }
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       // In the app, Google won't sign in inside the webview: get the URL
@@ -195,6 +213,18 @@ export function AuthProvider({ children }) {
       await deleteAccountOnServer();
     } catch (e) {
       if (!(e instanceof BillingError && e.code === "network") || profile?.stripe_customer_id) throw e;
+      // No server (local dev): delete the marketplace photos as the user (they
+      // own the folder), then the account. Photos first, as on the server.
+      const sb = supabase.storage.from("marketplace");
+      for (let round = 0; round < 20; round++) {
+        const { data: files, error: listError } = await sb.list(userId, { limit: 1000 });
+        if (listError) throw new Error(listError.message);
+        const paths = (files || []).filter((f) => f.id).map((f) => `${userId}/${f.name}`);
+        if (!paths.length) break;
+        const { error: rmError } = await sb.remove(paths);
+        if (rmError) throw new Error(rmError.message);
+        if (paths.length < 1000) break;
+      }
       const { error } = await supabase.rpc("delete_my_account");
       if (error) throw new Error(error.message);
     }

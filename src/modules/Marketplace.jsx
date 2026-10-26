@@ -32,6 +32,8 @@ import { useAuth } from "../state/auth.jsx";
 import AuthModal from "../components/AuthModal.jsx";
 import ContractDialog from "../components/ContractDialog.jsx";
 import { useBackClose, closeTopDialog } from "../lib/back-stack.js";
+import { LEGAL, versionDate } from "../legal/company.js";
+import { SITE_URL } from "../lib/public-config.js";
 import { planRank } from "../lib/entitlements.js";
 import { track } from "../lib/analytics.js";
 import * as MK from "../state/marketplace.js";
@@ -187,7 +189,7 @@ function Browse({ onOpen, onPros }) {
     <>
       <HairGrid cols="grid-cols-2 lg:grid-cols-4" className="mb-6">
         <Kpi label="House plans" value={counts.loading ? "–" : c.plans} foot="Ready to buy, licence or build" icon={FileText} accent />
-        <Kpi label="Prefab modules" value={counts.loading ? "–" : c.modules} foot="Fixed price, delivered" icon={Truck} />
+        <Kpi label="Prefab modules" value={counts.loading ? "–" : c.modules} foot="Priced by the seller — see what's included" icon={Truck} />
         <Kpi label="Builders" value={counts.loading ? "–" : c.builders} foot="With portfolios" icon={Building2} onClick={onPros} />
         <Kpi label="Tradies & architects" value={counts.loading ? "–" : c.tradies} foot="Showing their work" icon={Hammer} onClick={onPros} />
       </HairGrid>
@@ -255,7 +257,7 @@ function ListingCard({ l, onOpen }) {
         <div className="mt-auto flex items-end justify-between gap-2 pt-1">
           <span className="truncate text-[11px] text-steel">
             {l.seller?.displayName}
-            {l.seller?.verified && <BadgeCheck className="ml-1 inline size-3.5 text-ok" aria-label="Verified" />}
+            {l.seller?.verified && <VerifiedTick className="ml-1 inline size-3.5" />}
           </span>
           <span className="shrink-0 font-mono text-[12px] font-bold tabular-nums text-ink">{priceLabel(l.priceCents)}</span>
         </div>
@@ -310,7 +312,7 @@ function Pros({ onOpen }) {
                   <Logo pro={p} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-1 truncate text-sm font-semibold text-ink group-hover:underline">
-                      {p.displayName} {p.verified && <BadgeCheck className="size-3.5 shrink-0 text-ok" aria-label="Verified" />}
+                      {p.displayName} {p.verified && <VerifiedTick className="size-3.5 shrink-0" />}
                     </div>
                     <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-steel">
                       {PRO_KINDS[p.kind]?.label}{p.regions.length ? ` · ${p.regions.join(", ")}` : ""}
@@ -409,7 +411,7 @@ function ListingPage({ id, onBack, onPro }) {
             <div className="bg-emphasis p-4">
               <div className="font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-on-emphasis-soft">{mode?.label}</div>
               <div className="mt-1 font-mono text-2xl font-bold tabular-nums text-on-emphasis">{priceLabel(l.priceCents)}</div>
-              <div className="mt-1 text-[11px] text-on-emphasis-soft">{l.priceCents ? "Indicative, ex GST. Confirmed by the seller." : "Ask the seller for a price."}</div>
+              <div className="mt-1 text-[11px] text-on-emphasis-soft">{l.priceCents ? "Indicative, including GST. Confirmed by the seller." : "Ask the seller for a price."}</div>
             </div>
             <div className="space-y-3 p-4">
               <p className="text-sm text-ink-soft">{mode?.blurb}</p>
@@ -427,7 +429,7 @@ function ListingPage({ id, onBack, onPro }) {
                 <Logo pro={s} />
                 <div className="min-w-0">
                   <div className="flex items-center gap-1 text-sm font-semibold text-ink">
-                    {s.displayName} {s.verified && <BadgeCheck className="size-3.5 text-ok" aria-label="Verified" />}
+                    {s.displayName} {s.verified && <VerifiedTick className="size-3.5" />}
                   </div>
                   <div className="text-[11px] text-steel">View profile & finished jobs →</div>
                 </div>
@@ -447,7 +449,7 @@ function ListingPage({ id, onBack, onPro }) {
 function Responsibility({ seller }) {
   return (
     <p className="mt-3 text-[11px] leading-relaxed text-steel">
-      BuildYourOwn is a marketplace, not the builder. The seller is responsible for their designs, licences, engineering and permits.
+      BuildYourOwn is a marketplace, not the builder (see our <a href={`${SITE_URL}/?page=terms#terms-buyers`} target="_blank" rel="noopener noreferrer" className="underline">Terms of Use</a>). The seller is responsible for their designs, licences, engineering and permits.
       {seller?.licenceNumber
         ? ` Licence ${seller.licenceNumber}${seller.licenceState ? ` (${seller.licenceState})` : ""} — check it on the state register before you sign.`
         : " Ask for their licence number and check it on the state register before you sign."}
@@ -480,12 +482,19 @@ function ProPage({ id, onBack, onListing }) {
             <Logo pro={p} size="lg" />
             <div className="min-w-0">
               <h2 className="flex items-center gap-1.5 font-display text-2xl leading-tight text-ink">
-                {p.displayName} {p.verified && <BadgeCheck className="size-5 text-ok" aria-label="Verified" />}
+                {p.displayName} {p.verified && <VerifiedTick className="size-5" />}
               </h2>
               <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-steel">
                 {PRO_KINDS[p.kind]?.label}{p.regions.length ? ` · ${p.regions.join(", ")}` : ""}
               </div>
               {p.tagline && <div className="mt-1 text-sm text-ink-soft">{p.tagline}</div>}
+              {p.verified && (
+                <div className="mt-1 flex items-center gap-1 text-[11px] text-steel">
+                  <BadgeCheck className="size-3.5 text-ok" aria-hidden="true" />
+                  {VERIFIED_NOTE}{" "}
+                  <a href={`${SITE_URL}/?page=terms#terms-sellers`} target="_blank" rel="noopener noreferrer" className="underline hover:text-ink">What this means</a>
+                </div>
+              )}
             </div>
           </div>
           {!own && <Button variant="hivis" onClick={() => setEnquire(true)}>Contact {p.displayName.split(" ")[0]}</Button>}
@@ -615,7 +624,12 @@ function EnquiryDialog({ sellerId, listing = null, sellerName, onClose }) {
             <textarea className="ec-input w-full" required rows={5} maxLength={4000} value={f.message} onChange={set("message")} />
           </Field>
           {error && <p className="text-xs text-alert">{error}</p>}
-          <p className="text-[11px] text-steel">Your details go only to {sellerName || "this seller"}.</p>
+          <p className="text-[11px] text-steel">
+            We'll store your enquiry and send it to {sellerName || "the seller"} by email and in the app so they can reply.
+            They're a separate business and handle your details under their own privacy obligations.
+            Our <a href={`${SITE_URL}/?page=privacy#privacy-share`} target="_blank" rel="noopener noreferrer" className="underline hover:text-ink">Privacy Policy</a> explains
+            how we handle it, including storage overseas.
+          </p>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button type="submit" variant="hivis" disabled={busy}>{busy ? "Sending…" : "Send enquiry"}</Button>
@@ -674,6 +688,18 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
     );
   }
 
+  // Seller tools need the Terms (and the fee) agreed first. Profiles made
+  // before agreement was recorded land here once, then carry on as normal.
+  if (!me.termsVersion) {
+    return (
+      <>
+        <TermsUpdate uid={uid} onAccepted={reload} first />
+        {d.contracts.length > 0 && <div className="mb-8"><FeesLedger contracts={d.contracts} onChanged={data.reload} /></div>}
+        <SentEnquiries sent={d.sent} onOpenListing={onOpenListing} onOpenPro={onOpenPro} />
+      </>
+    );
+  }
+
   const stats = sellerStats(d);
   const sells = !!PRO_KINDS[me.kind]?.sells;
   const canList = sells && planRank(can.tier) >= planRank("business");
@@ -685,6 +711,7 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
 
   return (
     <>
+      {me.termsVersion < LEGAL.termsVersion && <TermsUpdate uid={uid} onAccepted={reload} />}
       {!me.published && (
         <Notice tone="warn">
           Your profile is hidden from buyers. <button className="font-semibold underline" onClick={() => setSub("profile")}>Publish it</button> when you're ready — your listings and portfolio only show once it's public.
@@ -766,6 +793,27 @@ function MyMarket({ onUpgrade, onOpenListing, onOpenPro }) {
   );
 }
 
+/* The Terms changed since this seller last agreed (or they joined before
+   agreement was recorded): ask once, record it, carry on. */
+function TermsUpdate({ uid, onAccepted, first }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const accept = async () => {
+    setBusy(true); setError("");
+    try { await MK.acceptTerms(uid, LEGAL.termsVersion); onAccepted(); } catch (e) { setError(e.message); setBusy(false); }
+  };
+  return (
+    <Notice tone="warn">
+      {first ? "Please confirm our Terms of Use, which cover selling on BuildYourOwn." : `Our Terms of Use have been updated, effective ${versionDate(LEGAL.termsVersion)}.`}{" "}
+      <a href={`${SITE_URL}/?page=terms`} target="_blank" rel="noopener noreferrer" className="font-semibold underline">Read them</a>, including the 1.5% platform fee (plus any GST) on building contracts with clients you meet through BuildYourOwn.
+      <div className="mt-2 flex items-center gap-3">
+        <Button size="sm" variant="hivis" disabled={busy} onClick={accept}>{busy ? "Saving…" : "I agree"}</Button>
+        {error && <span className="text-xs text-alert">{error}</span>}
+      </div>
+    </Notice>
+  );
+}
+
 function StatusBadge({ l }) {
   if (l.hidden) return <Badge variant="alert">Taken down</Badge>;
   if (l.status === "live") return <Badge variant="ok">Live</Badge>;
@@ -778,6 +826,7 @@ function StatusBadge({ l }) {
 function StartSelling({ can, onUpgrade, onCreated, uid }) {
   const [kind, setKind] = useState(null);
   const [name, setName] = useState("");
+  const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const allowed = (k) => planRank(can.tier) >= planRank(PRO_KINDS[k].plan);
@@ -785,7 +834,7 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
   const create = async () => {
     setBusy(true); setError("");
     try {
-      await MK.saveMyPro(uid, { kind, displayName: name, published: false }, { create: true });
+      await MK.saveMyPro(uid, { kind, displayName: name, published: false, termsVersion: LEGAL.termsVersion }, { create: true });
       track("market_profile_created", { kind });
       onCreated();
     } catch (e) { setError(e.message); }
@@ -823,8 +872,15 @@ function StartSelling({ can, onUpgrade, onCreated, uid }) {
           <Field label="Business name">
             <input className="ec-input w-72 max-w-full" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} placeholder="e.g. Coastline Homes" />
           </Field>
-          <Button variant="hivis" disabled={busy || name.trim().length < 2} onClick={create}>{busy ? "Creating…" : "Create my profile"}</Button>
+          <Button variant="hivis" disabled={busy || name.trim().length < 2 || !agreed} onClick={create}>{busy ? "Creating…" : "Create my profile"}</Button>
           <span className="text-[11px] text-steel">A tradie can switch to a builder profile later, on the Builder plan.</span>
+          <label className="flex w-full cursor-pointer items-start gap-2 text-sm text-ink-soft">
+            <input type="checkbox" className="mt-1" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+            <span>
+              I agree to the <a href={`${SITE_URL}/?page=terms`} target="_blank" rel="noopener noreferrer" className="underline">Terms of Use</a>,
+              including the 1.5% platform fee (plus any GST) on building contracts with clients I meet through BuildYourOwn, and that I hold the licences and insurance my work needs.
+            </span>
+          </label>
         </div>
       )}
       {error && <p className="mt-2 text-xs text-alert">{error}</p>}
@@ -888,7 +944,7 @@ function EnquiryList({ rows, onChanged, compact, contracts = [] }) {
       {signing && (
         <ContractDialog
           initial={{ clientName: signing.contact_name, sitePostcode: signing.postcode || "" }}
-          link={{ source: "marketplace", enquiryId: signing.id, listingId: signing.listing_id || null }}
+          link={{ source: "marketplace", enquiryId: signing.id, listingId: signing.listing_id || null, enquiryCreatedAt: signing.created_at }}
           context={signing.listing?.title ? `From the enquiry about "${signing.listing.title}".` : "From a marketplace enquiry."}
           onClose={() => setSigning(null)}
           onSaved={() => { setSigning(null); onChanged(); }} />
@@ -915,7 +971,7 @@ function FeesLedger({ contracts, onChanged }) {
   };
   const SOURCE = { marketplace: "Marketplace", site_office: "Site Office", other: "Other" };
   return (
-    <Section title="Platform fees" sub="1.5% of each build contract signed through BuildYourOwn, ex GST. Invoiced separately; nothing is charged in the app.">
+    <Section title="Platform fees" sub="1.5% of the value (ex GST) of each building contract with a client you met through BuildYourOwn, plus GST if it applies. Invoiced separately; nothing is charged in the app.">
       <HairGrid cols="grid-cols-2 lg:grid-cols-4" className="mb-4">
         <Kpi label="Fees owing" value={dollars(f.owingCents)} foot="Recorded and invoiced" icon={FileSignature} accent />
         <Kpi label="Fees paid" value={dollars(f.paidCents)} foot="All time" />
@@ -1095,7 +1151,7 @@ function ListingEditor({ uid, proKind, initial, canList, onUpgrade, onClose, onP
             </div>
           </Field>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <Field label="Price from (A$)" hint="Ex GST. Blank = on enquiry">
+            <Field label="Price from (A$)" hint="Including any GST, as the buyer pays it. Blank = on enquiry">
               <input className="ec-input w-full" type="number" min="0" step="100" value={l.priceCents ? l.priceCents / 100 : ""}
                 onChange={(e) => set("priceCents", e.target.value === "" ? null : Math.round(Number(e.target.value) * 100))} />
             </Field>
@@ -1427,6 +1483,18 @@ function HairGrid({ cols, className, children }) {
     <div className={cn("overflow-hidden rounded-sm border border-rule bg-rule", className)}>
       <div className={cn("grid gap-px", cols)}>{children}</div>
     </div>
+  );
+}
+
+/* The green tick staff add after checking a seller's ABN and licence on the
+   public registers. The Terms ("sellers") say exactly this; keep them in step. */
+const VERIFIED_NOTE = "ABN and licence checked by BuildYourOwn on the public registers.";
+
+function VerifiedTick({ className }) {
+  return (
+    <span title={`Verified: ${VERIFIED_NOTE}`} className="inline-flex align-middle">
+      <BadgeCheck className={cn("text-ok", className)} aria-label={`Verified: ${VERIFIED_NOTE}`} />
+    </span>
   );
 }
 

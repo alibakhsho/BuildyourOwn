@@ -290,7 +290,7 @@ function NewJobDialog({ onClose, onCreated }) {
         contractValue: Number(form.contractValue) || 0,
       })
     );
-    track("job_created", { contractValue: Number(form.contractValue) || 0 });
+    track("job_created", {});
   };
 
   return (
@@ -956,12 +956,12 @@ function PlatformFeePanel({ job, fin }) {
     );
   }
   return (
-    <Panel title="Record the signed contract" tone="warn">
+    <Panel title="Did this client find you on BuildYourOwn?">
       <p style={{ margin: "0 0 10px", fontSize: 13, lineHeight: 1.6 }}>
-        BuildYourOwn's platform fee is 1.5% of the signed contract value, ex GST
-        {valueCents > 0 ? <> — {dollars(feePreviewCents(valueCents))} on {dollars(valueCents)}</> : null}. It's invoiced separately; nothing is charged here.
+        If they first contacted you through the BuildYourOwn Marketplace, record the signed contract: our platform fee is 1.5% of the contract value, ex GST
+        {valueCents > 0 ? <> — {dollars(feePreviewCents(valueCents))} on {dollars(valueCents)}</> : null}, invoiced separately. Clients you found any other way carry no fee, so don't record them.
       </p>
-      <button className="ec-btn ec-btn-ghost" onClick={() => setOpen(true)}>Contract signed</button>
+      <button className="ec-btn ec-btn-ghost" onClick={() => setOpen(true)}>Record a BuildYourOwn contract</button>
       {unlinked.length > 0 && (
         <div style={{ marginTop: 12, fontSize: 12, lineHeight: 1.6 }}>
           Already recorded from a marketplace enquiry? Link it instead — one contract, one fee:
