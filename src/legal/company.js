@@ -17,13 +17,13 @@
 
 export const LEGAL = {
   tradingName: "BuildYourOwn",
-  legalName: null,          // the registered business or company name, e.g. "Example Pty Ltd"
-  abn: null,                // 11 digits, e.g. "51 824 753 556"
-  contactEmail: null,       // a mailbox you read, e.g. "hello@buildyourown.dev"
-  state: "Queensland",      // whose courts and laws govern the Terms
+  legalName: "Ali Bakhsh",  // sole trader: the ABN holder's own name (a company would be "Example Pty Ltd")
+  abn: "61 499 795 193",    // GST registered
+  contactEmail: "glblctzn.alib@gmail.com", // a mailbox you read
+  state: "New South Wales", // whose courts and laws govern the Terms (the ABN's main business location)
   site: "buildyourown.dev",
-  termsVersion: "2026-10-22",
-  privacyVersion: "2026-10-22",
+  termsVersion: "2026-10-26",
+  privacyVersion: "2026-10-26",
 };
 
 const placeholder = (what) => `[${what} to be added]`;
