@@ -26,7 +26,10 @@ export const SYSTEMS = {
   openings:    { label: "Windows & doors",         order: 9 },
   linings:     { label: "Insulation & linings",    order: 10 },
   interior:    { label: "Floors, stairs & fit-out", order: 11 },
-  solar:       { label: "Solar PV",                order: 12 },
+  electrical:  { label: "Electrical",              order: 12 },
+  plumbing:    { label: "Plumbing (water)",        order: 13 },
+  drainage:    { label: "Drainage & stormwater",   order: 14 },
+  solar:       { label: "Solar PV",                order: 15 },
 };
 
 /* Construction stage each system belongs to (AU progress-payment stages). */
@@ -35,6 +38,7 @@ export const STAGE_OF = {
   wallFrame: "frame", floorFrame: "frame", roofFrame: "frame", fixings: "frame",
   roofing: "roof", cladding: "walls", openings: "walls",
   linings: "finishes", interior: "finishes", solar: "finishes",
+  drainage: "foundation", electrical: "frame", plumbing: "frame",
 };
 
 export const sub = (p, q) => [p[0] - q[0], p[1] - q[1], p[2] - q[2]];

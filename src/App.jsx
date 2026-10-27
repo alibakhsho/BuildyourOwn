@@ -56,6 +56,7 @@ import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, ho
 import DescribeCard from "./components/DescribeCard.jsx";
 import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/ModelTools.jsx";
 import Drawings from "./components/Drawings.jsx";
+import ServicesBim from "./components/ServicesBim.jsx";
 import BuildRequirements from "./components/BuildRequirements.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
@@ -1482,6 +1483,7 @@ function stageTabs(stage, buildMode) {
     { id: "layers", label: "Layers & views" },
     { id: "cutlist", label: "Cut list & schedule" },
     { id: "drawings", label: "Drawings" },
+    { id: "services", label: "Services & BIM" },
   ];
   return [];
 }
@@ -3103,6 +3105,7 @@ export default function App() {
             {activeTab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
             {activeTab === "layers" && <LayersPanel engine={engineRef.current} version={modelVersion} />}
             {activeTab === "cutlist" && (buildMode === "residential" ? spec : quoteMassingSpec) && <CutList spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
+            {activeTab === "services" && (buildMode === "residential" ? spec : quoteMassingSpec) && <ServicesBim spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
             {activeTab === "drawings" && (buildMode === "residential" ? spec : quoteMassingSpec) && <Drawings spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} projectNo={projectNo} region={region} />}
               </motion.div>
           </div>
