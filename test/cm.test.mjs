@@ -127,6 +127,36 @@ ok("the line ends on closed", walk, "closed");
 ok("advancing a closed job is a no-op", (CM.setJobStatus(pj.id, "closed"), CM.advanceJob(pj.id)), "closed");
 CM.deleteJob(pj.id);
 
+// --- Programme: dependencies, baseline, diary delays ---
+CM.saveSettings({ programme: { state: "NSW", christmasShutdown: true } });
+const pg = CM.createJob({ name: "Programme test" });
+const tSlab = CM.createTask(pg.id, { name: "Slab", startDate: "2026-08-03", days: 5 });
+const tFrame = CM.createTask(pg.id, { name: "Frame", days: 10, dependsOn: [tSlab.id] });
+const tRoof = CM.createTask(pg.id, { name: "Roof", days: 5, dependsOn: [tFrame.id] });
+let PG = CM.jobProgramme(pg.id);
+ok("frame follows the slab", PG.prog.get(tFrame.id).start, "2026-08-10");
+CM.setBaseline(pg.id);
+const rain = CM.createDiaryEntry(pg.id, { date: "2026-08-12", weather: "Rain", delayDays: 2, taskId: tFrame.id });
+CM.applyDiaryDelay(rain.id);
+PG = CM.jobProgramme(pg.id);
+ok("2 rain days push the roof 2 days", PG.slip.get(tRoof.id), 2);
+ok("handover slips 2 days against the baseline", PG.handoverSlip, 2);
+ok("the task logs which diary entry extended it", CM.listTasks(pg.id).find((t) => t.id === tFrame.id).delayLog.map((e) => e.diaryId), [rain.id]);
+CM.applyDiaryDelay(rain.id);
+ok("applying twice doesn't double count", CM.listTasks(pg.id).find((t) => t.id === tFrame.id).delayDays, 2);
+CM.updateDiaryEntry(rain.id, { delayDays: 3 });
+CM.applyDiaryDelay(rain.id);
+ok("editing the entry re-applies the difference", CM.listTasks(pg.id).find((t) => t.id === tFrame.id).delayDays, 3);
+CM.updateDiaryEntry(rain.id, { taskId: tRoof.id });
+CM.applyDiaryDelay(rain.id);
+ok("moving the delay to another task takes it off the first", [tFrame.id, tRoof.id].map((id) => CM.listTasks(pg.id).find((t) => t.id === id).delayDays), [0, 3]);
+CM.deleteDiaryEntry(rain.id);
+ok("deleting the entry removes its delay", CM.listTasks(pg.id).find((t) => t.id === tRoof.id).delayDays, 0);
+CM.deleteTask(tFrame.id);
+ok("deleting a task frees what waited on it", CM.listTasks(pg.id).find((t) => t.id === tRoof.id).dependsOn, []);
+ok("settings keep the programme calendar", CM.getSettings().programme.christmasShutdown, true);
+CM.deleteJob(pg.id);
+
 // --- Deleting a job takes its children with it ---
 CM.deleteJob(job.id);
 ok("job gone", CM.getJob(job.id), null);

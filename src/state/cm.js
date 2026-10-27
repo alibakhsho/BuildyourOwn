@@ -30,6 +30,7 @@
 
 import { listProjects, getProject } from "./projects.js";
 import { requiredApprovals, quoteReadiness, DEFAULT_SITE } from "../logic/approvals.js";
+import { makeCalendar, computeProgramme, takeBaseline, slipAgainst } from "../logic/programme.js";
 
 const LS = "byo.cm.v2";
 
@@ -101,6 +102,8 @@ const EMPTY = {
     gstRate: 0.1,
     retentionRate: 0.05,
     defaultMarkup: 0.15,
+    // the working-day calendar every job's programme runs on
+    programme: { state: "NSW", christmasShutdown: true, saturdays: false, extraNonWorkingDays: [] },
   },
 };
 
@@ -111,7 +114,9 @@ function read() {
   if (cache) return cache;
   try {
     const raw = JSON.parse(localStorage.getItem(LS));
-    cache = raw && raw.version === 2 ? { ...EMPTY, ...raw, settings: { ...EMPTY.settings, ...(raw.settings || {}) } } : { ...EMPTY };
+    cache = raw && raw.version === 2
+      ? { ...EMPTY, ...raw, settings: { ...EMPTY.settings, ...(raw.settings || {}), programme: { ...EMPTY.settings.programme, ...(raw.settings?.programme || {}) } } }
+      : { ...EMPTY };
   } catch {
     cache = { ...EMPTY };
   }
@@ -187,7 +192,8 @@ export function getSettings() {
 }
 export function saveSettings(changes) {
   const db = read();
-  const settings = { ...db.settings, ...changes, company: { ...db.settings.company, ...(changes.company || {}) } };
+  const settings = { ...db.settings, ...changes, company: { ...db.settings.company, ...(changes.company || {}) },
+    programme: { ...db.settings.programme, ...(changes.programme || {}) } };
   write({ ...db, settings });
   return settings;
 }
@@ -558,6 +564,10 @@ export function createTask(jobId, data = {}) {
     startDate: data.startDate || new Date().toISOString().slice(0, 10),
     days: Number(data.days) || 1,
     dependsOn: data.dependsOn || [],
+    lag: Number(data.lag) || 0,            // working days after the predecessor (e.g. slab cure)
+    pinStart: !!data.pinStart,             // startDate is a "not before" even with predecessors
+    delayDays: Number(data.delayDays) || 0, // logged delays (from the site diary) extend the task
+    delayLog: data.delayLog || [],
     percentComplete: Number(data.percentComplete) || 0,
     assignedTo: data.assignedTo || "",
     costCentreId: data.costCentreId || null,
@@ -567,7 +577,38 @@ export function createTask(jobId, data = {}) {
   });
 }
 export const updateTask = (id, changes) => patch("tasks", id, changes);
-export const deleteTask = (id) => remove("tasks", id);
+export function deleteTask(id) {
+  const db = read();
+  // nothing may keep waiting on a task that no longer exists
+  const tasks = (db.tasks || []).filter((t) => t.id !== id)
+    .map((t) => ((t.dependsOn || []).includes(id) ? { ...t, dependsOn: t.dependsOn.filter((d) => d !== id), updatedAt: Date.now() } : t));
+  write({ ...db, tasks });
+}
+
+/** The working-day calendar jobs run on (state holidays, shutdown, Saturdays). */
+export const jobCalendar = () => makeCalendar(getSettings().programme);
+
+/**
+ * The job's programme, computed: dates from dependencies, critical path, and
+ * slip against the baseline if one was set. { tasks, prog, slip, cal, end }
+ */
+export function jobProgramme(jobId) {
+  const tasks = listTasks(jobId);
+  const cal = jobCalendar();
+  const prog = computeProgramme(tasks, cal);
+  const job = getJob(jobId);
+  const slip = slipAgainst(prog, job?.baseline, cal);
+  const end = [...prog.values()].reduce((m, r) => (r.end > m ? r.end : m), "");
+  const baseEnd = job?.baseline ? Object.values(job.baseline.tasks).reduce((m, r) => (r.end > m ? r.end : m), "") : "";
+  return { tasks, prog, slip, cal, end, baseEnd, handoverSlip: baseEnd && end ? cal.between(baseEnd, end) : 0 };
+}
+
+/** Freeze today's programme as the baseline (usually at contract signing). */
+export function setBaseline(jobId) {
+  const { prog } = jobProgramme(jobId);
+  return updateJob(jobId, { baseline: takeBaseline(prog) });
+}
+export const clearBaseline = (jobId) => updateJob(jobId, { baseline: null });
 
 /**
  * Seed a schedule from the estimator's generated timeline so a won job
@@ -623,13 +664,50 @@ export function createDiaryEntry(jobId, data = {}) {
     delays: data.delays || "",
     // A delay logged here is the evidence base for an EOT claim later.
     delayDays: Number(data.delayDays) || 0,
+    taskId: data.taskId || null,       // the programme task the delay held up
+    appliedDays: 0,                    // how many of delayDays are already on that task
     photoIds: data.photoIds || [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
 }
 export const updateDiaryEntry = (id, changes) => patch("diary", id, changes);
-export const deleteDiaryEntry = (id) => remove("diary", id);
+/* Take a diary entry's days back off the task it was applied to. */
+function unapplyDiaryDelay(d) {
+  const t = d.appliedTaskId && all("tasks").find((x) => x.id === d.appliedTaskId);
+  if (t && d.appliedDays) {
+    patch("tasks", t.id, { delayDays: Math.max(0, (Number(t.delayDays) || 0) - d.appliedDays), delayLog: (t.delayLog || []).filter((e) => e.diaryId !== d.id) });
+  }
+}
+export function deleteDiaryEntry(id) {
+  const d = all("diary").find((x) => x.id === id);
+  if (d) unapplyDiaryDelay(d);
+  remove("diary", id);
+}
+
+/**
+ * Put a diary delay on the programme: the task it held up gets longer by the
+ * days lost, and everything after it moves. Idempotent — re-applying after an
+ * edit (more days, fewer days, a different task) leaves the programme as if
+ * it had been applied once. The task keeps a log of which diary entries
+ * extended it: that is the extension-of-time evidence trail.
+ */
+export function applyDiaryDelay(entryId) {
+  let d = all("diary").find((x) => x.id === entryId);
+  if (!d) return null;
+  if (d.appliedTaskId && d.appliedTaskId !== d.taskId) {
+    unapplyDiaryDelay(d);
+    d = patch("diary", d.id, { appliedDays: 0, appliedTaskId: null });
+  }
+  const t = d.taskId && all("tasks").find((x) => x.id === d.taskId);
+  if (!t) return null;
+  const days = Math.max(0, Number(d.delayDays) || 0);
+  const delta = days - (Number(d.appliedDays) || 0);
+  const log = (t.delayLog || []).filter((e) => e.diaryId !== d.id);
+  if (days > 0) log.push({ diaryId: d.id, date: d.date, days, reason: d.delays || d.weather || "" });
+  patch("diary", d.id, { appliedDays: days, appliedTaskId: t.id });
+  return patch("tasks", t.id, { delayDays: Math.max(0, (Number(t.delayDays) || 0) + delta), delayLog: log });
+}
 
 /* ---- Documents --------------------------------------------------------- */
 

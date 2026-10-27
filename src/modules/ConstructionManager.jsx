@@ -29,6 +29,8 @@ import { putBlob, putRaw } from "../state/blobstore.js";
 import { AU_STATES, BUILD_TYPES, DISCIPLINES, APPROVAL_STATUS, STAGE_LABEL } from "../logic/approvals.js";
 import TakeoffCanvas, { TakeoffSheets } from "./TakeoffCanvas.jsx";
 import Integrations from "./Integrations.jsx";
+import Programme from "./Programme.jsx";
+import { STATES as PROGRAMME_STATES } from "../logic/programme.js";
 import { pushClaim, pushPurchaseOrder, claimToLineItems } from "../lib/accounting.js";
 import { Dashboard } from "@/components/dashboard.jsx";
 import { AppShell, SITE_OFFICE_NAV } from "@/components/app-shell.jsx";
@@ -830,57 +832,14 @@ function TotalRow({ label, value, cur, bold }) {
 /* ---- Schedule ---------------------------------------------------------- */
 
 function Schedule({ job }) {
-  const tasks = CM.listTasks(job.id);
-
-  // Bar geometry is computed against the span of the whole programme, so a
-  // job that slips just re-scales rather than overflowing its container.
-  const { start, days } = useMemo(() => {
-    if (!tasks.length) return { start: new Date(), days: 30 };
-    const starts = tasks.map((t) => new Date(t.startDate).getTime());
-    const ends = tasks.map((t) => CM.taskEndDate(t).getTime());
-    const s = new Date(Math.min(...starts));
-    const e = new Date(Math.max(...ends));
-    return { start: s, days: Math.max(14, Math.ceil((e - s) / 86400000) + 3) };
-  }, [tasks]);
-
-  const offset = (d) => Math.max(0, (new Date(d) - start) / 86400000);
-
-  return (
-    <>
-      <SectionBar title="Schedule" sub="Working days, weekends excluded."
-        action={<button className="ec-btn ec-btn-hivis" onClick={() => CM.createTask(job.id)}>Add task</button>} />
-      {!tasks.length ? (
-        <Empty>No programme yet. Add tasks, or generate one from the estimator's timeline once the job is priced.</Empty>
-      ) : (
-        <div style={{ background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, padding: 12, overflowX: "auto" }}>
-          <div style={{ minWidth: 620 }}>
-            {tasks.map((t) => {
-              const left = (offset(t.startDate) / days) * 100;
-              const width = Math.max(1.5, ((CM.taskEndDate(t) - new Date(t.startDate)) / 86400000 + 1) / days * 100);
-              return (
-                <div key={t.id} style={{ display: "grid", gridTemplateColumns: "190px 70px 1fr 28px", gap: 8, alignItems: "center", marginBottom: 5 }}>
-                  <input className="ec-input" value={t.name} onChange={(e) => CM.updateTask(t.id, { name: e.target.value })} style={{ padding: "3px 7px", fontSize: 11 }} />
-                  <input className="ec-input" type="number" min="1" value={t.days} onChange={(e) => CM.updateTask(t.id, { days: Number(e.target.value) || 1 })} style={{ padding: "3px 5px", fontSize: 11 }} />
-                  <div style={{ position: "relative", height: 20, background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}` }}>
-                    <div style={{ position: "absolute", left: `${left}%`, width: `${width}%`, top: 2, bottom: 2, background: TOKENS.ink }}>
-                      <div style={{ position: "absolute", inset: 0, width: `${t.percentComplete}%`, background: TOKENS.hivis }} />
-                    </div>
-                  </div>
-                  <button onClick={() => CM.deleteTask(t.id)} style={{ border: "none", background: "none", cursor: "pointer", color: TOKENS.steel, fontSize: 15 }}>×</button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </>
-  );
+  return <Programme job={job} SectionBar={SectionBar} Empty={Empty} />;
 }
 
 /* ---- Site diary -------------------------------------------------------- */
 
 function Diary({ job }) {
   const entries = CM.listDiary(job.id);
+  const tasks = CM.listTasks(job.id);
   return (
     <>
       <SectionBar title="Site diary"
@@ -901,6 +860,21 @@ function Diary({ job }) {
                 onChange={(e) => CM.updateDiaryEntry(d.id, { workDone: e.target.value })} style={{ width: "100%", fontSize: 12, marginBottom: 5 }} />
               <textarea className="ec-input" rows={2} placeholder="Delays, instructions, visitors" value={d.delays}
                 onChange={(e) => CM.updateDiaryEntry(d.id, { delays: e.target.value })} style={{ width: "100%", fontSize: 12 }} />
+              {d.delayDays > 0 && (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 6, fontSize: 12 }}>
+                  <span style={{ color: TOKENS.steel }}>{d.delayDays} day{d.delayDays === 1 ? "" : "s"} lost on</span>
+                  <select className="ec-input" value={d.taskId || ""} onChange={(e) => CM.updateDiaryEntry(d.id, { taskId: e.target.value || null })}
+                    style={{ width: "auto", padding: "3px 6px", fontSize: 11 }}>
+                    <option value="">— which task? —</option>
+                    {tasks.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  {d.taskId && (d.appliedDays !== d.delayDays || d.appliedTaskId !== d.taskId) ? (
+                    <button className="ec-btn ec-btn-hivis" style={{ fontSize: 11, padding: "4px 10px" }} onClick={() => CM.applyDiaryDelay(d.id)}>Put on programme</button>
+                  ) : d.taskId ? (
+                    <span className="ec-mono" style={{ fontSize: 10, color: TOKENS.ok }}>ON PROGRAMME — later tasks moved</span>
+                  ) : null}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1227,6 +1201,28 @@ function SettingsScreen() {
           </Field>
           <Field label="Default markup">
             <input className="ec-input" type="number" step="0.01" value={s.defaultMarkup} onChange={(e) => CM.saveSettings({ defaultMarkup: Number(e.target.value) || 0 })} />
+          </Field>
+        </div>
+      </Panel>
+
+      <Panel title="Programme calendar">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, alignItems: "end" }}>
+          <Field label="State" hint="Public holidays come from here">
+            <select className="ec-input" value={s.programme.state} onChange={(e) => CM.saveSettings({ programme: { state: e.target.value } })}>
+              {PROGRAMME_STATES.map((st) => <option key={st} value={st}>{st}</option>)}
+            </select>
+          </Field>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={!!s.programme.christmasShutdown} onChange={(e) => CM.saveSettings({ programme: { christmasShutdown: e.target.checked } })} />
+            Christmas shutdown (20 Dec – 9 Jan)
+          </label>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+            <input type="checkbox" checked={!!s.programme.saturdays} onChange={(e) => CM.saveSettings({ programme: { saturdays: e.target.checked } })} />
+            Saturdays are working days
+          </label>
+          <Field label="Other non-working days" hint="RDOs, show days — comma separated, YYYY-MM-DD">
+            <input className="ec-input" defaultValue={(s.programme.extraNonWorkingDays || []).join(", ")}
+              onBlur={(e) => CM.saveSettings({ programme: { extraNonWorkingDays: e.target.value.split(/[\s,]+/).filter((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)) } })} />
           </Field>
         </div>
       </Panel>
