@@ -5,14 +5,23 @@
    The browser never handles OAuth tokens — it only asks the backend what is
    connected, sends the builder off to the provider's consent screen, and
    posts documents to push. Everything sensitive stays server-side.
+
+   Each builder connects their OWN Xero organisation / MYOB company file to
+   their BuildYourOwn account, so every call carries the signed-in session.
    ========================================================================= */
+import { supabase } from "./supabase.js";
 
 const BASE = import.meta.env?.VITE_AI_BACKEND || "";
 
-async function req(path, options) {
+async function req(path, options = {}) {
   let resp;
+  const headers = { ...(options.headers || {}) };
   try {
-    resp = await fetch(`${BASE}${path}`, options);
+    const { data } = (await supabase?.auth.getSession()) || {};
+    if (data?.session?.access_token) headers.Authorization = `Bearer ${data.session.access_token}`;
+  } catch { /* signed out: the server says so */ }
+  try {
+    resp = await fetch(`${BASE}${path}`, { ...options, headers });
   } catch {
     throw new Error("Couldn't reach the backend — is it running? Start it with `npm run server`.");
   }
@@ -23,20 +32,27 @@ async function req(path, options) {
   } catch {
     throw new Error("The backend returned an unreadable response.");
   }
-  if (!resp.ok) throw new Error(data?.error || `Request failed (${resp.status}).`);
+  if (!resp.ok) throw Object.assign(new Error(data?.error || `Request failed (${resp.status}).`), { code: data?.code, status: resp.status });
   return data;
 }
 
-/** { xero: {configured, connected, organisation, ...}, myob: {...} } */
-export const getStatus = () => req("/api/accounting/status");
+/** { perAccount, signedIn, xero: {configured, connected, organisation, ...}, myob: {...} } */
+export const getStatus = () => req("/api/accounting/status", { method: "POST" });
 
 /**
  * Send the builder to the provider's consent screen. A full navigation, not
  * a popup — OAuth consent screens routinely refuse to render in one, and a
- * blocked popup is a support ticket we don't need.
+ * blocked popup is a support ticket we don't need. The server signs who is
+ * connecting into the link, so the provider's redirect lands on the right
+ * account; after consent the builder comes back to `returnTo`.
  */
-export function startConnect(provider) {
-  window.location.href = `${BASE}/api/accounting/${provider}/connect`;
+export async function startConnect(provider, returnTo = window.location.pathname) {
+  const { url } = await req(`/api/accounting/${provider}/connect`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ returnTo }),
+  });
+  window.location.href = url;
 }
 
 export const disconnect = (provider) =>

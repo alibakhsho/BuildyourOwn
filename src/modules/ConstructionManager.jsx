@@ -28,7 +28,7 @@ import * as CM from "../state/cm.js";
 import { putBlob, putRaw } from "../state/blobstore.js";
 import { AU_STATES, BUILD_TYPES, DISCIPLINES, APPROVAL_STATUS, STAGE_LABEL } from "../logic/approvals.js";
 import TakeoffCanvas, { TakeoffSheets } from "./TakeoffCanvas.jsx";
-import Integrations from "./Integrations.jsx";
+import Integrations, { AccountingNudge } from "./Integrations.jsx";
 import Programme from "./Programme.jsx";
 import { STATES as PROGRAMME_STATES } from "../logic/programme.js";
 import { pushClaim, pushPurchaseOrder, claimToLineItems } from "../lib/accounting.js";
@@ -103,7 +103,10 @@ export default function ConstructionManager({ onOpenEstimator, initialJobId = nu
       {job ? (
         <JobDetail job={job} onBack={() => setJobId(null)} onOpenEstimator={onOpenEstimator} />
       ) : view === "dashboard" ? (
-        <Dashboard onOpenJob={setJobId} onSeeAll={() => goto("jobs")} onNewJob={() => setCreating(true)} />
+        <>
+          <AccountingNudge onOpen={() => goto("settings")} />
+          <Dashboard onOpenJob={setJobId} onSeeAll={() => goto("jobs")} onNewJob={() => setCreating(true)} />
+        </>
       ) : view === "jobs" ? (
         <JobsScreen onOpenJob={setJobId} search={search} onNew={() => setCreating(true)} />
       ) : view === "clients" ? (

@@ -2,6 +2,11 @@
    MODULE: modules/Integrations.jsx
    Connect BuildYourOwn to Xero or MYOB.
 
+   Each builder signs up with BuildYourOwn, then links their OWN Xero
+   organisation or MYOB company file (one click, the provider's own consent
+   screen). Signed out, the panel says so instead of offering a button that
+   can't work.
+
    Three states per provider, and the UI has to be honest about which one
    the builder is in, because the fix differs:
      - not configured : the SERVER has no client ID/secret. Only whoever
@@ -15,7 +20,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { getStatus, startConnect, disconnect } from "../lib/accounting.js";
 
-export default function Integrations() {
+export default function Integrations({ compact = false }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -47,6 +52,19 @@ export default function Integrations() {
     }
   };
 
+  const onConnect = async (provider) => {
+    setBusy(provider);
+    setError("");
+    try {
+      await startConnect(provider);   // navigates away on success
+    } catch (e) {
+      setError(e.message);
+      setBusy("");
+    }
+  };
+
+  const signedOut = status && status.perAccount && !status.signedIn;
+
   return (
     <section style={{ background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, padding: "16px 18px", marginBottom: 16 }}>
       <div className="ec-display" style={{ fontSize: 17, marginBottom: 4 }}>Accounting</div>
@@ -62,13 +80,27 @@ export default function Integrations() {
         </div>
       )}
 
+      {!compact && (
+        <ol style={{ margin: "0 0 14px", paddingLeft: 18, fontSize: 12, color: TOKENS.inkSoft, lineHeight: 1.7 }}>
+          <li>Sign in to BuildYourOwn (the same account on your phone and computer).</li>
+          <li>Connect Xero or MYOB below and approve it on their screen — you choose which organisation or company file.</li>
+          <li>From any job, <strong>Push to Xero/MYOB</strong> on a progress claim or purchase order: it lands there as a draft for you to check and send.</li>
+        </ol>
+      )}
+
+      {signedOut && (
+        <div style={{ padding: "8px 12px", background: TOKENS.paperLight, border: `1px solid ${TOKENS.rule}`, fontSize: 12, marginBottom: 12 }}>
+          Sign in first — the connection belongs to your account, so your claims go to your books and nobody else's.
+        </div>
+      )}
+
       {!status ? (
         <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel }}>Checking connections…</div>
       ) : (
         <div style={{ display: "grid", gap: 10 }}>
           {["xero", "myob"].map((id) => (
-            <ProviderCard key={id} p={status[id]} busy={busy === id}
-              onConnect={() => startConnect(id)} onDisconnect={() => onDisconnect(id)} />
+            <ProviderCard key={id} p={status[id]} busy={busy === id} locked={signedOut}
+              onConnect={() => onConnect(id)} onDisconnect={() => onDisconnect(id)} />
           ))}
         </div>
       )}
@@ -76,7 +108,7 @@ export default function Integrations() {
   );
 }
 
-function ProviderCard({ p, busy, onConnect, onDisconnect }) {
+function ProviderCard({ p, busy, locked, onConnect, onDisconnect }) {
   if (!p) return null;
   const tone = p.connected ? TOKENS.ok : p.configured ? TOKENS.rule : TOKENS.hivisDeep;
 
@@ -96,8 +128,8 @@ function ProviderCard({ p, busy, onConnect, onDisconnect }) {
             {busy ? "…" : "Disconnect"}
           </button>
         ) : p.configured ? (
-          <button className="ec-btn ec-btn-hivis" style={{ fontSize: 12, padding: "6px 14px" }} onClick={onConnect}>
-            Connect {p.label}
+          <button className="ec-btn ec-btn-hivis" style={{ fontSize: 12, padding: "6px 14px" }} onClick={onConnect} disabled={busy || locked}>
+            {busy ? "Opening…" : `Connect ${p.label}`}
           </button>
         ) : null}
       </div>
@@ -134,15 +166,42 @@ function SetupHelp({ provider }) {
           </code>
         </li>
         <li>
-          Put <code style={{ background: TOKENS.card, padding: "1px 4px" }}>{isXero ? "XERO" : "MYOB"}_CLIENT_ID</code> and{" "}
-          <code style={{ background: TOKENS.card, padding: "1px 4px" }}>{isXero ? "XERO" : "MYOB"}_CLIENT_SECRET</code>{" "}
-          in <code style={{ background: TOKENS.card, padding: "1px 4px" }}>server/.env</code>, then restart the backend
+          Put <code style={{ background: TOKENS.card, padding: "1px 4px" }}>{isXero ? "XERO" : "MYOB"}_CLIENT_ID</code>,{" "}
+          <code style={{ background: TOKENS.card, padding: "1px 4px" }}>{isXero ? "XERO" : "MYOB"}_CLIENT_SECRET</code>,{" "}
+          <code style={{ background: TOKENS.card, padding: "1px 4px" }}>BYO_PUBLIC_URL</code> and{" "}
+          <code style={{ background: TOKENS.card, padding: "1px 4px" }}>ACCOUNTING_TOKEN_KEY</code> in the Vercel environment variables (or{" "}
+          <code style={{ background: TOKENS.card, padding: "1px 4px" }}>server/.env</code> locally), then redeploy
         </li>
       </ol>
       <p style={{ margin: "6px 0 0", color: TOKENS.steel }}>
         Both providers refuse plain <code>localhost</code> redirects — use a tunnel (ngrok, cloudflared) while
         developing. See <code>server/.env.example</code> for the full list of settings.
       </p>
+    </div>
+  );
+}
+
+/**
+ * A one-line prompt on the Site Office dashboard for a signed-in builder
+ * who hasn't linked their books yet. Dismissable (remembered per browser);
+ * silent whenever it can't help — signed out, nothing set up on the server,
+ * already connected, or the status check failed.
+ */
+export function AccountingNudge({ onOpen }) {
+  const [status, setStatus] = useState(null);
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem("byo.nudge.accounting") === "1"; } catch { return false; } });
+  useEffect(() => { if (!hidden) getStatus().then(setStatus, () => setStatus(null)); }, [hidden]);
+  if (hidden || !status || (status.perAccount && !status.signedIn)) return null;
+  const ready = ["xero", "myob"].filter((k) => status[k]?.configured);
+  if (!ready.length || ready.some((k) => status[k]?.connected)) return null;
+  const dismiss = () => { setHidden(true); try { localStorage.setItem("byo.nudge.accounting", "1"); } catch { /* private window */ } };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 14px", marginBottom: 14, background: TOKENS.card, border: `1px solid ${TOKENS.hivis}` }}>
+      <span style={{ fontSize: 13, flex: 1, minWidth: 220 }}>
+        <strong>Connect {ready.map((k) => status[k].label).join(" or ")}</strong> — progress claims and purchase orders go straight into your books as drafts.
+      </span>
+      <button className="ec-btn ec-btn-hivis" style={{ fontSize: 12, padding: "6px 14px" }} onClick={onOpen}>Connect</button>
+      <button onClick={dismiss} aria-label="Dismiss" style={{ border: "none", background: "none", cursor: "pointer", color: TOKENS.steel, fontSize: 15 }}>×</button>
     </div>
   );
 }
