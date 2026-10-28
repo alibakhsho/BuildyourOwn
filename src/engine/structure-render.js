@@ -131,6 +131,13 @@ function makeMaterial(key, opts) {
     case "mirror": return std({ color: 0xd9e3ea, metalness: 0.7, roughness: 0.08, envMapIntensity: 1.4 });
     case "black": return std({ color: 0x151617, roughness: 0.3, metalness: 0.3 });
     case "plasticGrey": return std({ color: 0x9aa0a6, roughness: 0.6 });
+    case "pipeCold": return std({ color: 0x2f6fd0, roughness: 0.45 });
+    case "pipeHot": return std({ color: 0xc8332b, roughness: 0.45 });
+    case "pvcGrey": return std({ color: 0x8c9296, roughness: 0.55 });
+    case "pvcWhite": return std({ color: 0xe8e8e2, roughness: 0.5 });
+    case "cableGrey": return std({ color: 0xd7d7d2, roughness: 0.7 });
+    case "cableBlue": return std({ color: 0x3a7bd5, roughness: 0.6 });
+    case "lightLens": return std({ color: 0xfff7e0, emissive: 0xfff1c8, emissiveIntensity: 0.6, roughness: 0.3 });
     case "pvPanel": return std({ map: pvTexture(), metalness: 0.45, roughness: 0.22 });
     default: return std({ color: 0xcccccc });
   }

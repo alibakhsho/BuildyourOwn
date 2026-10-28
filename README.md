@@ -68,8 +68,8 @@ A **job** is the unit of work, moving through `lead → estimating → quoted �
 | Purchase orders | Commit cost to suppliers; push to Xero/MYOB |
 | Variations | Cost **and** charge tracked separately, so variation margin is visible |
 | Claims | Progress claims with retention and GST; push to Xero/MYOB |
-| Schedule | Working-day Gantt (weekends excluded) |
-| Site diary | Daily log — the evidence base for an EOT claim |
+| Schedule | Programme computed from dependencies on the job's working-day calendar (state public holidays, Christmas shutdown, Saturdays optional): critical path, baseline vs actual slip, drag to move/resize, diary delays put on the programme, `.ics` export per trade (`logic/programme.js`) |
+| Site diary | Daily log — the evidence base for an EOT claim; days lost go onto the task they held up |
 | Documents | Plans, permits, photos |
 
 Existing estimator projects are adopted as jobs automatically on first load; the project itself is untouched, so the estimator keeps working exactly as before.
@@ -102,7 +102,11 @@ An already-upright PNG or JPEG is stored **byte-for-byte untouched** — re-enco
 
 Progress claims and purchase orders push into the builder's accounting file **as drafts**. Nothing is sent to a client or a supplier from this app — the builder reviews and sends from Xero/MYOB.
 
-OAuth tokens are held **server-side only** in `server/.tokens.json` (gitignored, mode 600); the browser only ever learns *whether* a provider is connected. See `server/.env.example` for the full setup — you need a developer app at each provider and a public HTTPS URL, since neither provider will redirect to a bare `localhost`.
+**How a builder connects:** sign up / sign in to BuildYourOwn → Site Office → Settings → Accounting → **Connect Xero** (or MYOB) → approve on Xero's own screen, choosing the organisation → back in the app, connected. The Site Office dashboard prompts anyone who hasn't connected yet. Each account links its own books.
+
+**Where the tokens live:** encrypted (AES-256-GCM, `ACCOUNTING_TOKEN_KEY`) in `public.accounting_connections`, one row per account per provider, readable only with the server's secret key — the browser only ever learns *whether* a provider is connected and the organisation name. The connect link carries the account in a signed, ten-minute state, so a callback can only ever land on the account that started it. Same handlers on Vercel (one function, `api/accounting.js`, reached through a `vercel.json` rewrite — the Hobby plan allows 12 functions) and the Express dev server (`api/_lib/accounting.js`).
+
+**To switch it on in production (Vercel env vars):** `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` (and/or `MYOB_CLIENT_ID`, `MYOB_CLIENT_SECRET`), `BYO_PUBLIC_URL` (e.g. `https://buildyour-own.vercel.app`), `ACCOUNTING_TOKEN_KEY`, `SUPABASE_SECRET_KEY`; run the migration `supabase/migrations/20261027000000_accounting_connections.sql`; register `<BYO_PUBLIC_URL>/api/accounting/xero/callback` (and `/myob/callback`) as the redirect URI in each developer portal. Locally, leave `ACCOUNTING_TOKEN_KEY` unset to use the single-builder file store (`server/.tokens.json`) — see `server/.env.example`.
 
 Two dated details worth knowing, both handled in the code:
 - **Xero** rotates refresh tokens on every use and expires an unused one after 60 days. Apps created on/after 2 Mar 2026 use granular scopes — paste your app's exact scope string into `XERO_SCOPES`.
@@ -139,6 +143,9 @@ api/
   health.js
 test/                # headless tests: takeoff geometry, CM domain logic
 ```
+
+### Services & BIM
+The 3D model carries every trade, not just the structure: `logic/structure/services.js` lays out electrical (board, power points, switches, lights, smoke alarms, fans, data, cable runs), plumbing (meter, hot-water unit, tempering valve, hot/cold PEX to every fixture) and drainage (sewer under the slab, floor wastes, vent, ORG, stormwater to the kerb) room by room, priced point by point, with the NCC / AS/NZS 3000 / 3500 items each trade certifies. The **Services & BIM** tab (3D stage) shows the take-off and exports **IFC4** (`logic/bim/ifc.js` — typed MEP elements, rooms as spaces, trades as systems) and **DXF** floor plans layered by trade (`logic/bim/dxf.js`). Indicative, for coordination and pricing: licensed trades design and certify the final installations.
 
 ### Three build modes
 Selected from the top-bar toggle — each drives a different estimator and 3D path:
@@ -194,7 +201,7 @@ To deploy:
 
 Optional env vars: `BYO_AI_MODEL` (backend default model), `VITE_AI_BACKEND` (point the frontend at a non-same-origin backend).
 
-**The accounting routes are not deployed on Vercel yet.** `server/accounting/*` runs under the Express backend only, and its token store is a local file — fine for a single builder, wrong for multi-tenant. Before going multi-tenant, replace `server/accounting/tokens.js` with per-user encrypted rows in a database; nothing else in the integration has to change.
+The accounting routes are deployed as one Vercel function, `api/accounting.js` — see **Accounting (Xero / MYOB)** above for the environment variables they need.
 
 ---
 

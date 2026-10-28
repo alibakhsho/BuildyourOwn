@@ -3,7 +3,7 @@
    buildStructure(spec) — the whole house as real pieces, assembled in
    construction order: slab → wall frames (per storey, upper floors between)
    → partitions → roof → ceilings → cladding → windows & doors → garage →
-   fit-out → solar. Driven by the same spec and the same geometry module
+   fit-out → services (electrical, plumbing, drainage) → solar. Driven by the same spec and the same geometry module
    (house-geometry.js) as the estimate, so openings, slab, rooms and solar
    are exactly the ones being priced.
 
@@ -20,15 +20,17 @@ import { buildSlab, buildUpperFloor } from "./foundation.js";
 import { addWindow, addExternalDoor, addInternalDoor, addGarageDoor } from "./openings.js";
 import { brickWall, weatherboardWall, sheetWall, gableInfill, wallLinings, ceiling } from "./cladding.js";
 import { partitionsFor, floorFinishes, stairFlight, kitchenFitout, bathroomFitout } from "./interior.js";
+import { buildServices } from "./services.js";
 
 export { schedule } from "./model.js";
 export { SYSTEMS, STAGE_OF, scheduleCsv, unitLabel, basis, quantityOf } from "./model.js";
+export { servicesCompliance, servicesTakeoff, SERVICE_RATES, ELEC_RULES } from "./services.js";
 
 const SIDE = { front: "Front", right: "Right side", back: "Rear", left: "Left side" };
 const storeyName = (f) => (f === 0 ? "Ground floor" : f === 1 ? "First floor" : `Level ${f}`);
 const lv = (f) => (f === 0 ? "G" : `L${f}`);
 
-const SKIP_LITE = new Set(["reo", "fixings", "linings", "interior"]);
+const SKIP_LITE = new Set(["reo", "fixings", "linings", "interior", "electrical", "plumbing", "drainage"]);
 
 export function buildStructure(spec, { detail = "full" } = {}) {
   const lite = detail === "lite";
@@ -193,7 +195,11 @@ export function buildStructure(spec, { detail = "full" } = {}) {
   });
   if (layout.stair) for (let f = 0; f < floors - 1; f++) stairFlight(M, layout.stair, env.levelY(f), spec.staircaseType);
 
-  /* ---------- 8. solar ---------- */
+  /* ---------- 8. services ---------- */
+  const garageBox = garage ? { x0: -w / 2 - G.w, x1: -w / 2, z0: l / 2 - G.l, z1: l / 2, doorW: G.doorW, h: G.h } : null;
+  const services = lite ? null : buildServices(M, { env, layout, spec, roof, garage: garageBox });
+
+  /* ---------- 9. solar ---------- */
   const solar = solarLayout(spec);
   addSolar(M, solar, roof, pitch, w, l, ffl);
 
@@ -214,6 +220,7 @@ export function buildStructure(spec, { detail = "full" } = {}) {
       fit: Math.min(...layout.floors.map((x) => x.fit)),
       footprint: w * l, roofRidgeM: roof.ridgeY,
       members: M.members.length,
+      services,
     },
     schedule: () => schedule(M.members),
   };

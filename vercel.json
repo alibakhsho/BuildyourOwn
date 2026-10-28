@@ -7,10 +7,25 @@
     {
       "source": "/api/estimate",
       "headers": [
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "POST, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "POST, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type"
+        }
       ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/accounting/:path*",
+      "destination": "/api/accounting?route=:path*"
     }
   ]
 }

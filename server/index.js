@@ -19,7 +19,7 @@ import { readPlanWithClaude, planReaderError } from "../api/_lib/plan-reader.js"
 import { checkAiAccess, authorizeAi } from "../api/_lib/ai-access.js";
 import { withPlanRead } from "../api/_lib/metering.js";
 import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../api/_lib/guard.js";
-import { mountAccounting } from "./accounting/routes.js";
+import * as accounting from "../api/_lib/accounting.js";
 // Billing + account routes are the Vercel functions themselves, mounted here.
 import billingCheckout from "../api/billing/checkout.js";
 import billingPortal from "../api/billing/portal.js";
@@ -139,7 +139,13 @@ app.post("/api/ai/vision", async (req, res) => {
 });
 
 /* ---- Xero / MYOB OAuth + sync ---- */
-mountAccounting(app);
+// Xero / MYOB — the same handlers as the Vercel functions in api/accounting/
+app.all("/api/accounting/status", accounting.status);
+app.all("/api/accounting/:provider/connect", accounting.connect);
+app.get("/api/accounting/:provider/callback", accounting.callback);
+app.post("/api/accounting/:provider/disconnect", accounting.disconnect);
+app.post("/api/accounting/:provider/invoice", accounting.invoice);
+app.post("/api/accounting/:provider/purchase-order", accounting.purchaseOrder);
 
 const PORT = process.env.PORT || 8787;
 app.listen(PORT, () => {
