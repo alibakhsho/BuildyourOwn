@@ -129,6 +129,19 @@ ok("builder B can't push into A's Xero", r.code === 401 && /not connected/i.test
 r = await call(A.disconnect, { token: "token-a", params: { provider: "xero" } });
 ok("disconnect deletes the row", r.code === 200 && !db.has("user-a|xero"));
 
+/* ---- the single Vercel function routes every path (Hobby plan: 12 functions max) ---- */
+const R = (await import("../api/accounting.js"));
+ok("router: path from the rewrite's ?route=", R.routeOf({ query: { route: "xero/callback" } }).join("/") === "xero/callback");
+ok("router: path from the URL when there's no ?route=", R.routeOf({ url: "/api/accounting/myob/purchase-order?x=1" }).join("/") === "myob/purchase-order");
+r = mkRes(); await R.default({ method: "POST", headers: { authorization: "Bearer token-b" }, query: { route: "status" } }, r);
+ok("router: status", r.code === 200 && r.body.signedIn === true);
+r = mkRes(); await R.default({ method: "POST", headers: { authorization: "Bearer token-a" }, query: { route: "xero/connect" }, body: {} }, r);
+ok("router: <provider>/connect reaches the handler with the provider", r.code === 200 && /login\.xero\.com/.test(r.body.url));
+r = mkRes(); await R.default({ method: "GET", headers: {}, query: { route: "xero/invoice" } }, r);
+ok("router: wrong method → 405", r.code === 405);
+r = mkRes(); await R.default({ method: "GET", headers: {}, query: { route: "xero/nothing" } }, r);
+ok("router: unknown route → 404", r.code === 404);
+
 delete process.env.ACCOUNTING_TOKEN_KEY;
 r = await call(A.status, { token: "token-a" });
 ok("on Vercel with no key: says it isn't switched on, rather than failing oddly", r.code === 503 && r.body.code === "not_configured");

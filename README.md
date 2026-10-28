@@ -104,7 +104,7 @@ Progress claims and purchase orders push into the builder's accounting file **as
 
 **How a builder connects:** sign up / sign in to BuildYourOwn → Site Office → Settings → Accounting → **Connect Xero** (or MYOB) → approve on Xero's own screen, choosing the organisation → back in the app, connected. The Site Office dashboard prompts anyone who hasn't connected yet. Each account links its own books.
 
-**Where the tokens live:** encrypted (AES-256-GCM, `ACCOUNTING_TOKEN_KEY`) in `public.accounting_connections`, one row per account per provider, readable only with the server's secret key — the browser only ever learns *whether* a provider is connected and the organisation name. The connect link carries the account in a signed, ten-minute state, so a callback can only ever land on the account that started it. Same handlers on Vercel (`api/accounting/*`) and the Express dev server (`api/_lib/accounting.js`).
+**Where the tokens live:** encrypted (AES-256-GCM, `ACCOUNTING_TOKEN_KEY`) in `public.accounting_connections`, one row per account per provider, readable only with the server's secret key — the browser only ever learns *whether* a provider is connected and the organisation name. The connect link carries the account in a signed, ten-minute state, so a callback can only ever land on the account that started it. Same handlers on Vercel (one function, `api/accounting.js`, reached through a `vercel.json` rewrite — the Hobby plan allows 12 functions) and the Express dev server (`api/_lib/accounting.js`).
 
 **To switch it on in production (Vercel env vars):** `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` (and/or `MYOB_CLIENT_ID`, `MYOB_CLIENT_SECRET`), `BYO_PUBLIC_URL` (e.g. `https://buildyour-own.vercel.app`), `ACCOUNTING_TOKEN_KEY`, `SUPABASE_SECRET_KEY`; run the migration `supabase/migrations/20261027000000_accounting_connections.sql`; register `<BYO_PUBLIC_URL>/api/accounting/xero/callback` (and `/myob/callback`) as the redirect URI in each developer portal. Locally, leave `ACCOUNTING_TOKEN_KEY` unset to use the single-builder file store (`server/.tokens.json`) — see `server/.env.example`.
 
@@ -201,7 +201,7 @@ To deploy:
 
 Optional env vars: `BYO_AI_MODEL` (backend default model), `VITE_AI_BACKEND` (point the frontend at a non-same-origin backend).
 
-The accounting routes are deployed as Vercel functions under `api/accounting/` — see **Accounting (Xero / MYOB)** above for the environment variables they need.
+The accounting routes are deployed as one Vercel function, `api/accounting.js` — see **Accounting (Xero / MYOB)** above for the environment variables they need.
 
 ---
 
