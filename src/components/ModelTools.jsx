@@ -12,10 +12,11 @@ import { useEffect, useMemo, useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { buildStructure, schedule, scheduleCsv, unitLabel, SYSTEMS } from "../logic/structure/index.js";
 
+const YARD_OFF = { fencing: false, decking: false, paving: false, garden: false, lawn: false, retaining: false };
 const PRESETS = {
   finished:   { label: "Finished",  layers: {}, site: true, mode: "finished" },
-  frame:      { label: "Frame",     layers: { reo: false, cladding: false, roofing: false, linings: false, interior: false, solar: false, electrical: false, plumbing: false, drainage: false }, site: true, mode: "finished" },
-  structure:  { label: "Structure", layers: { cladding: false, roofing: false, linings: false, interior: false, solar: false, openings: false, electrical: false, plumbing: false, drainage: false }, site: true, mode: "finished" },
+  frame:      { label: "Frame",     layers: { reo: false, cladding: false, roofing: false, linings: false, interior: false, solar: false, electrical: false, plumbing: false, drainage: false, ...YARD_OFF }, site: true, mode: "finished" },
+  structure:  { label: "Structure", layers: { cladding: false, roofing: false, linings: false, interior: false, solar: false, openings: false, electrical: false, plumbing: false, drainage: false, ...YARD_OFF }, site: true, mode: "finished" },
   services:   { label: "Services",  layers: Object.fromEntries(Object.keys(SYSTEMS).map((k) => [k, ["foundation", "wallFrame", "floorFrame", "electrical", "plumbing", "drainage"].includes(k)])), site: false, mode: "finished" },
   slab:       { label: "Slab",      layers: Object.fromEntries(Object.keys(SYSTEMS).map((k) => [k, k === "foundation" || k === "reo"])), site: false, mode: "finished" },
   xray:       { label: "X-ray",     layers: {}, site: true, mode: "structural" },

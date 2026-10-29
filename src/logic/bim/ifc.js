@@ -59,6 +59,16 @@ export function ifcClassOf(m) {
       return { pipe: "IFCPIPESEGMENT", hwu: "IFCTANK", meter: "IFCFLOWMETER", valve: "IFCVALVE", trough: "IFCSANITARYTERMINAL", taps: "IFCVALVE", tap: "IFCVALVE", point: "IFCPIPEFITTING" }[k] || "IFCBUILDINGELEMENTPROXY";
     case "drainage":
       return { pipe: "IFCPIPESEGMENT", floorwaste: "IFCWASTETERMINAL", trap: "IFCPIPEFITTING", org: "IFCWASTETERMINAL", io: "IFCPIPEFITTING", pit: "IFCDISTRIBUTIONCHAMBERELEMENT", kerb: "IFCPIPEFITTING" }[k] || "IFCBUILDINGELEMENTPROXY";
+    case "fencing": return k === "post" || k === "rail" ? "IFCMEMBER" : k === "footing" ? "IFCFOOTING" : ["sheet", "paling", "picket", "plinth"].includes(k) ? "IFCPLATE" : "IFCBUILDINGELEMENTPROXY";
+    case "decking":
+      if (k === "board" || k === "fascia") return "IFCCOVERING";
+      if (k === "joist" || k === "bearer") return "IFCBEAM";
+      if (k === "stump") return "IFCMEMBER";
+      if (k === "pad") return "IFCFOOTING";
+      return ["screw", "clamp", "bracket"].includes(k) ? "IFCMECHANICALFASTENER" : "IFCBUILDINGELEMENTPROXY";
+    case "paving": return k === "slab" ? "IFCSLAB" : k === "paver" || k === "stone" ? "IFCCOVERING" : k === "edging" ? "IFCMEMBER" : "IFCGEOGRAPHICELEMENT";
+    case "garden": case "lawn": return k === "edging" ? "IFCMEMBER" : "IFCGEOGRAPHICELEMENT";
+    case "retaining": return k === "sleeper" ? "IFCWALL" : k === "post" ? "IFCMEMBER" : k === "footing" ? "IFCFOOTING" : k === "pipe" ? "IFCPIPESEGMENT" : "IFCBUILDINGELEMENTPROXY";
     default: return "IFCBUILDINGELEMENTPROXY";
   }
 }
@@ -68,6 +78,7 @@ const TRADE = {
   cladding: "Envelope", roofing: "Envelope", openings: "Envelope",
   linings: "Interiors", interior: "Interiors",
   electrical: "Electrical", solar: "Electrical", plumbing: "Plumbing", drainage: "Drainage & stormwater", site: "Site",
+  fencing: "Fencing", decking: "Carpentry (deck)", paving: "Landscaping", garden: "Landscaping", lawn: "Landscaping", retaining: "Landscaping",
 };
 
 /* ---------- STEP encoding ---------- */
@@ -124,7 +135,8 @@ const toIfc = (p) => [p[0], -p[2], p[1]];
  */
 export function exportIfc(S, info = {}) {
   const detail = info.detail === "full" ? "full" : "coordination";
-  let members = S.members;
+  // quantity-only pieces (dig-out, road base, mesh, oil …) have no shape worth exporting
+  let members = S.members.filter((m) => !m.noRender);
   if (detail === "coordination") {
     const hasBricks = members.some((m) => m.kind === "brick");
     members = members.filter((m) => !FINE.has(m.kind) && !(hasBricks && (m.kind === "brick" || m.kind === "mortar")));

@@ -110,6 +110,7 @@ export class Engine3D {
     this.scene.add(grid);
 
     this._addTrees();
+    this._pad = pad; this._grid = grid;
     // everything that is the site, not the building (hideable to see footings)
     this.siteObjects = this.scene.children.filter((o) => !o.isLight);
 
@@ -250,6 +251,9 @@ export class Engine3D {
     this.buildSummary = summary;
     this.structure = structure;
     this.memberHits = byId;
+    this._yardOn = !!structure?.landscape;
+    if (this._pad) this._pad.visible = !this._yardOn && this.siteVisible !== false;
+    if (this._grid) this._grid.visible = !this._yardOn && this.siteVisible !== false;
     this.selected = null;
     this._unhighlight = null;
     this.roofMeshes = [];
@@ -258,7 +262,9 @@ export class Engine3D {
     this._indexStages();
     if (this.style !== "realistic") this._applyStyle(); else this._applyClipping();
     if (this.layerVisible) this._applyVisibility();
-    this._frameCamera(spec.widthM, spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
+    // with the yard modelled, frame the whole lot (a little tighter — the house is the subject)
+    const lot = structure?.landscape?.lot;
+    this._frameCamera(lot ? (lot.X1 - lot.X0) * 0.8 : spec.widthM, lot ? (lot.Z1 - lot.Z0) * 0.8 : spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
     this.applyViewMode();
     this._needsRender = true;
   }
@@ -325,6 +331,8 @@ export class Engine3D {
   setSiteVisible(v) {
     this.siteVisible = !!v;
     for (const o of this.siteObjects || []) o.visible = !!v;
+    // a modelled yard has its own lawn and paving: no building pad or setout grid over it
+    if (this._yardOn) { if (this._pad) this._pad.visible = false; if (this._grid) this._grid.visible = false; }
     this._needsRender = true;
   }
 

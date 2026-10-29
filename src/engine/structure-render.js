@@ -19,7 +19,7 @@ import { basis, STAGE_OF } from "../logic/structure/model.js";
 import {
   worldBox, concreteTexture, timberFloorTexture, pineTexture, lvlTexture, particleboardTexture, insulationTexture,
   wrapTexture, pvTexture, garageDoorTexture, brickFaceTexture, mortarTexture, carpetTexture, floorTileTexture,
-  brickTexture, renderTexture, weatherboardTexture, corrugatedNormalMap,
+  brickTexture, renderTexture, weatherboardTexture, corrugatedNormalMap, grassTexture, gravelTexture,
 } from "./materials3d.js";
 
 /* ---------- unit geometries: X = length, Y = d (along up), Z = w ---------- */
@@ -66,6 +66,7 @@ function geometry(shape) {
       g = extrudeAlongX(s); break;
     }
     case "corrugated": g = new THREE.BoxGeometry(1, 1, 1); break;   // ribs come from the normal map
+    case "shrub": g = new THREE.IcosahedronGeometry(0.5, 1); break;   // plants: a soft lumpy ball, stretched to size
     case "tri": {
       const s = new THREE.Shape();
       s.moveTo(-0.5, -0.5); s.lineTo(0.5, -0.5); s.lineTo(0, 0.5); s.closePath();
@@ -139,6 +140,23 @@ function makeMaterial(key, opts) {
     case "cableBlue": return std({ color: 0x3a7bd5, roughness: 0.6 });
     case "lightLens": return std({ color: 0xfff7e0, emissive: 0xfff1c8, emissiveIntensity: 0.6, roughness: 0.3 });
     case "pvPanel": return std({ map: pvTexture(), metalness: 0.45, roughness: 0.22 });
+    // the yard
+    case "turf": return std({ map: grassTexture(), color: 0xa9d27a, roughness: 1 });   // a mown lawn, greener than the paddock around it
+    case "gravel": return std({ map: gravelTexture(), roughness: 1 });
+    case "pebble": return std({ map: gravelTexture(), color: 0xb8b4ab, roughness: 0.95 });
+    case "mulch": return std({ map: gravelTexture(), color: 0x7a5534, roughness: 1 });
+    case "soil": return std({ map: gravelTexture(), color: 0x6b5442, roughness: 1 });
+    case "exposedAgg": return std({ map: gravelTexture(), color: 0xd6d2c8, roughness: 0.85 });
+    case "paver": return std({ color: 0xd2ccbf, roughness: 0.85 });
+    case "sleeper": return std({ map: concreteTexture(), color: 0xc9c4ba, roughness: 0.9 });
+    case "merbau": return std({ color: 0x8a4b2d, roughness: 0.55 });
+    case "deckPine": return std({ map: pineTexture(), color: 0xc9d2a4, roughness: 0.7 });
+    case "composite": return std({ color: 0x7d746a, roughness: 0.65 });
+    case "fenceSheet": return std({ color: COLORBOND.woodland, metalness: 0.45, roughness: 0.45, normalMap: corrugatedNormalMap(), normalScale: new THREE.Vector2(0.8, 0.8) });
+    case "fenceSteel": return std({ color: COLORBOND.woodland, metalness: 0.5, roughness: 0.42 });
+    case "leaf": return std({ color: 0xffffff, roughness: 0.95, flatShading: true });
+    case "leafGrass": return std({ color: 0xffffff, roughness: 0.95, flatShading: true });
+    case "trunk": return std({ color: 0x6b5236, roughness: 1 });
     default: return std({ color: 0xcccccc });
   }
 }
@@ -149,7 +167,8 @@ function material(key, opts) {
 }
 
 /* Sheets whose textures must keep their real size: individual meshes. */
-const WORLD_UV = new Set(["concrete", "wrap", "insulation", "mortar", "render", "brickTex", "floorTimber", "floorTile", "carpet", "particleboard", "weatherboard"]);
+const WORLD_UV = new Set(["concrete", "wrap", "insulation", "mortar", "render", "brickTex", "floorTimber", "floorTile", "carpet", "particleboard", "weatherboard",
+  "turf", "gravel", "pebble", "mulch", "soil", "exposedAgg", "sleeper"]);
 const NO_SHADOW = new Set(["screw", "tie", "nailplate", "nut", "washer", "hinge", "rose", "lever", "deadlock", "clamp", "bar"]);
 /* Pieces too small to see from across the site: drawn only when the camera
    is close (engine3D toggles them), so a distant view isn't speckled. */
@@ -162,7 +181,16 @@ const FLAT_AXIS = { brick: "z", board: "z", tile: "y", corrugated: "y", screw: "
 /* Brick tints: a blend of fired-clay tones per brick. */
 const BRICK_TONES = [0xb1603f, 0xa4553a, 0x9a4b33, 0xb86b48, 0x8f4630, 0xa85a3c, 0xc0714d].map((c) => new THREE.Color(c));
 const TILE_TONES = [0x8a4a35, 0x7f4231, 0x93513a, 0x844634, 0x8d4c36].map((c) => new THREE.Color(c));
+const LEAF_TONES = [0x5e7f4a, 0x6f8f57, 0x4f6e43, 0x7c9a63, 0x6a8a5c, 0x86a06a].map((c) => new THREE.Color(c));
+const GRASS_TONES = [0x7f9a5c, 0x8ea866, 0x6d8a52, 0x99ad6e].map((c) => new THREE.Color(c));
+const PAVER_TONES = [0xffffff, 0xf2efe8, 0xe7e2d8, 0xfaf7f0].map((c) => new THREE.Color(c));
+const WOOD_TONES = [0xffffff, 0xefe6dc, 0xf7efe6, 0xe5dacd].map((c) => new THREE.Color(c));
+const pick = (tones, t) => tones[Math.floor((t ?? 0) * tones.length) % tones.length];
 const tintColor = (m) => {
+  if (m.mat === "leaf") return pick(LEAF_TONES, m.tint);
+  if (m.mat === "leafGrass") return pick(GRASS_TONES, m.tint);
+  if (m.mat === "paver") return pick(PAVER_TONES, m.tint);
+  if ((m.mat === "merbau" || m.mat === "composite" || m.mat === "deckPine") && m.tint != null) return pick(WOOD_TONES, m.tint);
   if (m.mat === "brick") return BRICK_TONES[Math.floor((m.tint ?? 0) * BRICK_TONES.length) % BRICK_TONES.length];
   if (m.mat === "tile") return TILE_TONES[Math.floor((m.tint ?? 0) * TILE_TONES.length) % TILE_TONES.length];
   return null;
@@ -194,6 +222,7 @@ export function renderMembers(group, members, opts = {}) {
   const white = new THREE.Color(1, 1, 1);
 
   for (const m of members) {
+    if (m.noRender) continue;       // quantities only (dig-out, road base, mesh, oil …)
     if (WORLD_UV.has(m.mat) && (m.shape || "box") === "box") {
       const geo = worldBox(m.len, m.d, m.w);
       const mesh = new THREE.Mesh(geo, material(m.mat, matOpts));

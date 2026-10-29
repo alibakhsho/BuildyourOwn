@@ -92,6 +92,8 @@ const storey = (f) => (f === 0 ? "Ground floor" : f === 1 ? "First floor" : `Lev
 export function buildServices(M, ctx) {
   const { env, layout } = ctx;
   const { w, l, ffl, slabThk, wallH } = env;
+  // the street end: the real front boundary when the lot is modelled, else just past the front wall
+  const front = ctx.frontZ ?? null;
   const ceil = (f) => env.levelY(f) + wallH - 0.05;       // cable / pipe zone just above the ceiling lining
   const under = ffl - slabThk - 0.35;                      // drain invert zone under the slab
 
@@ -103,11 +105,11 @@ export function buildServices(M, ctx) {
   M.add({ sys: "electrical", kind: "board", name: "Switchboard", profile: "Switchboard, RCBO protected (AS/NZS 3000)", mat: "paintWhite", unit: "ea", host: "Right side wall · outside",
     a: [board[0], ffl + 1.2, board[2] + 0.55], b: [board[0], ffl + 1.9, board[2] + 0.55], d: 0.14, w: 0.45, up: [1, 0, 0], code: "E-SB" });
   M.add({ sys: "electrical", kind: "cable", name: "Consumer mains", profile: "Consumer mains 16 mm²", mat: "black", shape: "cyl", host: "Front yard",
-    a: [board[0] + 0.1, 0.02, board[2]], b: [board[0] + 0.1, 0.02, l / 2 + 2], d: 0.03, w: 0.03, up: [0, 1, 0], code: "E-CM" });
+    a: [board[0] + 0.1, 0.02, board[2]], b: [board[0] + 0.1, 0.02, front ?? l / 2 + 2], d: 0.03, w: 0.03, up: [0, 1, 0], code: "E-CM" });
   const boardTop = [w / 2 - 0.3, ceil(0), board[2] + 0.55];
 
   // water meter at the front boundary, hot-water unit on the rear wall
-  const meter = [w / 2 - 1.0, 0.25, l / 2 + 1.6];
+  const meter = [w / 2 - 1.0, 0.25, front != null ? front - 0.6 : l / 2 + 1.6];
   M.add({ sys: "plumbing", kind: "meter", name: "Water meter", profile: "Water meter + isolating valve", mat: "galv", unit: "ea", host: "Front boundary",
     a: [meter[0] - 0.15, meter[1], meter[2]], b: [meter[0] + 0.15, meter[1], meter[2]], d: 0.15, w: 0.15, up: [0, 1, 0], code: "P-WM" });
   const hwu = [w / 3, ffl, -l / 2 - 0.45];
@@ -129,7 +131,7 @@ export function buildServices(M, ctx) {
   pipe(M, "plumbing", "Cold feed to HWU", COLD, "Rear wall", [hwu[0] - 0.2, ceil(0), hwu[2]], [hwu[0] - 0.2, ffl + 0.3, hwu[2]], 0.02, "P-CF", "pipeCold");
 
   // sewer: boundary trap at the front, the main drain runs back under the slab
-  const sewer = [-w / 4, under - 0.3, l / 2 + 1.5];
+  const sewer = [-w / 4, under - 0.3, front != null ? front - 1.0 : l / 2 + 1.5];
   M.add({ sys: "drainage", kind: "trap", name: "Boundary trap", profile: "Boundary trap / sewer connection", mat: "pvcGrey", shape: "cyl", unit: "ea", host: "Front boundary",
     a: [sewer[0], sewer[1], sewer[2]], b: [sewer[0], 0.05, sewer[2]], d: 0.15, w: 0.15, up: [1, 0, 0], code: "D-BT" });
   M.add({ sys: "drainage", kind: "org", name: "Overflow relief gully", profile: "Overflow relief gully", mat: "pvcGrey", shape: "cyl", unit: "ea", host: "Front yard",
@@ -296,9 +298,9 @@ export function buildServices(M, ctx) {
       pipe(M, "drainage", "Stormwater collector", "PVC DN90 stormwater drain", "Stormwater", [xc, yS, zBack], [xc, yS, pit[2]], 0.09, "D-SW", "pvcWhite");
       if (side < 0) pipe(M, "drainage", "Stormwater collector", "PVC DN90 stormwater drain", "Front yard", [xc, yS, pit[2]], [pit[0], yS, pit[2]], 0.09, "D-SW", "pvcWhite");
     }
-    pipe(M, "drainage", "Stormwater to kerb", "PVC DN90 stormwater drain", "Front yard", [pit[0], yS, pit[2]], [pit[0], yS, l / 2 + 2.5], 0.09, "D-SK", "pvcWhite");
+    pipe(M, "drainage", "Stormwater to kerb", "PVC DN90 stormwater drain", "Front yard", [pit[0], yS, pit[2]], [pit[0], yS, front ?? l / 2 + 2.5], 0.09, "D-SK", "pvcWhite");
     M.add({ sys: "drainage", kind: "kerb", name: "Kerb connection", profile: "Stormwater connection to kerb", mat: "concrete", unit: "ea", host: "Front boundary",
-      a: [pit[0], yS, l / 2 + 2.5], b: [pit[0], yS + 0.15, l / 2 + 2.5], d: 0.1, w: 0.1, up: [1, 0, 0], code: "D-KC" });
+      a: [pit[0], yS, front ?? l / 2 + 2.5], b: [pit[0], yS + 0.15, front ?? l / 2 + 2.5], d: 0.1, w: 0.1, up: [1, 0, 0], code: "D-KC" });
   }
 
   return { circuits: circuit, ...counts };

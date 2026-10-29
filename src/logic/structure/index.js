@@ -3,7 +3,8 @@
    buildStructure(spec) — the whole house as real pieces, assembled in
    construction order: slab → wall frames (per storey, upper floors between)
    → partitions → roof → ceilings → cladding → windows & doors → garage →
-   fit-out → services (electrical, plumbing, drainage) → solar. Driven by the same spec and the same geometry module
+   fit-out → services (electrical, plumbing, drainage) → solar → the yard
+   (fences, deck, paths & driveway, garden beds, lawn — landscape.js). Driven by the same spec and the same geometry module
    (house-geometry.js) as the estimate, so openings, slab, rooms and solar
    are exactly the ones being priced.
 
@@ -21,10 +22,12 @@ import { addWindow, addExternalDoor, addInternalDoor, addGarageDoor } from "./op
 import { brickWall, weatherboardWall, sheetWall, gableInfill, wallLinings, ceiling } from "./cladding.js";
 import { partitionsFor, floorFinishes, stairFlight, kitchenFitout, bathroomFitout } from "./interior.js";
 import { buildServices } from "./services.js";
+import { buildLandscape, landscapeSpec, lotOf } from "./landscape.js";
 
 export { schedule } from "./model.js";
 export { SYSTEMS, STAGE_OF, scheduleCsv, unitLabel, basis, quantityOf } from "./model.js";
 export { servicesCompliance, servicesTakeoff, SERVICE_RATES, ELEC_RULES } from "./services.js";
+export { landscapeCompliance, landscapeTakeoff, landscapeEstimate, landscapeSpec, LANDSCAPE_REGION, lotOf as landscapeLot, LANDSCAPE_RATES, LANDSCAPE_DEFAULTS, LANDSCAPE_SYS, DAY_RATES, TRADE_LABEL, FENCES, DECK_BOARDS, SURFACES, PLANTINGS } from "./landscape.js";
 
 const SIDE = { front: "Front", right: "Right side", back: "Rear", left: "Left side" };
 const storeyName = (f) => (f === 0 ? "Ground floor" : f === 1 ? "First floor" : `Level ${f}`);
@@ -197,11 +200,15 @@ export function buildStructure(spec, { detail = "full" } = {}) {
 
   /* ---------- 8. services ---------- */
   const garageBox = garage ? { x0: -w / 2 - G.w, x1: -w / 2, z0: l / 2 - G.l, z1: l / 2, doorW: G.doorW, h: G.h } : null;
-  const services = lite ? null : buildServices(M, { env, layout, spec, roof, garage: garageBox });
+  const yard = !lite && landscapeSpec(spec).enabled;
+  const services = lite ? null : buildServices(M, { env, layout, spec, roof, garage: garageBox, frontZ: yard ? lotOf(spec, env).Z1 : null });
 
   /* ---------- 9. solar ---------- */
   const solar = solarLayout(spec);
   addSolar(M, solar, roof, pitch, w, l, ffl);
+
+  /* ---------- 10. the yard ---------- */
+  const landscape = yard ? buildLandscape(M, { spec, env, openings, garage: garageBox }) : null;
 
   // walkthrough stops: the centre of every room at eye height
   const waypoints = [];
@@ -212,6 +219,7 @@ export function buildStructure(spec, { detail = "full" } = {}) {
     env, buildUp: bu, roof, layout, openings, extWalls, partitions,
     garage: garage ? { x0: -w / 2 - G.w, x1: -w / 2, z0: l / 2 - G.l, z1: l / 2, doorW: G.doorW, doorH: G.doorH, h: G.h } : null,
     spec,
+    landscape,
     waypoints,
     summary: {
       windows: openings.filter((op) => op.kind === "window").length,
@@ -221,6 +229,7 @@ export function buildStructure(spec, { detail = "full" } = {}) {
       footprint: w * l, roofRidgeM: roof.ridgeY,
       members: M.members.length,
       services,
+      landscape: landscape ? landscape.q : null,
     },
     schedule: () => schedule(M.members),
   };

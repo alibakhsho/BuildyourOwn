@@ -30,6 +30,12 @@ export const SYSTEMS = {
   plumbing:    { label: "Plumbing (water)",        order: 13 },
   drainage:    { label: "Drainage & stormwater",   order: 14 },
   solar:       { label: "Solar PV",                order: 15 },
+  fencing:     { label: "Fencing & gates",         order: 16 },
+  decking:     { label: "Deck",                    order: 17 },
+  paving:      { label: "Paths, driveway & gravel", order: 18 },
+  garden:      { label: "Garden beds & planting",  order: 19 },
+  lawn:        { label: "Lawn",                    order: 20 },
+  retaining:   { label: "Retaining wall",          order: 21 },
 };
 
 /* Construction stage each system belongs to (AU progress-payment stages). */
@@ -39,6 +45,8 @@ export const STAGE_OF = {
   roofing: "roof", cladding: "walls", openings: "walls",
   linings: "finishes", interior: "finishes", solar: "finishes",
   drainage: "foundation", electrical: "frame", plumbing: "frame",
+  // the yard goes in last, after the house is finished
+  fencing: "finishes", decking: "finishes", paving: "finishes", garden: "finishes", lawn: "finishes", retaining: "finishes",
 };
 
 export const sub = (p, q) => [p[0] - q[0], p[1] - q[1], p[2] - q[2]];

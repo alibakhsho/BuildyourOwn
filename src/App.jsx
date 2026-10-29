@@ -57,6 +57,8 @@ import DescribeCard from "./components/DescribeCard.jsx";
 import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/ModelTools.jsx";
 import Drawings from "./components/Drawings.jsx";
 import ServicesBim from "./components/ServicesBim.jsx";
+import Landscape from "./components/Landscape.jsx";
+import LandscapeCard from "./components/LandscapeCard.jsx";
 import BuildRequirements from "./components/BuildRequirements.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
@@ -1484,6 +1486,7 @@ function stageTabs(stage, buildMode) {
     { id: "cutlist", label: "Cut list & schedule" },
     { id: "drawings", label: "Drawings" },
     { id: "services", label: "Services & BIM" },
+    ...(buildMode === "residential" ? [{ id: "landscape", label: "Landscape" }] : []),
   ];
   return [];
 }
@@ -2898,6 +2901,8 @@ export default function App() {
             </p>
           </InputCard>
 
+          <LandscapeCard spec={spec} setSpec={setSpec} total={estimate?.landscapeTotal} currency={currencySymbol(region)} />
+
           {/* Additional jobs / scope on top of the base build */}
           <div style={{ marginTop: 20, paddingTop: 16, borderTop: `2px dashed ${TOKENS.rule}` }}>
             <MaterialsPanel lines={spec.extras || []} setLines={(l) => update({ extras: l })} region={region} currency={currencySymbol(region)} embed />
@@ -3106,6 +3111,7 @@ export default function App() {
             {activeTab === "layers" && <LayersPanel engine={engineRef.current} version={modelVersion} />}
             {activeTab === "cutlist" && (buildMode === "residential" ? spec : quoteMassingSpec) && <CutList spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
             {activeTab === "services" && (buildMode === "residential" ? spec : quoteMassingSpec) && <ServicesBim spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
+            {activeTab === "landscape" && buildMode === "residential" && <Landscape spec={spec} setSpec={setSpec} projectName={projectName} region={region} currency={currencySymbol(region)} />}
             {activeTab === "drawings" && (buildMode === "residential" ? spec : quoteMassingSpec) && <Drawings spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} projectNo={projectNo} region={region} />}
               </motion.div>
           </div>
@@ -4117,6 +4123,7 @@ function CostBreakdown({ estimate, currency }) {
       { label: "Contingency", value: estimate.contingency },
     ];
     if (estimate.extrasTotal > 0) rows.push({ label: "Additional items", value: estimate.extrasTotal });
+    if (estimate.landscapeTotal > 0) rows.push({ label: "Landscaping", value: estimate.landscapeTotal });
     return rows.filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
   }, [estimate]);
 
@@ -4268,11 +4275,25 @@ function EstimateTab({ estimate, currency, region, onRatesChanged }) {
               <span>{label}</span><span>{currency}{fmt(val)}</span>
             </div>
           ))}
+          {(estimate.extrasTotal > 0 || estimate.landscapeTotal > 0) && (
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}`, fontWeight: 600 }}>
+              <span>Base build</span><span>{currency}{fmt(estimate.buildTotal)}</span>
+            </div>
+          )}
+          {estimate.landscapeTotal > 0 && (
+            <>
+              {(estimate.landscape?.groups || []).map((g) => (
+                <div key={g.sys} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0 5px 12px", borderBottom: `1px dotted ${TOKENS.rule}`, fontSize: 12, color: TOKENS.inkSoft }}>
+                  <span>+ {g.label}</span><span>{currency}{fmt(g.total)}</span>
+                </div>
+              ))}
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}`, fontWeight: 600 }}>
+                <span>Landscaping & external works (landscaper's price)</span><span>{currency}{fmt(estimate.landscapeTotal)}</span>
+              </div>
+            </>
+          )}
           {estimate.extrasTotal > 0 && (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px dashed ${TOKENS.rule}`, fontWeight: 600 }}>
-                <span>Base build</span><span>{currency}{fmt(estimate.buildTotal)}</span>
-              </div>
               {(estimate.extrasLines || []).map((l, i) => (
                 <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0 5px 12px", borderBottom: `1px dotted ${TOKENS.rule}`, fontSize: 12, color: TOKENS.inkSoft }}>
                   <span>+ {l.label}{l.kind === "labour" ? ` (${l.workers || 1}×${l.hours || 0}hr)` : l.qty ? ` (${l.qty} ${l.unit})` : ""}</span>
