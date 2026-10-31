@@ -4,14 +4,16 @@
    the construction sequence.
    ========================================================================= */
 import * as THREE from "three";
-import { pickQuality, skyEnvironment, createComposer, frameGuard } from "./renderfx.js";
+import { pickQuality, createComposer, frameGuard } from "./renderfx.js";
+import { Environment, Site } from "./environment.js";
+import { loadTextureManifest, onPbrApplied } from "./materials3d.js";
+import { ViewHelper } from "three/examples/jsm/helpers/ViewHelper.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CadLines } from "./cad-lines.js";
 import { easeOutCubic } from "../lib/format.js";
 import { buildHouse } from "./house-builder.js";
 import { highlightMember } from "./structure-render.js";
 import { SYSTEMS } from "../logic/structure/model.js";
-import { grassTexture, gravelTexture } from "./materials3d.js";
 import { CinemaPlayer } from "./cinema.js";
 
 export class Engine3D {
@@ -21,20 +23,6 @@ export class Engine3D {
     this.width = mountEl.clientWidth;
     this.height = mountEl.clientHeight;
     this.scene = new THREE.Scene();
-    // Sky — soft vertical gradient (desaturated to sit under the blueprint UI),
-    // not a flat fill. Horizon haze colour drives the fog so distant ground fades.
-    const sky = document.createElement("canvas");
-    sky.width = 2; sky.height = 256;
-    const sctx = sky.getContext("2d");
-    const grad = sctx.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, "#b6cddf");    // upper sky
-    grad.addColorStop(0.55, "#d7e1e8");
-    grad.addColorStop(1, "#e9eee9");     // hazy horizon
-    sctx.fillStyle = grad; sctx.fillRect(0, 0, 2, 256);
-    const skyTex = new THREE.CanvasTexture(sky);
-    if ("colorSpace" in skyTex) skyTex.colorSpace = THREE.SRGBColorSpace;
-    this.scene.background = skyTex;
-    this.scene.fog = new THREE.Fog(0xdfe6e2, 62, 175);
 
     this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 0.1, 500);
     this.camera.position.set(28, 22, 28);
@@ -49,7 +37,7 @@ export class Engine3D {
     // soft-edged sun shadows where the GPU can afford them
     this.renderer.shadowMap.type = this.quality === "high" ? THREE.PCFSoftShadowMap : THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 0.62;
     if ("outputColorSpace" in this.renderer) this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     mountEl.appendChild(this.renderer.domElement);
     this.renderer.localClippingEnabled = true;    // section cuts
@@ -61,59 +49,14 @@ export class Engine3D {
     this.style = "realistic";
     this.clipPlanes = [];
 
-    // Lights — sky/ground hemisphere for natural fill, key light for form, soft fill to lift shadows
-    const hemi = new THREE.HemisphereLight(0xdfeeff, 0xb9a98a, 0.55);
-    this.scene.add(hemi);
-    const ambient = new THREE.AmbientLight(0xffffff, 0.25);
-    this.scene.add(ambient);
-    const dir = new THREE.DirectionalLight(0xfff4d6, 1.05);
-    dir.position.set(24, 34, 18);
-    dir.castShadow = true;
-    const sm = this.quality === "high" ? 4096 : 2048;
-    dir.shadow.mapSize.set(sm, sm);
-    dir.shadow.normalBias = 0.02;
-    this.sun = dir;
-    dir.shadow.camera.left = -40;
-    dir.shadow.camera.right = 40;
-    dir.shadow.camera.top = 40;
-    dir.shadow.camera.bottom = -40;
-    dir.shadow.camera.near = 1;
-    dir.shadow.camera.far = 120;
-    dir.shadow.bias = -0.0004;
-    this.scene.add(dir);
-    // Cool fill from the opposite side to stop shadowed faces going dead black
-    const fill = new THREE.DirectionalLight(0xcfe0ff, 0.25);
-    fill.position.set(-18, 14, -12);
-    this.scene.add(fill);
-
-    // ---- Natural site: grass plot + cleared building pad, instead of a bare grid ----
-    // Grass — the plot the building sits on
-    const grassMat = new THREE.MeshStandardMaterial({ map: grassTexture(), color: 0xffffff, roughness: 1.0 });
-    const grass = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), grassMat);
-    grass.rotation.x = -Math.PI / 2;
-    grass.position.y = -0.04;
-    grass.receiveShadow = true;
-    this.scene.add(grass);
-
-    // Cleared building pad — gravel/dirt the structure is built on (reads as a site)
-    const padMat = new THREE.MeshStandardMaterial({ map: gravelTexture(), color: 0xffffff, roughness: 1.0 });
-    const pad = new THREE.Mesh(new THREE.CircleGeometry(36, 56), padMat);
-    pad.rotation.x = -Math.PI / 2;
-    pad.position.y = -0.01;
-    pad.receiveShadow = true;
-    this.scene.add(pad);
-
-    // Faded site-setout lines (a hint of survey grid on the pad, not a graph page)
-    const grid = new THREE.GridHelper(64, 32, 0x8f9483, 0xb3b8a8);
-    grid.position.y = 0.012;
-    grid.material.opacity = 0.11;
-    grid.material.transparent = true;
-    this.scene.add(grid);
-
-    this._addTrees();
-    this._pad = pad; this._grid = grid;
-    // everything that is the site, not the building (hideable to see footings)
-    this.siteObjects = this.scene.children.filter((o) => !o.isLight);
+    // Sky, sun, image-based light and fog (environment.js), and the lot around the
+    // building (Site): paddock, pad, setout grid, trees and the horizon tree-line.
+    this.env = new Environment(this.renderer, this.scene, { quality: this.quality });
+    this.sun = this.env.sun;
+    this.site = new Site(this.scene, { onReady: () => { this._needsRender = true; } });
+    this.siteVisible = true;
+    onPbrApplied(() => { this._needsRender = true; });
+    loadTextureManifest();
 
     // Building group
     this.buildingGroup = new THREE.Group();
@@ -126,12 +69,9 @@ export class Engine3D {
     this.playing = false;
     this.spec = null;
     this.viewMode = "finished"; // "finished" | "structural"
+    this.postFx = { ao: true, bloom: true };
 
-    // Image-based lighting from an outdoor sky (sun where the key light is),
-    // so glass, Colorbond and glazing reflect daylight, not a studio box.
-    try {
-      this.scene.environment = skyEnvironment(this.renderer, dir.position);
-    } catch (e) { /* no WebGL — plain lighting still works */ }
+    try { this.env.forceEnvironment(); } catch (e) { /* no WebGL — plain lighting still works */ }
 
     // High tier: ambient occlusion + MSAA for the realistic perspective view
     // (CAD lines and the orthographic plan/elevation views render as before).
@@ -185,34 +125,22 @@ export class Engine3D {
     let downX = 0, downY = 0;
     el.addEventListener("pointerdown", (e) => { downX = e.clientX; downY = e.clientY; });
     el.addEventListener("pointerup", (e) => {
-      if (e.button === 0 && Math.hypot(e.clientX - downX, e.clientY - downY) < 5 && this.mode === "orbit") this.pickAt(e.clientX, e.clientY);
+      if (e.button !== 0 || Math.hypot(e.clientX - downX, e.clientY - downY) >= 5 || this.mode !== "orbit") return;
+      if (this.studio && this.viewHelperClick(e)) { this._needsRender = true; return; }
+      if (this.studio && this.editor?.gizmo.axis) return;      // a click on the gizmo is not a pick
+      this.pickAt(e.clientX, e.clientY, e);
     });
-  }
-
-  /* Sparse low-poly trees around the site edge — scale + life, not a forest. */
-  _addTrees() {
-    const spots = [
-      [-32, -20], [30, -26], [-36, 16], [34, 22], [-24, 32],
-      [24, 34], [-42, -2], [40, 8], [-18, -36], [16, -34],
-    ];
-    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6b5236, roughness: 1 });
-    const leafMats = [0x6f8f57, 0x5e8050, 0x7c9a63].map(
-      (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1 })
-    );
-    for (const [x, z] of spots) {
-      const g = new THREE.Group();
-      const h = 3.2 + ((x * z) % 5) * 0.5;                  // deterministic-ish varied height
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.26, h * 0.5, 6), trunkMat);
-      trunk.position.y = h * 0.25; trunk.castShadow = true; g.add(trunk);
-      const canopy = new THREE.Mesh(
-        new THREE.IcosahedronGeometry(h * 0.5, 0),
-        leafMats[Math.abs((x + z)) % leafMats.length]
-      );
-      canopy.position.y = h * 0.66; canopy.scale.y = 1.15; canopy.castShadow = true; g.add(canopy);
-      g.position.set(x, 0, z);
-      g.rotation.y = (x + z) % 3;
-      this.scene.add(g);
-    }
+    // hover highlight while editing (throttled: a raycast over 20k instances is not free)
+    let hoverAt = 0;
+    el.addEventListener("pointermove", (e) => {
+      if (!this.studio || !this.editor || this.mode !== "orbit" || e.buttons) return;
+      const now = performance.now();
+      if (now - hoverAt < 40) return;
+      hoverAt = now;
+      const hit = this._raycastMember(e.clientX, e.clientY);
+      this.editor.setHover(hit ? hit.id : null);
+    });
+    el.addEventListener("pointerleave", () => this.editor?.setHover(null));
   }
 
   resize() {
@@ -222,7 +150,7 @@ export class Engine3D {
     this.persp.updateProjectionMatrix();
     this._fitOrtho();
     this.renderer.setSize(this.width, this.height);
-    if (this.fx && this.width && this.height) this.fx.composer.setSize(this.width, this.height);
+    if (this.fx && this.width && this.height) this.fx.setSize(this.width, this.height);
     // setSize clears the canvas — when idle nothing else would redraw it
     this._needsRender = true;
   }
@@ -254,8 +182,7 @@ export class Engine3D {
     this.structure = structure;
     this.memberHits = byId;
     this._yardOn = !!structure?.landscape;
-    if (this._pad) this._pad.visible = !this._yardOn && this.siteVisible !== false;
-    if (this._grid) this._grid.visible = !this._yardOn && this.siteVisible !== false;
+    this.site.setYard(this._yardOn);
     this.selected = null;
     this._unhighlight = null;
     this.roofMeshes = [];
@@ -268,6 +195,8 @@ export class Engine3D {
     const lot = structure?.landscape?.lot;
     this._frameCamera(lot ? (lot.X1 - lot.X0) * 0.8 : spec.widthM, lot ? (lot.Z1 - lot.Z0) * 0.8 : spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
     this.applyViewMode();
+    this.editor?.reapply();
+    this.onModelChange?.();
     this._needsRender = true;
   }
 
@@ -332,9 +261,7 @@ export class Engine3D {
   /* Show or hide the ground, pad, grid and trees. */
   setSiteVisible(v) {
     this.siteVisible = !!v;
-    for (const o of this.siteObjects || []) o.visible = !!v;
-    // a modelled yard has its own lawn and paving: no building pad or setout grid over it
-    if (this._yardOn) { if (this._pad) this._pad.visible = false; if (this._grid) this._grid.visible = false; }
+    this.site.setVisible(!!v);
     this._needsRender = true;
   }
 
@@ -379,18 +306,47 @@ export class Engine3D {
   }
 
   /* ---- Picking: click a piece, get its record ---- */
-  pickAt(clientX, clientY) {
-    if (!this.structure) return null;
+  _ray(clientX, clientY) {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, this.camera);
+    return ray;
+  }
+  /* The piece under a screen point: { id, point, object } or null. */
+  _raycastMember(clientX, clientY) {
+    if (!this.structure) return null;
+    const ray = this._ray(clientX, clientY);
     const targets = [];
     this.buildingGroup.traverse((o) => { if (o.isMesh && o.visible && o.userData.memberIds) targets.push(o); });
-    // see-through things (glass, x-rayed skins) don't block the pick
+    // see-through things (glass, x-rayed skins) don't block the pick; hidden instances are scaled to nothing
     const hits = ray.intersectObjects(targets, false).filter((h) => !(h.object.material.transparent && h.object.material.opacity < 0.5));
     const h = hits[0];
-    const id = h ? h.object.userData.memberIds[h.instanceId ?? 0] : null;
+    if (!h) return null;
+    const id = h.object.userData.memberIds[h.instanceId ?? 0];
+    if (this.editor?.hidden?.has(id)) return null;
+    return { id, point: h.point, object: h.object };
+  }
+  /* Any surface under a screen point (building, ground, trees) — for measuring. */
+  raycastPoint(clientX, clientY) {
+    const m = this._raycastMember(clientX, clientY);
+    if (m) return m;
+    const ray = this._ray(clientX, clientY);
+    const hit = ray.intersectObjects([this.site.ground, this.site.pad], false)[0];
+    return hit ? { id: null, point: hit.point, object: hit.object } : null;
+  }
+  pickAt(clientX, clientY, ev) {
+    if (!this.structure) return null;
+    if (this.studio && this.editor && this.editor.tool === "measure") { this.editor.measureClick(this.raycastPoint(clientX, clientY)); return null; }
+    const hit = this._raycastMember(clientX, clientY);
+    const id = hit ? hit.id : null;
+    if (this.studio && this.editor) {
+      if (this.editor.tool === "paint" && id != null) { this.editor.paint(this.editor.paintColor || "#f5c518", [id]); return id; }
+      this.editor.select(id == null ? [] : [id], { add: !!ev?.shiftKey, toggle: !!(ev?.ctrlKey || ev?.metaKey) });
+      this.selected = id != null ? this.structure.members[id] : null;
+      this.onPick?.(this.selected);
+      return id;
+    }
     this.select(id);
     return id;
   }
@@ -441,9 +397,9 @@ export class Engine3D {
     this.frameLookY = Math.max(1.5, h * 0.45);
     // keep fog behind the subject: a big estate seen from far away must not
     // disappear into haze (fog used to end at a fixed 175 m)
-    this.scene.fog.near = Math.max(62, this.frameRadius * 1.2);
-    this.scene.fog.far = Math.max(175, this.frameRadius * 3);
-    this.persp.far = Math.max(500, this.frameRadius * 5);
+    if (this.scene.fog) { this.scene.fog.near = Math.max(140, this.frameRadius * 3); this.scene.fog.far = Math.max(1100, this.frameRadius * 14); }
+    this.env.fitShadows(Math.max(diag * 0.8, (h || 3) * 2.5));
+    this.persp.far = Math.max(1200, this.frameRadius * 8);
     this.persp.updateProjectionMatrix();
     this.frameSize = Math.max(w || 10, l || 10, h || 3);
     const key = [Math.round((w || 0) * 2), Math.round((l || 0) * 2), Math.round((h || 0) * 2)].join(":");
@@ -496,6 +452,7 @@ export class Engine3D {
     if (this.autoRotate && view !== "persp") { this.autoRotate = false; this.onAutoRotateChange?.(false); }
     this._drift = null;
     this.cadLines?.setCamera(this.camera);
+    this.editor?.setCamera(this.camera);
     this.controls.update();
     this._needsRender = true;
   }
@@ -541,6 +498,7 @@ export class Engine3D {
      (white architectural model with edges). */
   setStyle(style) {
     this.style = style;
+    this.env.setPlainBackground(style === "white" ? 0xe9ecf0 : style === "lines" ? 0xf4f5f7 : null);
     if ((style === "lines" || style === "white") && !this.cadLines) {
       this.cadLines = new CadLines(this.renderer, this.scene, this.camera, (o) => {
         for (let p = o; p; p = p.parent) if (p === this.buildingGroup) return true;
@@ -572,6 +530,10 @@ export class Engine3D {
 
   /* One frame, in the current style. */
   renderFrame() {
+    if (this.env.tick()) this._needsRender = true;
+    this.renderer.info.autoReset = false;
+    this.renderer.info.reset();
+    const editorVisible = !!(this.studio && this.editor);
     if ((this.style === "lines" || this.style === "white") && this.cadLines) {
       const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
       if (size.x !== this._linesW || size.y !== this._linesH) { this._linesW = size.x; this._linesH = size.y; this.cadLines.setSize(size.x, size.y); }
@@ -581,23 +543,169 @@ export class Engine3D {
       this._guard?.tick(performance.now());
       // a tripped guard has just dropped to "low" and freed the post chain
       if (!this.fx) { this.renderer.render(this.scene, this.camera); return; }
-      this.fx.ao.enabled = this.viewMode !== "structural"; // AO darkens behind see-through skins
+      this.fx.ao.enabled = this.viewMode !== "structural" && this.postFx.ao; // AO darkens behind see-through skins
+      this.fx.bloom.enabled = this.postFx.bloom;
       this.fx.composer.render();
     } else {
       this.renderer.render(this.scene, this.camera);
     }
+    if (this.viewHelper && editorVisible) { this.renderer.autoClear = false; this.viewHelper.render(this.renderer); this.renderer.autoClear = true; }
+  }
+
+  /* Post-processing switches the Studio exposes. */
+  setPostFx(partial) {
+    Object.assign(this.postFx, partial);
+    if (this.fx) {
+      if (partial.aoIntensity != null) this.fx.ao.blendIntensity = partial.aoIntensity;
+      if (partial.bloomStrength != null) this.fx.bloom.strength = partial.bloomStrength;
+    }
+    this._needsRender = true;
+  }
+
+  /* ---- Studio: editing, framing, capture ---- */
+  async enableEditing() {
+    if (this.editor) return this.editor;
+    const { Editor } = await import("./editor.js");
+    this.editor = new Editor(this);
+    this.editor.setCamera(this.camera);
+    if (!this.viewHelper) {
+      this.viewHelper = new ViewHelper(this.persp, this.renderer.domElement);
+      this.viewHelper.center = this.controls.target;
+    }
+    this._needsRender = true;
+    return this.editor;
+  }
+  /* The Studio owns the canvas while it is open: editing on, drift off, never paused. */
+  async enterStudio(el) {
+    await this.enableEditing();
+    this.studio = true;
+    this.keepAwake = true;
+    this._studioPrev = { auto: this.autoRotate, mount: this.mount };
+    this.setAutoRotate(false);
+    if (el) this.remount(el);
+    this.paused = false;
+    this.select(null);
+    this._needsRender = true;
+  }
+  exitStudio(el) {
+    this.studio = false;
+    this.keepAwake = false;
+    this.editor?.clearSelection();
+    this.editor?.setTool("select");
+    this.editor?.setHover(null);
+    if (this.editor?.isolated) this.editor.unisolate();
+    if (el) this.remount(el);
+    if (this._studioPrev?.auto) this.setAutoRotate(true);
+    this._needsRender = true;
+  }
+  disableEditing() {
+    this.editor?.dispose();
+    this.editor = null;
+    this._needsRender = true;
+  }
+  /* A click on the axes gizmo (bottom-right) snaps the view. */
+  viewHelperClick(ev) {
+    if (!this.viewHelper || this.camera !== this.persp) return false;
+    this.viewHelper.center = this.controls.target;
+    return this.viewHelper.handleClick(ev);
+  }
+  /* Fly the camera to see a box (selection, a room, a system). */
+  frameBox(box) {
+    if (!box) return;
+    if (this.view !== "persp") this.setView("persp", { keep: true });
+    const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+    const r = Math.max(0.8, size.length() * 0.5);
+    const dist = r / Math.sin(THREE.MathUtils.degToRad(this.persp.fov) / 2) * 1.15;
+    const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+    if (!dir.lengthSq()) dir.set(1, 0.6, 1).normalize();
+    this.controls.target.copy(c);
+    this.camera.position.copy(c).add(dir.multiplyScalar(dist));
+    this.controls.update();
+    this._drift = null;
+    this._needsRender = true;
+  }
+  frameSelection() { this.frameBox(this.editor?.selectionBox()); }
+  frameHost(host) {
+    if (!this.structure) return;
+    const ids = this.structure.members.filter((m) => m.host === host).map((m) => m.id);
+    this.frameMembers(ids);
+  }
+  frameMembers(ids) {
+    if (!this.editor || !ids.length) return;
+    const keep = this.editor.selection;
+    this.editor.selection = ids;
+    const box = this.editor.selectionBox();
+    this.editor.selection = keep;
+    this.frameBox(box);
+  }
+  setFov(deg) { this.persp.fov = Math.max(15, Math.min(100, deg)); this.persp.updateProjectionMatrix(); this._needsRender = true; }
+  /* Draw the small hardware regardless of distance. */
+  setFineAlways(v) { this._fineAlways = !!v; this._showFine = this._fineAlways || this._showFine; if (this.structure) this._applyVisibility(); this._needsRender = true; }
+
+  /* A still at scale× the viewport (2 = 2× width and height). Transparent
+     drops the sky so the building sits on a clear PNG. */
+  async captureImage(scale = 2, { transparent = false } = {}) {
+    const w = this.width, h = this.height;
+    const W = Math.round(w * scale), H = Math.round(h * scale);
+    const helper = this.viewHelper; this.viewHelper = null;
+    const bg = this.scene.background, skyVis = this.env.sky.visible;
+    if (transparent) { this.scene.background = null; this.env.sky.visible = false; }
+    this.renderer.setSize(W, H, false);
+    this.persp.aspect = W / H; this.persp.updateProjectionMatrix();
+    if (this.fx) this.fx.setSize(W, H);
+    const prAlpha = this.renderer.getClearAlpha();
+    if (transparent) this.renderer.setClearAlpha(0);
+    try {
+      this.renderFrame();
+      const blob = await new Promise((res) => this.renderer.domElement.toBlob(res, "image/png"));
+      return blob;
+    } finally {
+      this.renderer.setClearAlpha(prAlpha);
+      this.scene.background = bg; this.env.sky.visible = skyVis;
+      this.renderer.setSize(w, h, false);
+      this.persp.aspect = w / h; this.persp.updateProjectionMatrix();
+      if (this.fx) this.fx.setSize(w, h);
+      this.viewHelper = helper;
+      this._needsRender = true;
+    }
+  }
+
+  /* Stats for the status bar. */
+  stats() {
+    const info = this.renderer.info;
+    let pieces = 0;
+    this.buildingGroup.traverse((o) => { if (o.isMesh && o.visible && o.userData.memberIds) pieces += o.isInstancedMesh ? o.count : 1; });
+    return { calls: info.render.calls, triangles: info.render.triangles, pieces, members: this.structure?.members.length || 0, quality: this.quality };
   }
 
   /* Drop to the plain renderer. Only "low" can be applied at runtime — the
      post chain is built once, in the constructor. */
   setQuality(q) {
-    if (q !== "low" || !this.fx) return;
-    this.fx.composer.dispose?.();
-    this.fx.rt.dispose();
+    if (q === "high") {
+      // photo quality on request (the Studio's switch): build the post chain now
+      if (this.fx) return;
+      try {
+        this.fx = createComposer(this.renderer, this.scene, this.persp, this.width || 1, this.height || 1);
+        this._guard = this._userHigh ? null : frameGuard(() => this.setQuality("low"));
+        this.quality = "high";
+        this.editor?._refresh();
+      } catch (e) { this.fx = null; }
+      this._needsRender = true;
+      return;
+    }
+    if (!this.fx) return;
+    this.fx.dispose();
     this.fx = null;
     this._guard = null;
     this.quality = "low";
+    this.editor?._refresh();
     this._needsRender = true;
+  }
+  /* The user's own choice sticks (and is never undone by the frame guard). */
+  setPhotoQuality(on) {
+    this._userHigh = !!on;
+    try { localStorage.setItem("byo.3d.quality", on ? "high" : "low"); } catch { /* private mode */ }
+    this.setQuality(on ? "high" : "low");
   }
 
   _clearGroup() {
@@ -947,7 +1055,7 @@ export class Engine3D {
     if (!film || !film.shots?.length) return false;
     if (this.mode === "walk") this.stopWalk();
     this._film = { player: new CinemaPlayer(film), t0: performance.now(), onFrame, onEnd, recorder,
-      fov: this.persp.fov, fog: [this.scene.fog.near, this.scene.fog.far], wasAuto: this.autoRotate };
+      fov: this.persp.fov, fog: this.scene.fog ? [this.scene.fog.near, this.scene.fog.far] : null, wasAuto: this.autoRotate };
     if (this.view !== "persp") this.setView("persp", { keep: true });
     this.select?.(null);
     this.mode = "film";
@@ -955,7 +1063,7 @@ export class Engine3D {
     this._filmLayers = null;
     this.autoRotate = false;
     this.controls.enabled = false;
-    this.scene.fog.near = 140; this.scene.fog.far = 700;
+    if (this.scene.fog) { this.scene.fog.near = 140; this.scene.fog.far = 700; }
     this.progress = 1; this.setProgress(1);
     this._showFine = false;
     if (this.structure) this._applyVisibility();
@@ -971,7 +1079,7 @@ export class Engine3D {
     this._filmRoofOff = false;
     this._filmLayers = null;
     this.persp.fov = F.fov; this.persp.updateProjectionMatrix();
-    this.scene.fog.near = F.fog[0]; this.scene.fog.far = F.fog[1];
+    if (this.scene.fog && F.fog) { this.scene.fog.near = F.fog[0]; this.scene.fog.far = F.fog[1]; }
     this.progress = 1; this.setProgress(1);
     if (this.structure) this._applyVisibility();
     this.controls.enabled = true;
@@ -1037,7 +1145,7 @@ export class Engine3D {
     // hide roof so we can see inside; soften fog
     this.roofMeshes.forEach((m) => (m.visible = false));
     if (this.structure) this._applyVisibility();
-    this.scene.fog.near = 60; this.scene.fog.far = 200;
+    if (this.scene.fog) { this.scene.fog.near = 60; this.scene.fog.far = 200; }
     if (this.onModeChange) this.onModeChange("walk");
     return true;
   }
@@ -1045,7 +1153,7 @@ export class Engine3D {
     this.mode = "orbit";
     this.roofMeshes.forEach((m) => (m.visible = true));
     if (this.structure) this._applyVisibility();
-    this.scene.fog.near = Math.max(62, (this.frameRadius || 50) * 1.2); this.scene.fog.far = Math.max(175, (this.frameRadius || 50) * 3);
+    if (this.scene.fog) { this.scene.fog.near = Math.max(140, (this.frameRadius || 50) * 3); this.scene.fog.far = Math.max(1100, (this.frameRadius || 50) * 14); }
     this.controls.enabled = true;
     this.home();
     this.autoRotate = true;
@@ -1138,8 +1246,9 @@ export class Engine3D {
     const span = this.camera.isOrthographicCamera
       ? (this.ortho.top - this.ortho.bottom) / this.ortho.zoom
       : this.camera.position.distanceTo(this.controls.target);
-    const fine = span < 16;
+    const fine = this._fineAlways || span < 16;
     if (fine !== this._showFine && this.structure) { this._showFine = fine; this._applyVisibility(); this._needsRender = true; }
+    if (this.viewHelper?.animating) { this.viewHelper.update(1 / 60); this._needsRender = true; }
     if (moved || this._needsRender || this.playing) {
       this.renderFrame();
       this._needsRender = false;
@@ -1172,7 +1281,7 @@ export class Engine3D {
     }
   }
 
-  setPaused(v) { this.paused = v; if (!v) { this._needsRender = true; this._guard?.reset(); } }
+  setPaused(v) { if (this.keepAwake) v = false; this.paused = v; if (!v) { this._needsRender = true; this._guard?.reset(); } }
   requestRender() { this._needsRender = true; }
 
   dispose() {
@@ -1180,8 +1289,9 @@ export class Engine3D {
     this.controls?.dispose();
     this.cadLines?.dispose();
     this._resizeObs.disconnect();
-    if (this.fx) { this.fx.composer.dispose?.(); this.fx.rt.dispose(); this.fx = null; }
-    this.scene.environment?.dispose?.();
+    if (this.fx) { this.fx.dispose(); this.fx = null; }
+    this.editor?.dispose();
+    this.env.dispose();
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode === this.mount) {
       this.mount.removeChild(this.renderer.domElement);

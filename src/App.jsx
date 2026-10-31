@@ -1,5 +1,6 @@
 // Children/cloneElement went with StaggerReveal, their only consumer.
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { round, fmt, pad, currencySymbol } from "./lib/format.js";
 import { nextId } from "./lib/ids.js";
@@ -61,6 +62,8 @@ import Landscape from "./components/Landscape.jsx";
 import LandscapeCard from "./components/LandscapeCard.jsx";
 import InteriorCard from "./components/InteriorCard.jsx";
 import FilmPanel from "./components/FilmPanel.jsx";
+// the full-screen modelling workspace loads only when someone opens it
+const Studio3D = lazy(() => import("./components/Studio3D.jsx"));
 import BuildRequirements from "./components/BuildRequirements.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
@@ -1951,6 +1954,7 @@ export default function App() {
   const [walkMode, setWalkMode] = useState(false);
   const [filmMode, setFilmMode] = useState(false);   // the cinematic film is playing
   const [filmOpen, setFilmOpen] = useState(false);   // its panel is open under the viewport
+  const [studioOpen, setStudioOpen] = useState(false); // the full-screen 3D Studio
   const overlayRef = useRef(null);                   // titles / letterbox canvas over the 3D
   const [walkRoom, setWalkRoom] = useState("");
   const [walkT, setWalkT] = useState(0);
@@ -2051,7 +2055,7 @@ export default function App() {
   }, [spec, hrSpec, matSpec, mdSpec, buildMode, engineReady]);
 
   useEffect(() => { if (buildMode === "residential" || buildMode === "multi") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
-  useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
+  useEffect(() => { if (!walkMode && !studioOpen) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode, studioOpen]);
 
   /* The current page's secondary tabs, and which one is showing. A stale
      `tab` from another page falls back to this page's first view. */
@@ -3020,6 +3024,14 @@ export default function App() {
                 <FilmPanel engine={engineRef.current} facts={filmFacts} overlayRef={overlayRef} projectName={projectName} onClose={() => setFilmOpen(false)} />
               ) : !walkMode ? (
                 <>
+                  {(buildMode === "residential" || (buildMode === "materials" && quoteMassingSpec)) && engineReady && (
+                    <button className="ec-btn" onClick={() => { setPiece(null); setStudioOpen(true); }}
+                      title="Open the model full-screen to inspect, move, resize, recolour and measure every piece"
+                      style={{ background: TOKENS.emphasis, color: TOKENS.onEmphasis, fontWeight: 700 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7z" /><path d="M12 22V12M21 7l-9 5-9-5" /></svg>
+                      Open 3D Studio
+                    </button>
+                  )}
                   <button className="ec-btn ec-btn-hivis" onClick={playConstruction}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                     Play demo
@@ -3074,6 +3086,16 @@ export default function App() {
 
           {stage === "three_d" && (buildMode === "residential" || (buildMode === "materials" && quoteMassingSpec)) && engineReady && !walkMode && !filmMode && (
             <ModelToolbar engine={engineRef.current} />
+          )}
+
+          {/* The 3D Studio takes the same engine full-screen (a portal: the page
+              wrapper animates with a transform, which would trap position: fixed) */}
+          {studioOpen && engineRef.current && createPortal(
+            <Suspense fallback={<div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#0f1115", color: "#a7b0bd", display: "grid", placeItems: "center" }}>Opening the studio…</div>}>
+              <Studio3D engine={engineRef.current} returnTo={() => viewportRef.current} projectName={projectName}
+                onClose={() => setStudioOpen(false)} />
+            </Suspense>,
+            document.body
           )}
 
           {/* Headline cost cards — Estimate and Costs pages */}

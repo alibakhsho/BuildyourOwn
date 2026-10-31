@@ -1,25 +1,35 @@
 /* =========================================================================
    MODULE: renderfx.js
-   The engine's "photo" layer: an outdoor sky environment for reflections,
-   ambient occlusion where walls meet slabs and eaves meet walls, and MSAA —
-   all from three's own examples, no extra dependencies.
+   The engine's "photo" layer — the post chain that turns a shaded model into
+   a rendering: multisampled HDR render → ground-truth ambient occlusion
+   (contact shading where walls meet slabs and eaves meet walls) → a touch of
+   bloom on sun-struck metal and glass → selection outlines → SMAA → tone
+   mapping and sRGB output. All from three's own examples, no dependencies.
 
    Quality is tiered. Phones, native shells and weak machines get the plain
-   renderer (still with the outdoor environment, which is free per frame);
-   capable desktops get the post-processing chain. A frame-time guard drops a
-   struggling machine back to the plain path at runtime, so nobody is stuck
-   with a stuttering model.
+   renderer (still with the sky environment, which is free per frame);
+   capable desktops get the chain. A frame-time guard drops a struggling
+   machine back to the plain path at runtime, so nobody is stuck with a
+   stuttering model.
    ========================================================================= */
 import * as THREE from "three";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutlinePass } from "three/examples/jsm/postprocessing/OutlinePass.js";
+import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 /* "high" | "low" — decided once per engine from what the device can take. */
 export function pickQuality(requested = "auto") {
   if (requested === "high" || requested === "low") return requested;
   if (typeof window === "undefined") return "low";
+  // the user's own choice (Studio → Environment → Photo quality), or ?q3d=high|low
+  try {
+    const forced = new URLSearchParams(window.location.search).get("q3d") || localStorage.getItem("byo.3d.quality");
+    if (forced === "high" || forced === "low") return forced;
+  } catch { /* storage blocked */ }
   const coarse = window.matchMedia?.("(pointer: coarse)").matches;
   const native = !!window.Capacitor?.isNativePlatform?.();
   const cores = navigator.hardwareConcurrency || 4;
@@ -27,62 +37,57 @@ export function pickQuality(requested = "auto") {
   return !coarse && !native && cores >= 6 && mem >= 4 ? "high" : "low";
 }
 
-/* A daylight sky to light the model with: blue zenith, hazy horizon, warm
-   ground bounce and a hot sun disc where the key light is. Glass, Colorbond
-   and glazed tiles reflect an outdoor sky instead of a studio box. */
-export function skyEnvironment(renderer, sunDir) {
-  const scene = new THREE.Scene();
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(50, 48, 24),
-    new THREE.ShaderMaterial({
-      side: THREE.BackSide,
-      depthWrite: false,
-      uniforms: {
-        zenith: { value: new THREE.Color(0x6f9fd0) },
-        horizon: { value: new THREE.Color(0xe4ebee) },
-        ground: { value: new THREE.Color(0x7a7262) },
-      },
-      vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `
-        uniform vec3 zenith; uniform vec3 horizon; uniform vec3 ground; varying vec3 vDir;
-        void main(){
-          float y = vDir.y;
-          vec3 sky = mix(horizon, zenith, pow(clamp(y, 0.0, 1.0), 0.55));
-          vec3 col = y >= 0.0 ? sky : mix(horizon * 0.85, ground, clamp(-y * 4.0, 0.0, 1.0));
-          gl_FragColor = vec4(col * 1.15, 1.0);
-        }`,
-    })
-  );
-  scene.add(dome);
-  const sun = new THREE.Mesh(new THREE.SphereGeometry(2.2, 16, 8), new THREE.MeshBasicMaterial());
-  sun.material.color.setRGB(40, 36, 30); // HDR — PMREM keeps the highlight
-  sun.position.copy(sunDir).normalize().multiplyScalar(44);
-  scene.add(sun);
-
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const tex = pmrem.fromScene(scene, 0.02).texture;
-  pmrem.dispose();
-  dome.geometry.dispose(); dome.material.dispose();
-  sun.geometry.dispose(); sun.material.dispose();
-  return tex;
-}
-
-/* Post chain for the high tier: MSAA render → GTAO → tone map/sRGB output. */
+/* Post chain for the high tier. Returns the passes so the engine can tune
+   them live (AO strength, bloom, outline colour) and resize them. */
 export function createComposer(renderer, scene, camera, w, h) {
   const pr = Math.min(1.25, window.devicePixelRatio || 1);
   const rt = new THREE.WebGLRenderTarget(w * pr, h * pr, { type: THREE.HalfFloatType, samples: 4 });
   const composer = new EffectComposer(renderer, rt);
   composer.setPixelRatio(pr);
   composer.setSize(w, h);
-  composer.addPass(new RenderPass(scene, camera));
+
+  const renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
+
   const ao = new GTAOPass(scene, camera, w, h);
   ao.output = GTAOPass.OUTPUT.Default;
-  ao.blendIntensity = 0.85;
-  ao.updateGtaoMaterial({ radius: 0.6, distanceExponent: 1.4, thickness: 1.2, scale: 1, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
+  ao.blendIntensity = 0.9;
+  ao.updateGtaoMaterial({ radius: 0.55, distanceExponent: 1.4, thickness: 1.0, scale: 1, samples: 14, distanceFallOff: 1, screenSpaceRadius: false });
   ao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
   composer.addPass(ao);
+
+  // only the very brightest pixels bloom: sun glints on glass, Colorbond and chrome
+  const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.22, 0.45, 0.92);
+  composer.addPass(bloom);
+
+  // selection / hover outlines (fed by the editor; off until something is selected)
+  const outline = new OutlinePass(new THREE.Vector2(w, h), scene, camera);
+  outline.edgeStrength = 4;
+  outline.edgeThickness = 1.2;
+  outline.edgeGlow = 0;
+  outline.visibleEdgeColor.set(0xf5c518);
+  outline.hiddenEdgeColor.set(0x8a6a00);
+  outline.enabled = false;
+  composer.addPass(outline);
+
+  const smaa = new SMAAPass(w * pr, h * pr);
+  composer.addPass(smaa);
   composer.addPass(new OutputPass());
-  return { composer, ao, rt };
+
+  return {
+    composer, rt, renderPass, ao, bloom, outline, smaa, pr,
+    setSize(width, height) {
+      composer.setSize(width, height);
+      ao.setSize(width, height);
+      bloom.setSize(width, height);
+      outline.setSize(width, height);
+      smaa.setSize(width * pr, height * pr);
+    },
+    dispose() {
+      composer.dispose?.(); rt.dispose();
+      ao.dispose?.(); bloom.dispose?.(); outline.dispose?.(); smaa.dispose?.();
+    },
+  };
 }
 
 /* Watches frame times while the model is moving; after a sustained run of

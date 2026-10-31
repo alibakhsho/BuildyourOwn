@@ -353,14 +353,18 @@ export const tables = {
    residential, tower, and quote-massing builds.
    ------------------------------------------------------------------------- */
 export const threeD = {
-  scene: { background: "0xe8eaec", fog: "0xe8eaec, near 50, far 140" },
+  // engine/environment.js — physically based sky (or a photo 360° sky) whose sun
+  // drives the key light, shadows, fog and the image-based light (see docs/adr/0001)
+  scene: { sky: "Preetham Sky, presets noon / morning / golden / overcast", fog: "horizon colour, near ≈ 3× frame radius, far ≥ 1100 m", toneMapping: "ACES filmic, exposure 0.6–0.74 by preset" },
   lighting: {
-    hemisphere: "0xdfeeff / 0xb9a98a @ 0.55",
-    ambient: "0xffffff @ 0.25",
-    directionalKey: "0xfff4d6 @ 1.05, castShadow",
-    directionalFill: "0xcfe0ff @ 0.25",
+    sun: "DirectionalLight, warm at the horizon → white overhead, castShadow, frustum fitted to the building",
+    hemisphere: "0xbfd6ec / 0x8c7f68 @ 0.4–0.75",
+    fill: "0xcfe0ff @ 0.15–0.3, opposite the sun",
+    ibl: "PMREM of the sky dome (or the photo sky)",
   },
-  ground: { color: "0xc4bfae", roughness: 1.0, gridHelper: "steel (0x6b7279) / rule (0xc9ccd0) — same steel token as Colors" },
+  post: "high tier: MSAA → GTAO → bloom (threshold 0.92) → selection outline → SMAA → output",
+  ground: { paddock: "photo tile 5 m + macro colour drift", pad: "site-pad tile, radial fade", trees: "photo cut-outs on crossed billboards + horizon tree-line" },
+  studio: { surface: "#0f1115 / panels #161a20", accent: "hivis #f5c518 (selection, active tool)" },
   materialPresets: {
     structuralSteel: { metalness: 0.35, roughness: 0.6, note: "frame members" },
     masonryConcrete: { metalness: 0, roughness: 0.9 },

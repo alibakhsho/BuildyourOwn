@@ -19,7 +19,7 @@ import { basis, STAGE_OF } from "../logic/structure/model.js";
 import {
   worldBox, concreteTexture, timberFloorTexture, pineTexture, lvlTexture, particleboardTexture, insulationTexture,
   wrapTexture, pvTexture, garageDoorTexture, brickFaceTexture, mortarTexture, carpetTexture, floorTileTexture,
-  brickTexture, renderTexture, weatherboardTexture, corrugatedNormalMap, grassTexture, gravelTexture,
+  brickTexture, renderTexture, weatherboardTexture, corrugatedNormalMap, grassTexture, gravelTexture, normalFromTexture, usePbr,
 } from "./materials3d.js";
 
 /* ---------- unit geometries: X = length, Y = d (along up), Z = w ---------- */
@@ -31,6 +31,7 @@ function extrudeAlongX(shape, steps = 1) {
   g.computeVertexNormals();
   return g;
 }
+export function unitGeometry(shape) { return geometry(shape); }
 function geometry(shape) {
   if (GEO[shape]) return GEO[shape];
   let g;
@@ -88,8 +89,8 @@ export const COLORBOND = {
 };
 function makeMaterial(key, opts) {
   switch (key) {
-    case "pine": return std({ map: pineTexture(), roughness: 0.75 });
-    case "lvl": return std({ map: lvlTexture(), roughness: 0.7 });
+    case "pine": return usePbr(std({ map: pineTexture(), roughness: 0.72 }), "pine", { normal: 0.35 });
+    case "lvl": return usePbr(std({ map: lvlTexture(), roughness: 0.68 }), "lvl", { normal: 0.35 });
     case "timberStair": return std({ map: lvlTexture(), color: 0xb98a55, roughness: 0.55 });
     case "timberDark": return std({ color: 0x6b4428, roughness: 0.6 });
     case "steelFrame": return std({ color: 0xb9c3cc, metalness: 0.65, roughness: 0.38 });
@@ -98,22 +99,22 @@ function makeMaterial(key, opts) {
     case "darkSteel": return std({ color: 0x3b3f44, metalness: 0.7, roughness: 0.45 });
     case "rebar": return std({ color: 0x6b4a36, metalness: 0.5, roughness: 0.7 });
     case "chrome": return std({ color: 0xe6e9ec, metalness: 0.65, roughness: 0.28 });
-    case "concrete": return std({ map: concreteTexture(), roughness: 0.95 });
+    case "concrete": return usePbr(std({ map: concreteTexture(), normalMap: normalFromTexture(concreteTexture(), 0.8), roughness: 0.95 }), "concrete", { normal: 0.5 });
     case "membrane": return std({ color: 0x1c1f22, roughness: 0.4 });
     case "brick": return std({ map: brickFaceTexture(), roughness: 0.9 });
-    case "brickTex": return std({ map: brickTexture(), roughness: 0.88 });
+    case "brickTex": return std({ map: brickTexture(), normalMap: normalFromTexture(brickTexture(), 2.2, { invert: true }), roughness: 0.88 });
     case "mortar": return std({ map: mortarTexture(), roughness: 1 });
     case "fcSheet": return std({ color: 0xece6d6, roughness: 0.85 });
-    case "render": return std({ map: renderTexture(), roughness: 0.92 });
-    case "weatherboard": return std({ map: weatherboardTexture(), color: 0xf2efe8, roughness: 0.7 });
+    case "render": return usePbr(std({ map: renderTexture(), normalMap: normalFromTexture(renderTexture(), 0.9), roughness: 0.92 }), "render", { normal: 0.35 });
+    case "weatherboard": return std({ map: weatherboardTexture(), normalMap: normalFromTexture(weatherboardTexture(), 2.4), color: 0xf2efe8, roughness: 0.7 });
     case "trim": return std({ color: opts.trim ?? 0xe4e2d5, metalness: 0.3, roughness: 0.45 });
     case "colorbond": return std({ color: opts.roof ?? COLORBOND.colorbond, metalness: 0.55, roughness: 0.4 });
-    case "colorbondSheet": return std({ color: opts.roof ?? COLORBOND.colorbond, metalness: 0.55, roughness: 0.42, normalMap: corrugatedNormalMap(), normalScale: new THREE.Vector2(1, 1) });
+    case "colorbondSheet": return std({ color: opts.roof ?? COLORBOND.colorbond, metalness: 0.6, roughness: 0.38, envMapIntensity: 1.1, normalMap: corrugatedNormalMap(), normalScale: new THREE.Vector2(1, 1) });
     case "colorbondScrew": return std({ color: opts.roof ?? COLORBOND.colorbond, metalness: 0.6, roughness: 0.35 });
     case "tile": return std({ color: 0x8a4a35, roughness: 0.82 });
     case "foil": return std({ color: 0xd8dde2, metalness: 0.85, roughness: 0.25, side: THREE.DoubleSide });
     case "alu": return std({ color: 0x2b2f33, metalness: 0.6, roughness: 0.35 });
-    case "glass": return new THREE.MeshPhysicalMaterial({ color: 0xa9cde0, transparent: true, opacity: 0.32, roughness: 0.04, metalness: 0.1, envMapIntensity: 1.3, depthWrite: false });
+    case "glass": return new THREE.MeshPhysicalMaterial({ color: 0xbfd9e8, transparent: true, opacity: 0.28, roughness: 0.03, metalness: 0, reflectivity: 0.9, clearcoat: 1, clearcoatRoughness: 0.03, envMapIntensity: 1.6, depthWrite: false });
     case "flyscreen": return std({ color: 0x222628, transparent: true, opacity: 0.35, depthWrite: false });
     case "doorExt": return std({ color: 0x5a3a24, roughness: 0.5 });
     case "doorInt": return std({ color: 0xf5f3ee, roughness: 0.6 });
@@ -123,9 +124,9 @@ function makeMaterial(key, opts) {
     case "insulation": return std({ map: insulationTexture(), roughness: 1, transparent: true, opacity: 0.92 });
     case "wrap": return std({ map: wrapTexture(), roughness: 0.8 });
     case "particleboard": return std({ map: particleboardTexture(), roughness: 0.85 });
-    case "floorTimber": return std({ map: timberFloorTexture(), roughness: 0.55 });
-    case "floorTile": return std({ map: floorTileTexture(), roughness: 0.3 });
-    case "carpet": return std({ map: carpetTexture(), roughness: 1 });
+    case "floorTimber": return usePbr(std({ map: timberFloorTexture(), normalMap: normalFromTexture(timberFloorTexture(), 1.2), roughness: 0.5 }), "oakfloor", { normal: 0.4 });
+    case "floorTile": return usePbr(std({ map: floorTileTexture(), normalMap: normalFromTexture(floorTileTexture(), 1.5), roughness: 0.28 }), "porcelain", { normal: 0.35 });
+    case "carpet": return usePbr(std({ map: carpetTexture(), roughness: 1 }), "carpet", { normal: 0.5 });
     case "joinery": return std({ color: 0xf2efe9, roughness: 0.45 });
     case "stone": return std({ color: 0xe9e7e2, roughness: 0.25 });
     case "ceramic": return std({ color: 0xffffff, roughness: 0.15 });
@@ -141,15 +142,15 @@ function makeMaterial(key, opts) {
     case "lightLens": return std({ color: 0xfff7e0, emissive: 0xfff1c8, emissiveIntensity: 0.6, roughness: 0.3 });
     case "pvPanel": return std({ map: pvTexture(), metalness: 0.45, roughness: 0.22 });
     // the yard
-    case "turf": return std({ map: grassTexture(), color: 0xa9d27a, roughness: 1 });   // a mown lawn, greener than the paddock around it
-    case "gravel": return std({ map: gravelTexture(), roughness: 1 });
+    case "turf": return usePbr(std({ map: grassTexture(), color: 0xa9d27a, roughness: 1 }), "lawn", { normal: 0.45, tint: 0xffffff });   // a mown lawn, greener than the paddock around it
+    case "gravel": return usePbr(std({ map: gravelTexture(), roughness: 1 }), "gravel", { normal: 0.7 });
     case "pebble": return std({ map: gravelTexture(), color: 0xb8b4ab, roughness: 0.95 });
-    case "mulch": return std({ map: gravelTexture(), color: 0x7a5534, roughness: 1 });
+    case "mulch": return usePbr(std({ map: gravelTexture(), color: 0x7a5534, roughness: 1 }), "mulch", { normal: 0.7, tint: 0xffffff });
     case "soil": return std({ map: gravelTexture(), color: 0x6b5442, roughness: 1 });
-    case "exposedAgg": return std({ map: gravelTexture(), color: 0xd6d2c8, roughness: 0.85 });
+    case "exposedAgg": return usePbr(std({ map: gravelTexture(), color: 0xd6d2c8, roughness: 0.85 }), "exposedagg", { normal: 0.6, tint: 0xffffff });
     case "paver": return std({ color: 0xd2ccbf, roughness: 0.85 });
     case "sleeper": return std({ map: concreteTexture(), color: 0xc9c4ba, roughness: 0.9 });
-    case "merbau": return std({ color: 0x8a4b2d, roughness: 0.55 });
+    case "merbau": return usePbr(std({ color: 0x8a4b2d, roughness: 0.55 }), "merbau", { normal: 0.3, tint: 0xffffff });
     case "deckPine": return std({ map: pineTexture(), color: 0xc9d2a4, roughness: 0.7 });
     case "composite": return std({ color: 0x7d746a, roughness: 0.65 });
     case "fenceSheet": return std({ color: COLORBOND.woodland, metalness: 0.45, roughness: 0.45, normalMap: corrugatedNormalMap(), normalScale: new THREE.Vector2(0.8, 0.8) });
@@ -167,7 +168,7 @@ function makeMaterial(key, opts) {
     case "curtain": return std({ color: STYLE_TONES[opts.style]?.linen ?? 0xf2efe9, roughness: 1, transparent: true, opacity: 0.82 });
     case "artwork": return std({ color: 0xffffff, roughness: 0.7 });
     case "lampShade": return std({ color: 0xfff4dc, emissive: 0xffd9a0, emissiveIntensity: 0.45, roughness: 0.8 });
-    case "carPaint": return std({ color: STYLE_TONES[opts.style]?.car ?? 0x2b3a4a, metalness: 0.6, roughness: 0.28 });
+    case "carPaint": return new THREE.MeshPhysicalMaterial({ color: STYLE_TONES[opts.style]?.car ?? 0x2b3a4a, metalness: 0.7, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 });
     default: return std({ color: 0xcccccc });
   }
 }
@@ -218,7 +219,7 @@ const tintColor = (m, style) => {
 };
 
 const _m = new THREE.Matrix4();
-function memberMatrix(m, out) {
+export function memberMatrix(m, out = new THREE.Matrix4()) {
   const { X, Y, Z } = basis(m);
   const L = m.len;
   const cx = (m.a[0] + m.b[0]) / 2, cy = (m.a[1] + m.b[1]) / 2, cz = (m.a[2] + m.b[2]) / 2;
