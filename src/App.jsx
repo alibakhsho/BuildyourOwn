@@ -56,7 +56,9 @@ import { buildMultiEstimate } from "./logic/multi-dwelling.js";
 import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, houseType } from "./modules/MultiDwelling.jsx";
 import DescribeCard from "./components/DescribeCard.jsx";
 import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/ModelTools.jsx";
+import { partOfSys } from "./engine/explore.js";
 import Drawings from "./components/Drawings.jsx";
+import Explore3D from "./components/Explore3D.jsx";
 import ServicesBim from "./components/ServicesBim.jsx";
 import Landscape from "./components/Landscape.jsx";
 import LandscapeCard from "./components/LandscapeCard.jsx";
@@ -2104,6 +2106,11 @@ export default function App() {
     [buildMode, matSpec]
   );
 
+  /* The Explore panel (parts, rooms, see-inside) lives on the 3D page. */
+  const exploreOn = stage === "three_d" && (buildMode === "residential" || (buildMode === "materials" && !!quoteMassingSpec)) && engineReady && !walkMode && !filmMode;
+  // on the 3D page the camera holds still until you move it
+  useEffect(() => { if (stage === "three_d") setAutoRotate(false); }, [stage]);
+
   /* Spec update helper */
   const update = useCallback((patch) => setSpec((s) => ({ ...s, ...patch })), []);
   const updateOpenings = useCallback((patch) =>
@@ -2954,11 +2961,12 @@ export default function App() {
 
           {/* 3D viewport — a compact live preview while you edit, full size on its own page */}
           {(stage === "estimate" || stage === "three_d") && (<>
-          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: stage === "three_d" ? "min(72vh, 760px)" : 360, overflow: "hidden" }}>
+          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: stage === "three_d" ? "max(520px, min(80vh, 880px))" : 360, overflow: "hidden" }}>
             <div ref={attachViewport} style={{ position: "absolute", inset: 0 }} />
+            {exploreOn && <Explore3D engine={engineRef.current} version={modelVersion} />}
             <canvas ref={overlayRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }} />
             {/* Dimension annotations overlay */}
-            <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: filmMode ? "none" : "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
+            <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: filmMode || exploreOn ? "none" : "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
               {buildMode === "materials" ? (
                 quoteMassingSpec ? (
@@ -3002,7 +3010,10 @@ export default function App() {
             {stage === "three_d" && piece && (
               <PieceCard member={piece} structure={engineRef.current?.structure}
                 onClose={() => engineRef.current?.select(null)}
-                onIsolate={(sys) => engineRef.current?.isolateLayer(sys)} />
+                onIsolate={(sys) => engineRef.current?.isolateLayer(sys)}
+                onFly={(m) => engineRef.current?.explore?.flyToMember(m.id)}
+                onFocus={(m) => { const X = engineRef.current?.explore; const p = X && partOfSys(m.sys); if (p) X.focus(p.id); }}
+                style={exploreOn ? { left: "auto", right: 12, top: 52, bottom: "auto" } : undefined} />
             )}
             {/* Live indicator + current room (walk mode) */}
             <div style={{ position: "absolute", top: 16, right: 16, maxWidth: "42%", pointerEvents: "none", display: filmMode ? "none" : "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>

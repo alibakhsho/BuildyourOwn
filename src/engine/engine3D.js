@@ -15,6 +15,7 @@ import { buildHouse } from "./house-builder.js";
 import { highlightMember } from "./structure-render.js";
 import { SYSTEMS } from "../logic/structure/model.js";
 import { CinemaPlayer } from "./cinema.js";
+import { Explore } from "./explore.js";
 
 export class Engine3D {
   constructor(mountEl, { quality = "auto" } = {}) {
@@ -118,6 +119,7 @@ export class Engine3D {
     this.controls.autoRotate = false;
     this.controls.addEventListener("start", () => {
       this._drift = null;
+      this._fly = null;
       if (this.autoRotate) { this.autoRotate = false; this.onAutoRotateChange?.(false); }
     });
     this.controls.addEventListener("change", () => { this._needsRender = true; });
@@ -141,18 +143,45 @@ export class Engine3D {
       this.editor.setHover(hit ? hit.id : null);
     });
     el.addEventListener("pointerleave", () => this.editor?.setHover(null));
+    el.addEventListener("wheel", () => { this._fly = null; }, { passive: true });
+    // double-click any part: fly to it and turn around it from there
+    el.addEventListener("dblclick", (e) => {
+      if (this.mode !== "orbit" || (this.studio && this.editor?.tool === "measure")) return;
+      const hit = this.raycastPoint(e.clientX, e.clientY);
+      if (!hit) return;
+      if (this.view !== "persp") this.setView("persp", { keep: true });
+      const dir = this.camera.position.clone().sub(this.controls.target).normalize();
+      const dist = Math.max(2.4, Math.min(9, this.camera.position.distanceTo(hit.point) * 0.45));
+      this.flyTo(hit.point, hit.point.clone().add(dir.multiplyScalar(dist)));
+    });
+    this.explore = new Explore(this);
   }
 
   resize() {
     this.width = this.mount.clientWidth;
     this.height = this.mount.clientHeight;
     this.persp.aspect = this.width / this.height;
+    this._applyViewInset();
     this.persp.updateProjectionMatrix();
     this._fitOrtho();
     this.renderer.setSize(this.width, this.height);
     if (this.fx && this.width && this.height) this.fx.setSize(this.width, this.height);
     // setSize clears the canvas — when idle nothing else would redraw it
     this._needsRender = true;
+  }
+
+  /* A panel covers `left` px of the view: centre the picture in what is left. */
+  setViewInset(left = 0) {
+    this.viewInset = Math.max(0, left | 0);
+    this._applyViewInset();
+    this.persp.updateProjectionMatrix();
+    this._needsRender = true;
+  }
+  _applyViewInset() {
+    if (this.viewInset == null) return;      // never set: leave any caller-owned offset (scroll film) alone
+    const w = this.width || 1, h = this.height || 1, L = this.viewInset || 0;
+    if (L > 0 && L < w * 0.7) this.persp.setViewOffset(w, h, -L / 2, 0, w, h);
+    else this.persp.clearViewOffset();
   }
 
   /* Move the renderer canvas into a new container. The viewport unmounts when
@@ -196,6 +225,7 @@ export class Engine3D {
     this._frameCamera(lot ? (lot.X1 - lot.X0) * 0.8 : spec.widthM, lot ? (lot.Z1 - lot.Z0) * 0.8 : spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
     this.applyViewMode();
     this.editor?.reapply();
+    this.explore?.onRebuild();
     this.onModelChange?.();
     this._needsRender = true;
   }
@@ -373,6 +403,7 @@ export class Engine3D {
     this.stageRange = range;
   }
   applyViewMode() {
+    this._clearGhost();
     const xray = this.viewMode === "structural";
     this.buildingGroup.traverse((o) => {
       if (!o.isMesh || !o.userData.skin) return;
@@ -385,6 +416,27 @@ export class Engine3D {
         o.material = o.userData._xray; o.castShadow = false;
       } else { o.material = o.userData._mat; o.castShadow = true; }
     });
+    this._applyGhost();
+  }
+
+  /* Explore → focus: every part but the focused one becomes glass. */
+  _clearGhost() {
+    this.buildingGroup.traverse((o) => {
+      if (!o.isMesh || !o.userData._preGhost) return;
+      o.material = o.userData._preGhost; o.castShadow = o.userData._ghostShadow;
+      o.userData._preGhost = null;
+    });
+  }
+  _applyGhost() {
+    this._clearGhost();
+    const F = this.explore?.focusSys;
+    if (F) this.buildingGroup.traverse((o) => {
+      if (!o.isMesh || !o.userData.sys || F.has(o.userData.sys)) return;
+      o.userData._preGhost = o.material; o.userData._ghostShadow = o.castShadow;
+      o.material = this.explore.ghostOf(o.material); o.castShadow = false;
+    });
+    this._applyClipping();
+    this._needsRender = true;
   }
 
   /* Orbit radius + height that frame the whole building whatever its size. */
@@ -509,6 +561,7 @@ export class Engine3D {
     this._needsRender = true;
   }
   _applyStyle() {
+    this._clearGhost();
     const white = this.style === "white";
     if (white && !this._clayMat) this._clayMat = new THREE.MeshStandardMaterial({ color: 0xf4f2ee, roughness: 0.9 });
     this.buildingGroup.traverse((o) => {
@@ -577,7 +630,10 @@ export class Engine3D {
   }
   /* The Studio owns the canvas while it is open: editing on, drift off, never paused. */
   async enterStudio(el) {
+    if (this.explore && (this.explore.explodeT || this.explore.focusSys || this.explore.room)) this.explore.reset();
     await this.enableEditing();
+    this._insetBeforeStudio = this.viewInset;
+    if (this.viewInset) this.setViewInset(0);
     this.studio = true;
     this.keepAwake = true;
     this._studioPrev = { auto: this.autoRotate, mount: this.mount };
@@ -595,6 +651,7 @@ export class Engine3D {
     this.editor?.setHover(null);
     if (this.editor?.isolated) this.editor.unisolate();
     if (el) this.remount(el);
+    if (this._insetBeforeStudio) this.setViewInset(this._insetBeforeStudio);
     if (this._studioPrev?.auto) this.setAutoRotate(true);
     this._needsRender = true;
   }
@@ -610,18 +667,36 @@ export class Engine3D {
     return this.viewHelper.handleClick(ev);
   }
   /* Fly the camera to see a box (selection, a room, a system). */
-  frameBox(box) {
+  frameBox(box, { pad = 1.15, min = 0.8 } = {}) {
     if (!box) return;
     if (this.view !== "persp") this.setView("persp", { keep: true });
     const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
-    const r = Math.max(0.8, size.length() * 0.5);
-    const dist = r / Math.sin(THREE.MathUtils.degToRad(this.persp.fov) / 2) * 1.15;
+    const r = Math.max(min, size.length() * 0.5);
+    const aspect = Math.min(1, (this.width || 1) / (this.height || 1));
+    const dist = r / Math.sin(THREE.MathUtils.degToRad(this.persp.fov) / 2) * pad / Math.max(0.55, aspect);
     const dir = this.camera.position.clone().sub(this.controls.target).normalize();
     if (!dir.lengthSq()) dir.set(1, 0.6, 1).normalize();
-    this.controls.target.copy(c);
-    this.camera.position.copy(c).add(dir.multiplyScalar(dist));
-    this.controls.update();
+    // never end up underground or looking straight along the ground
+    if (dir.y < 0.25) { dir.y = 0.25; dir.normalize(); }
+    this.flyTo(c, c.clone().add(dir.multiplyScalar(dist)));
+  }
+
+  /* Glide the camera to look at `target` from `position` (ms long, eased). */
+  flyTo(target, position, ms = 850) {
     this._drift = null;
+    if (this.autoRotate) { this.autoRotate = false; this.onAutoRotateChange?.(false); }
+    if (this.view !== "persp") this.setView("persp", { keep: true });
+    const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    this._fly = { t0: performance.now(), ms: reduce ? 1 : ms, fromT: this.controls.target.clone(), fromP: this.camera.position.clone(), toT: target.clone(), toP: position.clone() };
+    this._needsRender = true;
+  }
+  _flyStep() {
+    const F = this._fly;
+    const k = Math.min(1, (performance.now() - F.t0) / F.ms);
+    const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+    this.controls.target.lerpVectors(F.fromT, F.toT, e);
+    this.camera.position.lerpVectors(F.fromP, F.toP, e);
+    if (k >= 1) this._fly = null;
     this._needsRender = true;
   }
   frameSelection() { this.frameBox(this.editor?.selectionBox()); }
@@ -1241,6 +1316,7 @@ export class Engine3D {
     }
     if (this.autoRotate && this.mode === "orbit" && this.view === "persp" && this.controls.enabled) this._driftStep();
     // damping and the drift keep the camera moving after input stops
+    if (this._fly) this._flyStep();
     const moved = this.controls.enabled ? this.controls.update() : false;
     // close up, show the small hardware (screws, nail plates, ties…)
     const span = this.camera.isOrthographicCamera

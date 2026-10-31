@@ -79,12 +79,6 @@ export function ModelToolbar({ engine, onPreset }) {
             onClick={() => { setStyle(id); engine.setStyle(id); }}>{l}</button>
         ))}
       </div>
-      <div role="group" aria-label="Show" style={group}>
-        {Object.entries(PRESETS).map(([id, P], i, arr) => (
-          <button key={id} style={{ ...segBtn(preset === id), ...(i === arr.length - 1 ? { borderRight: "none" } : {}) }} aria-pressed={preset === id}
-            onClick={() => pick(id)}>{P.label}</button>
-        ))}
-      </div>
       <div style={{ display: "inline-flex", alignItems: "center", gap: 8, ...group, padding: "3px 8px" }}>
         <span style={label}>Section</span>
         <select value={section} onChange={(e) => doSection(e.target.value)}
@@ -145,14 +139,14 @@ export function LayersPanel({ engine, version }) {
 
 const mm = (v) => `${Math.round(v * 1000).toLocaleString()} mm`;
 
-export function PieceCard({ member, structure, onClose, onIsolate }) {
+export function PieceCard({ member, structure, onClose, onIsolate, onFly, onFocus, style }) {
   if (!member) return null;
   const same = structure ? structure.members.filter((m) => m.profile === member.profile && m.name === member.name && !m.noSchedule).length : null;
   const size = member.unit === "ea" ? null
     : member.unit === "lm" ? `${mm(member.len)} long · section ${Math.round(member.d * 1000)} × ${Math.round(member.w * 1000)}`
     : `${(member.len).toFixed(2)} × ${Math.max(member.d, member.w).toFixed(2)} m`;
   return (
-    <div role="dialog" aria-label="Selected piece" style={{ position: "absolute", left: 10, bottom: 10, maxWidth: "min(340px, calc(100% - 20px))", background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderLeft: `4px solid ${TOKENS.hivis}`, borderRadius: 8, boxShadow: TOKENS.shadowMd, padding: "8px 12px 10px", zIndex: 5 }}>
+    <div role="dialog" aria-label="Selected piece" style={{ position: "absolute", left: 10, bottom: 10, maxWidth: "min(340px, calc(100% - 20px))", ...style, background: TOKENS.card, border: `1px solid ${TOKENS.rule}`, borderLeft: `4px solid ${TOKENS.hivis}`, borderRadius: 8, boxShadow: TOKENS.shadowMd, padding: "8px 12px 10px", zIndex: 5 }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
         <span style={{ fontWeight: 700, fontSize: 14 }}>{member.name}</span>
         <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", color: TOKENS.steel, fontSize: 16, lineHeight: 1, padding: 0 }}>×</button>
@@ -161,9 +155,12 @@ export function PieceCard({ member, structure, onClose, onIsolate }) {
       <div style={{ fontSize: 11, color: TOKENS.steel, marginTop: 4 }}>
         <span className="ec-mono">{member.mark}</span> · {member.host}{same != null ? ` · ${same.toLocaleString()} in the build` : ""}
       </div>
-      <button onClick={() => onIsolate?.(member.sys)} style={{ marginTop: 6, border: "none", background: "none", padding: 0, cursor: "pointer", color: TOKENS.hivis, font: "inherit", fontSize: 12, fontWeight: 600 }}>
-        Show only {SYSTEMS[member.sys]?.label.toLowerCase()} →
-      </button>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+        {onFly && <button onClick={() => onFly(member)} className="ec-btn ec-btn-hivis" style={{ fontSize: 12, padding: "5px 10px" }}>Zoom to it</button>}
+        <button onClick={() => (onFocus ? onFocus(member) : onIsolate?.(member.sys))} className="ec-btn ec-btn-ghost" style={{ fontSize: 12, padding: "5px 10px" }}>
+          Show only {SYSTEMS[member.sys]?.label.toLowerCase()}
+        </button>
+      </div>
     </div>
   );
 }
