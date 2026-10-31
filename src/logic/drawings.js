@@ -8,6 +8,7 @@
      A02   Front & rear elevations   A07  Roof framing plan + truss detail
      A03   Side elevations           A08  Slab & footing plan
      A04   Section A–A               A09  Window & door schedule
+                                     L01  Landscape plan (when the yard is modelled)
    Pure: returns SVG strings (no DOM), so it runs in tests and can be
    downloaded or printed as-is. Paper units are millimetres.
    ========================================================================= */
@@ -107,6 +108,9 @@ const DEFS = `<defs>
   <pattern id="h-conc" patternUnits="userSpaceOnUse" width="3" height="3"><circle cx="0.6" cy="0.7" r="0.18" fill="#333"/><circle cx="2.1" cy="1.9" r="0.14" fill="#333"/><path d="M1.6 0.4 l0.5 0.8 h-1 z" fill="none" stroke="#333" stroke-width="0.1"/></pattern>
   <pattern id="h-insul" patternUnits="userSpaceOnUse" width="2.4" height="2"><path d="M0 1 Q0.6 0 1.2 1 T2.4 1" fill="none" stroke="#555" stroke-width="0.12"/></pattern>
   <pattern id="h-ground" patternUnits="userSpaceOnUse" width="2" height="2" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="2" stroke="#555" stroke-width="0.15"/></pattern>
+  <pattern id="h-lawn" patternUnits="userSpaceOnUse" width="2.4" height="2.4"><path d="M0.6 1.2 l0.25 -0.6 l0.25 0.6 M1.7 2.1 l0.2 -0.5 l0.2 0.5" fill="none" stroke="#6a8a52" stroke-width="0.1"/></pattern>
+  <pattern id="h-gravel" patternUnits="userSpaceOnUse" width="1.6" height="1.6"><circle cx="0.4" cy="0.4" r="0.16" fill="#777"/><circle cx="1.2" cy="1.1" r="0.12" fill="#777"/></pattern>
+  <pattern id="h-mulch" patternUnits="userSpaceOnUse" width="2" height="2"><path d="M0.3 0.5 l0.5 0.2 M1.2 1.4 l0.4 -0.3" stroke="#8a6a4a" stroke-width="0.14"/></pattern>
   <pattern id="h-glass" patternUnits="userSpaceOnUse" width="3" height="3" patternTransform="rotate(-35)"><line x1="0" y1="0" x2="0" y2="1" stroke="#7aa7c7" stroke-width="0.15"/></pattern>
 </defs>`;
 
@@ -656,6 +660,107 @@ function slabSheet(S, info) {
 }
 
 /* =====================================================================
+   LANDSCAPE PLAN
+   ===================================================================== */
+function landscapeSheet(S, info) {
+  const Y = S.landscape;
+  const { lot, L } = Y;
+  const box = { u0: lot.X0 - 2.5, u1: lot.X1 + 2.5, v0: lot.Z0 - 2, v1: lot.Z1 + 3.5 };
+  const scale = pickScale(box.u1 - box.u0, box.v1 - box.v0, AREA.w - 80, AREA.h - 6);
+  const V = view(box, { x: AREA.x, y: AREA.y + 6, w: AREA.w - 80, h: AREA.h - 6 }, scale, false);
+  const M = S.members;
+  const fill = (r, attrs) => rectUV(V, r.x0, r.z0, r.x1, r.z1, attrs);
+  const area = (rs) => rs.reduce((a, r) => a + (r.x1 - r.x0) * (r.z1 - r.z0), 0);
+  const mid = (r) => [V.X((r.x0 + r.x1) / 2), V.Y((r.z0 + r.z1) / 2)];
+  let s = "";
+  for (const r of Y.lawn) s += fill(r, `fill="#eef3e6" stroke="none"`) + fill(r, `fill="url(#h-lawn)" stroke="none"`);
+  for (const r of Y.gravel) s += fill(r, `fill="#f3f1ec" stroke="none"`) + fill(r, `fill="url(#h-gravel)" ${ST.fine}`);
+  for (const b of Y.beds) s += fill(b.r, `fill="#efe6d8" stroke="none"`) + fill(b.r, `fill="url(#h-mulch)" ${ST.light}`);
+  const hard = [...Y.paths.map((p) => p.r), Y.driveway].filter(Boolean);
+  for (const r of hard) s += fill(r, `fill="#f1efea" ${ST.medium}`) + (L.path === "gravel" || L.path === "stepping" ? fill(r, `fill="url(#h-gravel)" stroke="none"`) : fill(r, `fill="url(#h-conc)" stroke="none"`));
+  for (const m of M.filter((x) => x.kind === "joint" || x.kind === "stone" || (x.kind === "paver" && x.host !== "Driveway"))) s += poly(V, outline(m, (p) => [p[0], p[2]]), `fill="none" ${ST.fine}`);
+  // deck: every board
+  for (const m of M.filter((x) => x.sys === "decking" && x.kind === "board")) s += poly(V, outline(m, (p) => [p[0], p[2]]), `fill="#e9d6c0" ${ST.fine}`);
+  if (Y.deck) s += fill(Y.deck, `fill="none" ${ST.heavy}`);
+  // the house and garage
+  s += fill(Y.house, `fill="#dedbd4" ${ST.heavy}`) + fill(Y.house, `fill="url(#h-brick)" stroke="none"`);
+  if (Y.garage) s += fill(Y.garage, `fill="#e8e5df" ${ST.heavy}`);
+  // plants and trees
+  for (const m of M.filter((x) => x.sys === "garden" && x.kind === "plant" && !x.noSchedule)) s += `<circle cx="${n2(V.X(m.a[0]))}" cy="${n2(V.Y(m.a[2]))}" r="${n2((m.d / 2) * V.k)}" fill="#fff" fill-opacity="0.6" ${ST.light}/>`;
+  for (const m of M.filter((x) => x.kind === "plant" && x.noSchedule)) {
+    const cx = V.X(m.a[0]), cy = V.Y(m.a[2]);
+    s += `<circle cx="${n2(cx)}" cy="${n2(cy)}" r="${n2((m.d / 2) * V.k)}" fill="none" stroke="#333" stroke-width="0.25" stroke-dasharray="1.2 0.6"/><circle cx="${n2(cx)}" cy="${n2(cy)}" r="0.5" fill="#111"/>`;
+  }
+  // retaining wall
+  for (const m of M.filter((x) => x.sys === "retaining" && x.kind === "sleeper" && x.a[1] < 0.2)) s += poly(V, outline(m, (p) => [p[0], p[2]]), `fill="#999" ${ST.medium}`);
+  // fences: the line, every post, gates as a swing
+  for (const m of M.filter((x) => x.sys === "fencing" && (x.kind === "sheet" || x.kind === "plinth" || (x.kind === "rail" && x.a[1] < 0.35)))) s += line(V, [m.a[0], m.a[2]], [m.b[0], m.b[2]], `stroke="#111" stroke-width="0.6"`);
+  for (const m of M.filter((x) => x.sys === "fencing" && x.kind === "post")) s += `<rect x="${n2(V.X(m.a[0]) - 0.6)}" y="${n2(V.Y(m.a[2]) - 0.6)}" width="1.2" height="1.2" fill="#111"/>`;
+  for (const m of M.filter((x) => x.kind === "gate")) {
+    const a = [V.X(m.a[0]), V.Y(m.a[2])], b = [V.X(m.b[0]), V.Y(m.b[2])];
+    const L2 = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, nx = -(b[1] - a[1]) / L2, ny = (b[0] - a[0]) / L2;
+    const tip = [a[0] + nx * L2, a[1] + ny * L2];
+    s += `<line x1="${n2(a[0])}" y1="${n2(a[1])}" x2="${n2(tip[0])}" y2="${n2(tip[1])}" stroke="#111" stroke-width="0.3"/><path d="M${n2(tip[0])} ${n2(tip[1])} A${n2(L2)} ${n2(L2)} 0 0 1 ${n2(b[0])} ${n2(b[1])}" fill="none" ${ST.fine} stroke-dasharray="0.8 0.5"/>`;
+  }
+  // the lot boundary, street and labels
+  s += `<rect x="${n2(V.X(lot.X0))}" y="${n2(V.Y(lot.Z0))}" width="${n2((lot.X1 - lot.X0) * V.k)}" height="${n2((lot.Z1 - lot.Z0) * V.k)}" fill="none" stroke="#111" stroke-width="0.5" stroke-dasharray="6 1.2 0.8 1.2"/>`;
+  s += text(V.X((lot.X0 + lot.X1) / 2), V.Y(lot.Z1) + 9, "STREET — FRONT BOUNDARY", { size: 2.6, weight: 700 });
+  const [hx, hy] = mid(Y.house);
+  s += text(hx, hy - 1, "HOUSE", { size: 3, weight: 700 }) + text(hx, hy + 2.6, `FFL RL ${S.env.ffl.toFixed(3)} · ground RL 0.000`, { size: 2 });
+  if (Y.garage) { const [gx, gy] = mid(Y.garage); s += text(gx, gy, "GARAGE", { size: 2.6, weight: 700 }); }
+  const SURF = { concrete: "Concrete", exposed: "Exposed aggregate", pavers: "Pavers", gravel: "Decomposed granite", stepping: "Stepping stones" };
+  if (Y.deck) { const [dx, dy] = mid(Y.deck); s += `<rect x="${n2(dx - 20)}" y="${n2(dy - 3.4)}" width="40" height="6" fill="#fff" fill-opacity="0.85"/>` + text(dx, dy - 0.6, `DECK ${area([Y.deck]).toFixed(1)} m²`, { size: 2.4, weight: 700 }) + text(dx, dy + 2.2, `${(L.deckBoard || "merbau")} boards · top RL ${Y.deck.top.toFixed(3)}`, { size: 1.9 }); }
+  if (Y.driveway) { const [dx, dy] = mid(Y.driveway); s += text(dx, dy, `${SURF[L.driveway] || "Concrete"} driveway`, { size: 2.2, weight: 700 }) + text(dx, dy + 3, `${area([Y.driveway]).toFixed(1)} m²`, { size: 2 }); }
+  for (const p of Y.paths) {
+    const [px, py] = mid(p.r);
+    const vert = p.r.z1 - p.r.z0 > p.r.x1 - p.r.x0;
+    s += text(px, py, `${p.host} · ${SURF[L.path] || ""}`, { size: 1.9, rotate: vert ? -90 : 0 });
+  }
+  const big = [...Y.lawn].sort((a, b) => (b.x1 - b.x0) * (b.z1 - b.z0) - (a.x1 - a.x0) * (a.z1 - a.z0));
+  for (const r of big.slice(0, 2)) { const [lx, ly] = mid(r); if (Math.min(r.x1 - r.x0, r.z1 - r.z0) * V.k > 8) s += text(lx, ly, L.lawn === "synthetic" ? "SYNTHETIC TURF" : L.lawn === "none" ? "OPEN GROUND" : "LAWN — TURF", { size: 2.2, fill: "#3d5a2a" }); }
+  // dimensions: lot, setbacks
+  // (offsets: positive is to the left of a→b, so every chain sits outside the lot)
+  s += dim([V.X(lot.X0), V.Y(lot.Z0)], [V.X(lot.X1), V.Y(lot.Z0)], -6, mmTxt(lot.X1 - lot.X0));
+  s += dim([V.X(lot.X1), V.Y(lot.Z0)], [V.X(lot.X1), V.Y(lot.Z1)], -8, mmTxt(lot.Z1 - lot.Z0));
+  s += dim([V.X(lot.X0), V.Y(Y.house.z1)], [V.X(lot.X0), V.Y(lot.Z1)], 6, mmTxt(lot.Z1 - Y.house.z1));
+  s += dim([V.X(lot.X0), V.Y(lot.Z0)], [V.X(lot.X0), V.Y(Y.house.z0)], 6, mmTxt(Y.house.z0 - lot.Z0));
+  s += dim([V.X(lot.X0), V.Y(Y.house.z0 + 1)], [V.X(lot.hx0), V.Y(Y.house.z0 + 1)], 0, mmTxt(lot.hx0 - lot.X0), 1.8);
+  s += dim([V.X(lot.hx1), V.Y(Y.house.z0 + 1)], [V.X(lot.X1), V.Y(Y.house.z0 + 1)], 0, mmTxt(lot.X1 - lot.hx1), 1.8);
+  s += northArrow(V.X(lot.X1) + 14, V.Y(lot.Z0) + 4) + scaleBar(AREA.x + 4, AREA.y + AREA.h - 6, scale);
+  s += text(AREA.x + 2, AREA.y + 4, "LANDSCAPE PLAN", { size: 3.2, anchor: "start", weight: 700 });
+
+  // legend + quantities
+  const q = Y.q, lx = AREA.x + AREA.w - 76;
+  let ly = AREA.y + 12;
+  const row = (sw, label, value) => {
+    s += sw(lx, ly - 2.4) + text(lx + 9, ly, label, { size: 2.1, anchor: "start" }) + text(lx + 74, ly, value, { size: 2.1, anchor: "end" });
+    ly += 5.2;
+  };
+  const sw = (fillAttr) => (x, y) => `<rect x="${n2(x)}" y="${n2(y)}" width="7" height="3.4" ${fillAttr} stroke="#333" stroke-width="0.18"/>`;
+  s += text(lx, AREA.y + 5, "LEGEND & QUANTITIES", { size: 2.8, anchor: "start", weight: 700 });
+  const fenceLm = Object.values(q.fence).reduce((a, b) => a + b, 0);
+  if (fenceLm) row((x, y) => `<line x1="${n2(x)}" y1="${n2(y + 1.7)}" x2="${n2(x + 7)}" y2="${n2(y + 1.7)}" stroke="#111" stroke-width="0.6"/><rect x="${n2(x + 3)}" y="${n2(y + 1.1)}" width="1.2" height="1.2" fill="#111"/>`, `Fence ${L.fence === "none" ? "" : L.fence} · ${L.fenceHeightM} m · ${q.gates} gates`, `${fenceLm.toFixed(1)} m`);
+  if (q.deck) row(sw(`fill="#e9d6c0"`), "Deck", `${q.deck.toFixed(1)} m²`);
+  const paths = Object.values(q.path).reduce((a, b) => a + b, 0);
+  if (paths) row(sw(`fill="url(#h-conc)"`), `Paths — ${SURF[L.path] || L.path}`, `${paths.toFixed(1)} m²`);
+  if (q.drive) row(sw(`fill="url(#h-conc)"`), `Driveway — ${SURF[L.driveway] || "Concrete"}`, `${q.drive.toFixed(1)} m²`);
+  if (q.gravel) row(sw(`fill="url(#h-gravel)"`), "Gravel strips", `${q.gravel.toFixed(1)} m²`);
+  if (q.bed) row(sw(`fill="url(#h-mulch)"`), `Garden beds · ${q.plants} plants`, `${q.bed.toFixed(1)} m²`);
+  if (q.trees) row((x, y) => `<circle cx="${n2(x + 3.5)}" cy="${n2(y + 1.7)}" r="1.7" fill="none" stroke="#333" stroke-width="0.25" stroke-dasharray="1.2 0.6"/>`, "Feature trees", `${q.trees}`);
+  if (q.lawn && L.lawn !== "none") row(sw(`fill="url(#h-lawn)"`), L.lawn === "synthetic" ? "Synthetic turf" : "Turf", `${q.lawn.toFixed(1)} m²`);
+  if (q.retaining) row(sw(`fill="#999"`), `Retaining wall ${L.retainingM} m`, `${q.retaining.toFixed(1)} m²`);
+  row(sw(`fill="none"`), "Lot", `${((lot.X1 - lot.X0) * (lot.Z1 - lot.Z0)).toFixed(0)} m²`);
+  return sheet(info, { number: "L01", title: "Landscape plan", scale: `1:${scale}`, notes: [
+    "Set out from the house; confirm boundaries against the survey before fencing.",
+    "Before You Dig Australia enquiry before any excavation.",
+    "Finished ground 150 mm below the slab edge at soft areas, 50 mm at paving; fall away from the house.",
+    "Deck: H4 stumps on concrete pads, H3 frame, stainless fixings; 150 mm clear under bearers.",
+    "Fence posts in 20 MPa concrete footings; gates self-closing where required.",
+    "Every plant and paver shown is in the cut list & schedule.",
+  ] }, s);
+}
+
+/* =====================================================================
    SCHEDULES
    ===================================================================== */
 function scheduleSheet(S, info) {
@@ -709,6 +814,7 @@ export function drawingSet(S, info = {}) {
   sheets.push({ id: "roof", number: num(after), title: "Roof framing & truss detail", svg: () => roofSheet(S, info).replace(">A07<", `>${num(after)}<`) });
   sheets.push({ id: "slab", number: num(after + 1), title: "Slab & footings", svg: () => slabSheet(S, info).replace(">A08<", `>${num(after + 1)}<`) });
   sheets.push({ id: "schedule", number: num(after + 2), title: "Window & door schedule", svg: () => scheduleSheet(S, info).replace(">A09<", `>${num(after + 2)}<`) });
+  if (S.landscape) sheets.push({ id: "landscape", number: "L01", title: "Landscape plan", svg: () => landscapeSheet(S, info) });
   return sheets;
 }
 

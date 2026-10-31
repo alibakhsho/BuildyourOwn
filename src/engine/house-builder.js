@@ -18,6 +18,7 @@ export function buildHouse(group, spec, opts = {}) {
   const { meshes, byId } = renderMembers(group, structure.members, {
     roofColour: COLORBOND[spec.roofColour] ?? COLORBOND.monument,
     trimColour: COLORBOND.surfmist,
+    style: spec.interiorStyle || "modern",
   });
   return { waypoints: structure.waypoints, summary: structure.summary, structure, meshes, byId };
 }

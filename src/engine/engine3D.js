@@ -12,6 +12,7 @@ import { buildHouse } from "./house-builder.js";
 import { highlightMember } from "./structure-render.js";
 import { SYSTEMS } from "../logic/structure/model.js";
 import { grassTexture, gravelTexture } from "./materials3d.js";
+import { CinemaPlayer } from "./cinema.js";
 
 export class Engine3D {
   constructor(mountEl, { quality = "auto" } = {}) {
@@ -110,6 +111,7 @@ export class Engine3D {
     this.scene.add(grid);
 
     this._addTrees();
+    this._pad = pad; this._grid = grid;
     // everything that is the site, not the building (hideable to see footings)
     this.siteObjects = this.scene.children.filter((o) => !o.isLight);
 
@@ -172,17 +174,18 @@ export class Engine3D {
     this.controls.minDistance = 0.4;
     this.controls.maxDistance = 600;
     this.controls.maxPolarAngle = Math.PI * 0.495;
-    this.controls.autoRotateSpeed = 0.55;
-    this.controls.autoRotate = true;
+    // "auto-rotate" is the drifting camera (_driftStep), not OrbitControls' fixed-point spin
+    this.controls.autoRotate = false;
     this.controls.addEventListener("start", () => {
-      if (this.autoRotate) { this.autoRotate = false; this.controls.autoRotate = false; this.onAutoRotateChange?.(false); }
+      this._drift = null;
+      if (this.autoRotate) { this.autoRotate = false; this.onAutoRotateChange?.(false); }
     });
     this.controls.addEventListener("change", () => { this._needsRender = true; });
     // a click (press + release without moving) picks the piece under the cursor
     let downX = 0, downY = 0;
     el.addEventListener("pointerdown", (e) => { downX = e.clientX; downY = e.clientY; });
     el.addEventListener("pointerup", (e) => {
-      if (e.button === 0 && Math.hypot(e.clientX - downX, e.clientY - downY) < 5 && this.mode !== "walk") this.pickAt(e.clientX, e.clientY);
+      if (e.button === 0 && Math.hypot(e.clientX - downX, e.clientY - downY) < 5 && this.mode === "orbit") this.pickAt(e.clientX, e.clientY);
     });
   }
 
@@ -250,6 +253,9 @@ export class Engine3D {
     this.buildSummary = summary;
     this.structure = structure;
     this.memberHits = byId;
+    this._yardOn = !!structure?.landscape;
+    if (this._pad) this._pad.visible = !this._yardOn && this.siteVisible !== false;
+    if (this._grid) this._grid.visible = !this._yardOn && this.siteVisible !== false;
     this.selected = null;
     this._unhighlight = null;
     this.roofMeshes = [];
@@ -258,7 +264,9 @@ export class Engine3D {
     this._indexStages();
     if (this.style !== "realistic") this._applyStyle(); else this._applyClipping();
     if (this.layerVisible) this._applyVisibility();
-    this._frameCamera(spec.widthM, spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
+    // with the yard modelled, frame the whole lot (a little tighter — the house is the subject)
+    const lot = structure?.landscape?.lot;
+    this._frameCamera(lot ? (lot.X1 - lot.X0) * 0.8 : spec.widthM, lot ? (lot.Z1 - lot.Z0) * 0.8 : spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
     this.applyViewMode();
     this._needsRender = true;
   }
@@ -325,6 +333,8 @@ export class Engine3D {
   setSiteVisible(v) {
     this.siteVisible = !!v;
     for (const o of this.siteObjects || []) o.visible = !!v;
+    // a modelled yard has its own lawn and paving: no building pad or setout grid over it
+    if (this._yardOn) { if (this._pad) this._pad.visible = false; if (this._grid) this._grid.visible = false; }
     this._needsRender = true;
   }
 
@@ -354,13 +364,15 @@ export class Engine3D {
     this._applyVisibility();
     this._needsRender = true;
   }
+  /* Layer visibility in effect: the user's choice, plus what a film shot hides. */
+  _layers() { return this._filmLayers ? { ...(this.layerVisible || {}), ...this._filmLayers } : this.layerVisible || {}; }
   _applyVisibility() {
-    const lv = this.layerVisible || {};
+    const lv = this._layers();
     this.buildingGroup.traverse((o) => {
       const sys = o.userData && o.userData.sys;
       if (!sys) return;
       const stageOn = o.userData._stageOn !== false;
-      const walkHidden = this.mode === "walk" && (o.userData.zone === "roof" || o.userData.zone === "ceiling");
+      const walkHidden = this._roofHidden() && (o.userData.zone === "roof" || o.userData.zone === "ceiling");
       const fineHidden = o.userData.fine && !this._showFine;
       o.visible = lv[sys] !== false && stageOn && !walkHidden && !fineHidden;
     });
@@ -441,8 +453,12 @@ export class Engine3D {
     }
   }
 
+  /* Roof and ceilings lifted off: the walkthrough, and the film's interior shots. */
+  _roofHidden() { return this.mode === "walk" || (this.mode === "film" && !!this._filmRoofOff); }
+
   /* Back to the starting 3/4 view of the whole building. */
   home() {
+    this._drift = null;
     if (this.view !== "persp") this.setView("persp", { keep: true });
     this.controls.target.set(0, this.frameLookY || 4, 0);
     this._updateOrbitCamera();
@@ -477,7 +493,8 @@ export class Engine3D {
       this._fitOrtho();
       this.ortho.lookAt(t);
     }
-    if (this.autoRotate) { this.autoRotate = false; this.controls.autoRotate = false; this.onAutoRotateChange?.(false); }
+    if (this.autoRotate && view !== "persp") { this.autoRotate = false; this.onAutoRotateChange?.(false); }
+    this._drift = null;
     this.cadLines?.setCamera(this.camera);
     this.controls.update();
     this._needsRender = true;
@@ -855,8 +872,8 @@ export class Engine3D {
         }
         if (obj.isInstancedMesh) obj.count = n;
         obj.userData._stageOn = n > 0;
-        const lv = this.layerVisible || {};
-        const walkHidden = this.mode === "walk" && (obj.userData.zone === "roof" || obj.userData.zone === "ceiling");
+        const lv = this._layers();
+        const walkHidden = this._roofHidden() && (obj.userData.zone === "roof" || obj.userData.zone === "ceiling");
         obj.visible = n > 0 && lv[obj.userData.sys] !== false && !walkHidden && !(obj.userData.fine && !this._showFine);
         return;
       }
@@ -894,8 +911,107 @@ export class Engine3D {
 
   setAutoRotate(v) {
     this.autoRotate = !!v;
-    this.controls.autoRotate = !!v && this.mode !== "walk";
+    this.controls.autoRotate = false;
+    this._drift = null;
     this._needsRender = true;
+  }
+
+  /* The idle camera: not a spin about one point — the orbit drifts in and
+     out, rises and falls, and the point it looks at wanders across the
+     building, like a slow drone pass. Starts from wherever the camera is. */
+  _driftStep() {
+    const now = performance.now();
+    if (!this._drift) {
+      const tgt = this.controls.target.clone();
+      const off = this.camera.position.clone().sub(tgt);
+      this._drift = { t0: now, last: now, tgt, r: Math.max(2, Math.hypot(off.x, off.z)), h: off.y, a: Math.atan2(off.z, off.x),
+        span: Math.max(2, (this.frameSize || 12) * 0.16) };
+    }
+    const D = this._drift;
+    const dt = Math.min(0.1, (now - D.last) / 1000);
+    D.last = now;
+    const t = (now - D.t0) / 1000;
+    D.a += dt * 0.09;                                            // about 70 s a lap
+    const r = D.r * (1 + 0.18 * Math.sin(t * 0.13));
+    const h = D.h * (1 + 0.25 * Math.sin(t * 0.087));
+    const tx = D.tgt.x + D.span * Math.sin(t * 0.11);
+    const tz = D.tgt.z + D.span * 0.75 * Math.sin(t * 0.071);
+    const ty = D.tgt.y + 0.5 * Math.sin(t * 0.05);
+    this.controls.target.set(tx, ty, tz);
+    this.camera.position.set(tx + Math.cos(D.a) * r, ty + h, tz + Math.sin(D.a) * r);
+    this._needsRender = true;
+  }
+
+  /* ----- Cinematic film (logic/cinematic.js plans it, cinema.js plays it) ----- */
+  playFilm(film, { onFrame, onEnd, recorder } = {}) {
+    if (!film || !film.shots?.length) return false;
+    if (this.mode === "walk") this.stopWalk();
+    this._film = { player: new CinemaPlayer(film), t0: performance.now(), onFrame, onEnd, recorder,
+      fov: this.persp.fov, fog: [this.scene.fog.near, this.scene.fog.far], wasAuto: this.autoRotate };
+    if (this.view !== "persp") this.setView("persp", { keep: true });
+    this.select?.(null);
+    this.mode = "film";
+    this._filmRoofOff = false;
+    this._filmLayers = null;
+    this.autoRotate = false;
+    this.controls.enabled = false;
+    this.scene.fog.near = 140; this.scene.fog.far = 700;
+    this.progress = 1; this.setProgress(1);
+    this._showFine = false;
+    if (this.structure) this._applyVisibility();
+    this.paused = false;
+    this.onModeChange?.("film");
+    return true;
+  }
+  stopFilm() {
+    const F = this._film;
+    if (!F) return;
+    this._film = null;
+    this.mode = "orbit";
+    this._filmRoofOff = false;
+    this._filmLayers = null;
+    this.persp.fov = F.fov; this.persp.updateProjectionMatrix();
+    this.scene.fog.near = F.fog[0]; this.scene.fog.far = F.fog[1];
+    this.progress = 1; this.setProgress(1);
+    if (this.structure) this._applyVisibility();
+    this.controls.enabled = true;
+    this.home();
+    this.autoRotate = F.wasAuto;
+    this.onModeChange?.("orbit");
+    F.onEnd?.();
+  }
+  /* Jump the film to t seconds (scrubbing, and frame-exact captures). */
+  /* Jump the film to t seconds; hold = freeze there (pause, and frame-exact captures). */
+  seekFilm(t, { hold = false } = {}) {
+    if (!this._film) return;
+    this._film.t0 = performance.now() - Math.max(0, t) * 1000;
+    this._film.hold = hold ? Math.max(0, t) : null;
+  }
+  pauseFilm(paused) {
+    const F = this._film;
+    if (!F) return;
+    if (paused && F.hold == null) F.hold = (performance.now() - F.t0) / 1000;
+    else if (!paused && F.hold != null) { F.t0 = performance.now() - F.hold * 1000; F.hold = null; }
+  }
+  _filmStep() {
+    const F = this._film;
+    const t = F.hold ?? (performance.now() - F.t0) / 1000;
+    if (t >= F.player.duration) { this.stopFilm(); return; }
+    const st = F.player.sample(t);
+    if (st.roofOff !== this._filmRoofOff || !this._filmLayers) {
+      // a finished house doesn't show its pipes and cables; roof off also drops the roof framing
+      this._filmRoofOff = st.roofOff;
+      this._filmLayers = { electrical: false, plumbing: false, drainage: false, ...(st.roofOff ? { roofFrame: false, roofing: false, solar: false } : {}) };
+      if (this.structure) this._applyVisibility();
+    }
+    if (st.build != null) { this.progress = st.build; this.setProgress(st.build); }
+    else if (this.progress !== 1) { this.progress = 1; this.setProgress(1); }
+    if (this.persp.fov !== st.fov) { this.persp.fov = st.fov; this.persp.updateProjectionMatrix(); }
+    this.camera.position.set(st.pos[0], st.pos[1], st.pos[2]);
+    this.camera.lookAt(st.look[0], st.look[1], st.look[2]);
+    this.renderFrame();
+    F.recorder?.frame(st);          // same task as the render, so the drawing buffer is intact
+    F.onFrame?.(st);
   }
   setPlaying(v) { this.playing = v; }
 
@@ -933,7 +1049,6 @@ export class Engine3D {
     this.controls.enabled = true;
     this.home();
     this.autoRotate = true;
-    this.controls.autoRotate = true;
     if (this.onModeChange) this.onModeChange("orbit");
   }
   setWalkT(t) { this.walkT = Math.max(0, Math.min(1, t)); }
@@ -994,8 +1109,9 @@ export class Engine3D {
   animate() {
     this._animId = requestAnimationFrame(this.animate);
     // nothing to do while the canvas is off-screen or the tab is hidden
-    if (this.paused) return;
+    if (this.paused && !(this.mode === "film" && this._film?.recorder)) return;   // a recording keeps going off-screen
 
+    if (this.mode === "film" && this._film) { this._filmStep(); return; }
     if (this.mode === "walk") {
       this.walkT += this.walkSpeed;
       if (this.walkT >= 1) this.walkT = 0; // loop the tour
@@ -1015,7 +1131,8 @@ export class Engine3D {
       }
       this.setProgress(this.progress);
     }
-    // damping and auto-rotate keep the camera moving after input stops
+    if (this.autoRotate && this.mode === "orbit" && this.view === "persp" && this.controls.enabled) this._driftStep();
+    // damping and the drift keep the camera moving after input stops
     const moved = this.controls.enabled ? this.controls.update() : false;
     // close up, show the small hardware (screws, nail plates, ties…)
     const span = this.camera.isOrthographicCamera

@@ -9,6 +9,7 @@ import { resolveEquipmentRate } from "../data/pricing-providers.js";
 import { MaterialsOnly } from "./materials-only.js";
 import { Allocation } from "./allocation.js";
 import { round } from "../lib/format.js";
+import { landscapeEstimate, LANDSCAPE_REGION as LANDSCAPE_FACTOR } from "./structure/landscape.js";
 
 function humaniseTradeName(k) {
   return ({
@@ -402,6 +403,8 @@ export const Estimator = {
       const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
       const extrasEst = (spec.extras && spec.extras.length) ? MaterialsOnly.buildEstimate({ lines: spec.extras }, region) : null;
       const extrasTotal = extrasEst ? extrasEst.total : 0;
+      const yard = landscapeEstimate(spec, { factor: LANDSCAPE_FACTOR[region] ?? 1 });
+      const landscapeTotal = yard ? yard.total : 0;
       return {
         region, spec, takeoff, imported: false,
         materialLines: [], materialsTotal: 0,
@@ -409,7 +412,8 @@ export const Estimator = {
         equipmentLines: [], equipmentTotal: 0,
         subtotal: 0, prelims: 0, prelimsPct: 0, margin: 0, contingency: 0, contingencyPct: 0,
         buildTotal: 0, extrasLines: extrasEst ? extrasEst.lines : [], extrasTotal, extrasByKind: extrasEst ? extrasEst.byKind : null,
-        total: extrasTotal,
+        landscape: yard, landscapeTotal,
+        total: extrasTotal + landscapeTotal,
         ratePerM2: 0,
         taxRate, taxLabel,
         timeline: { totalWeeks: 0, stages: [] },
@@ -442,7 +446,22 @@ export const Estimator = {
       ? MaterialsOnly.buildEstimate({ lines: spec.extras }, region)
       : null;
     const extrasTotal = extrasEst ? extrasEst.total : 0;
-    const total = buildTotal + extrasTotal;
+    /* Landscaping & external works (fences, deck, paths, driveway, garden,
+       lawn) — priced piece by piece from the same model as the 3D yard, at
+       the landscaper's price: no builder margin on top. */
+    const yard = landscapeEstimate(spec, { factor: LANDSCAPE_FACTOR[region] ?? 1 });
+    const landscapeTotal = yard ? yard.total : 0;
+    if (yard && yard.labourDays > 0) {
+      // a two-person crew, five days a week, before the final clean & handover
+      const weeks = Math.max(1, Math.round(yard.labourDays / 10));
+      const at = timeline.stages.length - 1;
+      const handover = timeline.stages[at];
+      const start = handover.startWeek;
+      timeline.stages.splice(at, 0, { name: "Landscaping & external works", pct: 0, key: "landscape", weeks, startWeek: start, endWeek: start + weeks - 1 });
+      handover.startWeek += weeks; handover.endWeek += weeks;
+      timeline.totalWeeks += weeks;
+    }
+    const total = buildTotal + extrasTotal + landscapeTotal;
     /* Tax (GST/VAT) — informational */
     const taxRate = { AU: 0.10, US: 0.0, UK: 0.20 }[region];
     const taxLabel = { AU: "GST (10%)", US: "Sales tax (varies)", UK: "VAT (20%)" }[region];
@@ -453,6 +472,7 @@ export const Estimator = {
       equipmentLines, equipmentTotal,
       subtotal, prelims, prelimsPct, margin, contingency, contingencyPct,
       buildTotal, extrasLines: extrasEst ? extrasEst.lines : [], extrasTotal, extrasByKind: extrasEst ? extrasEst.byKind : null,
+      landscape: yard, landscapeTotal,
       total,
       ratePerM2: takeoff.gfaM2 > 0 ? round(total / takeoff.gfaM2, 0) : 0,
       taxRate, taxLabel,

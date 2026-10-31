@@ -28,6 +28,7 @@ export const DXF_LAYERS = {
   "P-DOMW": [5, false], "P-FIXT": [5, false],
   "D-SANR": [3, false], "D-STRM": [140, false],
   "X-PV": [150, false],
+  "L-FENC": [33, false], "L-DECK": [32, false], "L-PAVE": [8, false], "L-PLNT": [94, false], "L-TURF": [82, true], "L-RETW": [253, false], "A-FURN": [252, false],
 };
 
 export function dxfLayerOf(m) {
@@ -43,6 +44,13 @@ export function dxfLayerOf(m) {
     case "linings": return "A-LINE";
     case "interior": return "A-FITT";
     case "solar": return "X-PV";
+    case "fencing": return "L-FENC";
+    case "decking": return "L-DECK";
+    case "paving": return "L-PAVE";
+    case "garden": return "L-PLNT";
+    case "lawn": return "L-TURF";
+    case "retaining": return "L-RETW";
+    case "furniture": return "A-FURN";
     case "electrical":
       if (k === "cable") return "E-CABL";
       if (k === "light") return "E-LITE";
@@ -88,7 +96,7 @@ export function planDxf(S, f, info = {}) {
     if (f === 0 && hi < y0 + 0.05) return true;               // slab, footings, everything under ground
     return hi > y0 + 0.02 && lo < yTop - 0.01;              // the floor above belongs to the plan above
   };
-  let members = S.members.filter((m) => !SKIP.has(m.kind) && inStorey(m));
+  let members = S.members.filter((m) => !SKIP.has(m.kind) && !m.noRender && inStorey(m));
   if (S.members.some((m) => m.kind === "brick")) {
     members = members.concat(buildStructure(S.spec, { detail: "lite" }).members.filter((m) => m.sys === "cladding" && /cladding/i.test(m.name) && inStorey(m)));
   }
@@ -142,7 +150,7 @@ export function planDxf(S, f, info = {}) {
   }
   o(0, "ENDTAB", 0, "ENDSEC");
   o(0, "SECTION", 2, "ENTITIES");
-  out.push(...ent);
+  for (const v of ent) out.push(v);       // not push(...ent): a big yard overflows the argument limit
   o(0, "ENDSEC", 0, "EOF");
   return out.join("\r\n") + "\r\n";
 }
