@@ -145,9 +145,10 @@ export default function Studio3D({ engine, returnTo, onClose, projectName = "mod
     try { await editor.exportGlb(`${fileSafe(projectName)}.glb`); } catch (e) { alert(`Export failed: ${e.message}`); } finally { setBusy(""); }
   };
 
+  // a column only for the panels actually on screen (phones use overlay drawers, out of the grid flow)
   const gridCols = narrow
     ? "minmax(0, 1fr)"
-    : `${showLeft ? "280px" : "0px"} minmax(0, 1fr) ${showRight ? "320px" : "0px"}`;
+    : [showLeft && "280px", "minmax(0, 1fr)", showRight && "320px"].filter(Boolean).join(" ");
 
   return (
     <div role="dialog" aria-label="3D Studio" style={{ position: "fixed", inset: 0, zIndex: 1000, background: C.bg, color: C.text, fontFamily: sans, display: "grid", gridTemplateRows: "auto minmax(0, 1fr) auto", gridTemplateColumns: "minmax(0, 1fr)", fontSize: 12 }}>
