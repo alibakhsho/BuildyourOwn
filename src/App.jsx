@@ -59,6 +59,7 @@ import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/Mode
 import { partOfSys } from "./engine/explore.js";
 import Drawings from "./components/Drawings.jsx";
 import Explore3D from "./components/Explore3D.jsx";
+import PlanEditor from "./components/PlanEditor.jsx";
 import ServicesBim from "./components/ServicesBim.jsx";
 import Landscape from "./components/Landscape.jsx";
 import LandscapeCard from "./components/LandscapeCard.jsx";
@@ -1489,6 +1490,7 @@ function stageTabs(stage, buildMode) {
   ];
   if (stage === "timeline") return [{ id: "timeline", label: "Programme" }];
   if (stage === "three_d" && (buildMode === "residential" || buildMode === "materials")) return [
+    ...(buildMode === "residential" ? [{ id: "plan", label: "Floor plan" }] : []),
     { id: "layers", label: "Layers & views" },
     { id: "cutlist", label: "Cut list & schedule" },
     { id: "drawings", label: "Drawings" },
@@ -2978,7 +2980,8 @@ export default function App() {
           {(stage === "estimate" || stage === "three_d") && (<>
           <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: stage === "three_d" ? "max(520px, min(80vh, 880px))" : 360, overflow: "hidden" }}>
             <div ref={attachViewport} style={{ position: "absolute", inset: 0 }} />
-            {exploreOn && <Explore3D engine={engineRef.current} version={modelVersion} />}
+            {exploreOn && <Explore3D engine={engineRef.current} version={modelVersion}
+              onEditLayout={buildMode === "residential" ? () => { setTab("plan"); setTimeout(() => document.getElementById("ws-plan")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60); } : undefined} />}
             <canvas ref={overlayRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }} />
             {/* Dimension annotations overlay */}
             <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: filmMode || exploreOn ? "none" : "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
@@ -3195,6 +3198,12 @@ export default function App() {
             {activeTab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {activeTab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} floors={spec?.floors} currency={currency} />}
             {activeTab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
+            {activeTab === "plan" && buildMode === "residential" && (
+              <div id="ws-plan">
+                <PlanEditor spec={spec} setSpec={setSpec} currency={currency} total={estimate ? grossOf(estimate) : null}
+                  onShow3D={() => document.getElementById("ws-viewport")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+              </div>
+            )}
             {activeTab === "layers" && <LayersPanel engine={engineRef.current} version={modelVersion} />}
             {activeTab === "cutlist" && (buildMode === "residential" ? spec : quoteMassingSpec) && <CutList spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
             {activeTab === "services" && (buildMode === "residential" ? spec : quoteMassingSpec) && <ServicesBim spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}

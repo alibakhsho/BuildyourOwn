@@ -19,7 +19,7 @@ import { PEEL } from "../engine/explore.js";
 const HINT_KEY = "byo.3d.hint.v1";
 const narrowNow = () => typeof window !== "undefined" && window.innerWidth < 560;
 
-export default function Explore3D({ engine, version }) {
+export default function Explore3D({ engine, version, onEditLayout }) {
   const X = engine?.explore;
   const [, setTick] = useState(0);
   const [open, setOpen] = useState(() => !narrowNow());
@@ -151,6 +151,11 @@ export default function Explore3D({ engine, version }) {
                   </div>
                 ))}
                 {!floors.length && <div style={{ color: T.steel, fontSize: 12 }}>This model has no rooms laid out.</div>}
+                {onEditLayout && (
+                  <button onClick={onEditLayout} style={{ ...smallBtn, width: "100%", justifyContent: "center", padding: "9px 10px", marginTop: 4, background: T.hivis, color: T.onHivis, borderColor: T.hivis, fontSize: 12.5 }}>
+                    Change the layout →
+                  </button>
+                )}
               </>
             )}
           </div>
