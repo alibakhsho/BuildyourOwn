@@ -28,7 +28,7 @@ export const DXF_LAYERS = {
   "P-DOMW": [5, false], "P-FIXT": [5, false],
   "D-SANR": [3, false], "D-STRM": [140, false],
   "X-PV": [150, false],
-  "L-FENC": [33, false], "L-DECK": [32, false], "L-PAVE": [8, false], "L-PLNT": [94, false], "L-TURF": [82, true], "L-RETW": [253, false],
+  "L-FENC": [33, false], "L-DECK": [32, false], "L-PAVE": [8, false], "L-PLNT": [94, false], "L-TURF": [82, true], "L-RETW": [253, false], "A-FURN": [252, false],
 };
 
 export function dxfLayerOf(m) {
@@ -50,6 +50,7 @@ export function dxfLayerOf(m) {
     case "garden": return "L-PLNT";
     case "lawn": return "L-TURF";
     case "retaining": return "L-RETW";
+    case "furniture": return "A-FURN";
     case "electrical":
       if (k === "cable") return "E-CABL";
       if (k === "light") return "E-LITE";

@@ -36,6 +36,7 @@ export const SYSTEMS = {
   garden:      { label: "Garden beds & planting",  order: 19 },
   lawn:        { label: "Lawn",                    order: 20 },
   retaining:   { label: "Retaining wall",          order: 21 },
+  furniture:   { label: "Furniture & styling",     order: 22 },
 };
 
 /* Construction stage each system belongs to (AU progress-payment stages). */
@@ -47,6 +48,7 @@ export const STAGE_OF = {
   drainage: "foundation", electrical: "frame", plumbing: "frame",
   // the yard goes in last, after the house is finished
   fencing: "finishes", decking: "finishes", paving: "finishes", garden: "finishes", lawn: "finishes", retaining: "finishes",
+  furniture: "finishes",
 };
 
 export const sub = (p, q) => [p[0] - q[0], p[1] - q[1], p[2] - q[2]];

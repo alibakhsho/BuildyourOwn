@@ -30,3 +30,4 @@ brandkit/**/*.png
 brandkit/**/*.mp4
 brandkit/**/*.log
 brandkit/**/contact.jpg
+.scratch/

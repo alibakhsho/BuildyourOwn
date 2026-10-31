@@ -67,6 +67,7 @@ export function ifcClassOf(m) {
       if (k === "pad") return "IFCFOOTING";
       return ["screw", "clamp", "bracket"].includes(k) ? "IFCMECHANICALFASTENER" : "IFCBUILDINGELEMENTPROXY";
     case "paving": return k === "slab" ? "IFCSLAB" : k === "paver" || k === "stone" ? "IFCCOVERING" : k === "edging" ? "IFCMEMBER" : "IFCGEOGRAPHICELEMENT";
+    case "furniture": return "IFCFURNITURE";
     case "garden": case "lawn": return k === "edging" ? "IFCMEMBER" : "IFCGEOGRAPHICELEMENT";
     case "retaining": return k === "sleeper" ? "IFCWALL" : k === "post" ? "IFCMEMBER" : k === "footing" ? "IFCFOOTING" : k === "pipe" ? "IFCPIPESEGMENT" : "IFCBUILDINGELEMENTPROXY";
     default: return "IFCBUILDINGELEMENTPROXY";
@@ -79,6 +80,7 @@ const TRADE = {
   linings: "Interiors", interior: "Interiors",
   electrical: "Electrical", solar: "Electrical", plumbing: "Plumbing", drainage: "Drainage & stormwater", site: "Site",
   fencing: "Fencing", decking: "Carpentry (deck)", paving: "Landscaping", garden: "Landscaping", lawn: "Landscaping", retaining: "Landscaping",
+  furniture: "Interiors (FF&E)",
 };
 
 /* ---------- STEP encoding ---------- */

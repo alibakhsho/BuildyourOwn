@@ -4,7 +4,8 @@
    construction order: slab → wall frames (per storey, upper floors between)
    → partitions → roof → ceilings → cladding → windows & doors → garage →
    fit-out → services (electrical, plumbing, drainage) → solar → the yard
-   (fences, deck, paths & driveway, garden beds, lawn — landscape.js). Driven by the same spec and the same geometry module
+   (fences, deck, paths & driveway, garden beds, lawn — landscape.js) →
+   furniture & styling in every room (furniture.js). Driven by the same spec and the same geometry module
    (house-geometry.js) as the estimate, so openings, slab, rooms and solar
    are exactly the ones being priced.
 
@@ -23,10 +24,12 @@ import { brickWall, weatherboardWall, sheetWall, gableInfill, wallLinings, ceili
 import { partitionsFor, floorFinishes, stairFlight, kitchenFitout, bathroomFitout } from "./interior.js";
 import { buildServices } from "./services.js";
 import { buildLandscape, landscapeSpec, lotOf } from "./landscape.js";
+import { furnishHouse } from "./furniture.js";
 
 export { schedule } from "./model.js";
 export { SYSTEMS, STAGE_OF, scheduleCsv, unitLabel, basis, quantityOf } from "./model.js";
 export { servicesCompliance, servicesTakeoff, SERVICE_RATES, ELEC_RULES } from "./services.js";
+export { INTERIOR_STYLES } from "./furniture.js";
 export { landscapeCompliance, landscapeTakeoff, landscapeEstimate, landscapeSpec, LANDSCAPE_REGION, lotOf as landscapeLot, LANDSCAPE_RATES, LANDSCAPE_DEFAULTS, LANDSCAPE_SYS, DAY_RATES, TRADE_LABEL, FENCES, DECK_BOARDS, SURFACES, PLANTINGS } from "./landscape.js";
 
 const SIDE = { front: "Front", right: "Right side", back: "Rear", left: "Left side" };
@@ -210,6 +213,11 @@ export function buildStructure(spec, { detail = "full" } = {}) {
   /* ---------- 10. the yard ---------- */
   const landscape = yard ? buildLandscape(M, { spec, env, openings, garage: garageBox }) : null;
 
+  /* ---------- 11. furniture & styling ---------- */
+  const furniture = !lite && spec.furnish !== false
+    ? furnishHouse(M, { env, layout, partitions, openings, garage: garageBox, deck: landscape?.deck || null, storey: storeyName })
+    : null;
+
   // walkthrough stops: the centre of every room at eye height
   const waypoints = [];
   for (const fl of layout.floors) for (const c of fl.cells) if (!c.item.circulation) waypoints.push({ x: c.x + c.w / 2, z: c.z + c.l / 2, y: fl.y + 1.55, name: c.item.name });
@@ -230,6 +238,7 @@ export function buildStructure(spec, { detail = "full" } = {}) {
       members: M.members.length,
       services,
       landscape: landscape ? landscape.q : null,
+      furniture,
     },
     schedule: () => schedule(M.members),
   };

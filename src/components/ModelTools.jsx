@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { buildStructure, schedule, scheduleCsv, unitLabel, SYSTEMS } from "../logic/structure/index.js";
 
-const YARD_OFF = { fencing: false, decking: false, paving: false, garden: false, lawn: false, retaining: false };
+const YARD_OFF = { fencing: false, decking: false, paving: false, garden: false, lawn: false, retaining: false, furniture: false };
 const PRESETS = {
   finished:   { label: "Finished",  layers: {}, site: true, mode: "finished" },
   frame:      { label: "Frame",     layers: { reo: false, cladding: false, roofing: false, linings: false, interior: false, solar: false, electrical: false, plumbing: false, drainage: false, ...YARD_OFF }, site: true, mode: "finished" },

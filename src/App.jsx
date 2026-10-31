@@ -59,6 +59,8 @@ import Drawings from "./components/Drawings.jsx";
 import ServicesBim from "./components/ServicesBim.jsx";
 import Landscape from "./components/Landscape.jsx";
 import LandscapeCard from "./components/LandscapeCard.jsx";
+import InteriorCard from "./components/InteriorCard.jsx";
+import FilmPanel from "./components/FilmPanel.jsx";
 import BuildRequirements from "./components/BuildRequirements.jsx";
 import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
@@ -1947,6 +1949,9 @@ export default function App() {
   const [viewMode, setViewMode] = useState("finished"); // 3D: finished | structural (skin faded)
   const [progress, setProgress] = useState(1); // start fully built
   const [walkMode, setWalkMode] = useState(false);
+  const [filmMode, setFilmMode] = useState(false);   // the cinematic film is playing
+  const [filmOpen, setFilmOpen] = useState(false);   // its panel is open under the viewport
+  const overlayRef = useRef(null);                   // titles / letterbox canvas over the 3D
   const [walkRoom, setWalkRoom] = useState("");
   const [walkT, setWalkT] = useState(0);
   const [engineReady, setEngineReady] = useState(false);
@@ -1971,7 +1976,7 @@ export default function App() {
       if (import.meta.env.DEV) window.__byoEngine = eng; // dev-only: headless 3D verification
       eng.onComplete = () => setProgress(1);
       eng.onWalkProgress = (t, name) => { setWalkT(t); setWalkRoom(name || ""); };
-      eng.onModeChange = (m) => setWalkMode(m === "walk");
+      eng.onModeChange = (m) => { setWalkMode(m === "walk"); setFilmMode(m === "film"); };
       eng.onPick = (m) => setPiece(m);
       eng.onAutoRotateChange = (v) => setAutoRotate(v);
       setEngineReady(true);
@@ -2022,6 +2027,7 @@ export default function App() {
     const eng = engineRef.current;
     if (!eng) return;
     if (eng.mode === "walk") { eng.stopWalk(); setWalkMode(false); }
+    if (eng.mode === "film") eng.stopFilm();
     if (buildMode === "multi") {
       eng.isTower = false;
       eng.buildEstate(mdSpec.types);
@@ -2062,6 +2068,24 @@ export default function App() {
       : Estimator.buildEstimate(spec, region),
     [spec, hrSpec, matSpec, mdSpec, buildMode, region, ratesVersion]
   );
+
+  /* What the cinematic film says about this build (titles, programme, price). */
+  const filmFacts = useMemo(() => {
+    if (buildMode !== "residential" || !estimate) return {};
+    const beds = (spec.rooms || []).filter((r) => r.type === "Bedroom").length;
+    const baths = (spec.bathrooms || []).length;
+    const gfa = estimate.takeoff?.gfaM2 || 0;
+    const clad = { brick: "Face brick", weatherboard: "Weatherboard", render: "Rendered" }[spec.claddingType] || "";
+    const roof = { colorbond: "Colorbond roof", tile: "tiled roof", shingle: "shingle roof" }[spec.roofType] || "roof";
+    const cur = currencySymbol(region);
+    return {
+      title: projectName && projectName !== "My build" ? projectName : "Your new home",
+      subtitle: [beds && `${beds} bed`, baths && `${baths} bath`, spec.hasGarage && "double garage", gfa && `${Math.round(gfa)} m²`].filter(Boolean).join(" · "),
+      facade: [clad, `${roof} at ${spec.roofPitch || 22}°`, spec.solar ? "solar" : ""].filter(Boolean).join(" · "),
+      priceText: `${cur}${fmt(grossOf(estimate))}${estimate.taxRate > 0 ? ` incl. ${bareTax(estimate.taxLabel)}` : ""}`,
+      weeks: estimate.timeline?.totalWeeks, stages: estimate.timeline?.stages || [],
+    };
+  }, [buildMode, estimate, spec, projectName, region]);
 
   /* Track estimate completion when total changes meaningfully */
   useEffect(() => {
@@ -2901,6 +2925,8 @@ export default function App() {
             </p>
           </InputCard>
 
+          <InteriorCard spec={spec} update={update} />
+
           <LandscapeCard spec={spec} setSpec={setSpec} total={estimate?.landscapeTotal} currency={currencySymbol(region)} />
 
           {/* Additional jobs / scope on top of the base build */}
@@ -2926,8 +2952,9 @@ export default function App() {
           {(stage === "estimate" || stage === "three_d") && (<>
           <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: stage === "three_d" ? "min(72vh, 760px)" : 360, overflow: "hidden" }}>
             <div ref={attachViewport} style={{ position: "absolute", inset: 0 }} />
+            <canvas ref={overlayRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }} />
             {/* Dimension annotations overlay */}
-            <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
+            <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: filmMode ? "none" : "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
               {buildMode === "materials" ? (
                 quoteMassingSpec ? (
@@ -2974,7 +3001,7 @@ export default function App() {
                 onIsolate={(sys) => engineRef.current?.isolateLayer(sys)} />
             )}
             {/* Live indicator + current room (walk mode) */}
-            <div style={{ position: "absolute", top: 16, right: 16, maxWidth: "42%", pointerEvents: "none", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <div style={{ position: "absolute", top: 16, right: 16, maxWidth: "42%", pointerEvents: "none", display: filmMode ? "none" : "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
               <span className="ec-tag"><span className="ec-live" style={{ width: 6, height: 6, background: TOKENS.hivis, borderRadius: "50%", display: "inline-block" }} />{walkMode ? "WALKTHROUGH" : "LIVE"}</span>
               {walkMode && walkRoom && (
                 <div className="ec-mono" style={{ fontSize: 12, background: TOKENS.emphasis, color: TOKENS.onEmphasis, padding: "5px 10px", letterSpacing: "0.04em" }}>
@@ -2989,6 +3016,8 @@ export default function App() {
                 <div className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, background: TOKENS.cardVeil, padding: "8px 12px", border: `1px solid ${TOKENS.rule}` }}>
                   Quote builder — material, labour & trades in one total
                 </div>
+              ) : (filmOpen || filmMode) && buildMode === "residential" ? (
+                <FilmPanel engine={engineRef.current} facts={filmFacts} overlayRef={overlayRef} projectName={projectName} onClose={() => setFilmOpen(false)} />
               ) : !walkMode ? (
                 <>
                   <button className="ec-btn ec-btn-hivis" onClick={playConstruction}>
@@ -3015,8 +3044,14 @@ export default function App() {
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="4" r="2" fill="currentColor" stroke="none"/><path d="M12 7v6m0 0l-3 7m3-7l3 7M8 9h8" strokeLinecap="round"/></svg>
                     Walk through
                   </button>
-                  <button className={"ec-btn ec-btn-ghost" + (autoRotate ? " ec-btn-ghost-on" : "")} onClick={() => setAutoRotate((v) => !v)}>
-                    {autoRotate ? "Auto-rotate ON" : "Auto-rotate OFF"}
+                  {buildMode === "residential" && (
+                    <button className="ec-btn" onClick={() => setFilmOpen(true)} style={{ background: TOKENS.ink, color: TOKENS.paper }} title="A cinematic film of this build — play it or record a video">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="6" width="13" height="12" rx="2" /><path d="M16 10l5-3v10l-5-3z" strokeLinejoin="round" /></svg>
+                      Cinematic film
+                    </button>
+                  )}
+                  <button className={"ec-btn ec-btn-ghost" + (autoRotate ? " ec-btn-ghost-on" : "")} onClick={() => setAutoRotate((v) => !v)} title="A slow drone-style drift around the building">
+                    {autoRotate ? "Camera drift ON" : "Camera drift OFF"}
                   </button>
                 </>
               ) : (
@@ -3037,7 +3072,7 @@ export default function App() {
             </div>
           </>)}
 
-          {stage === "three_d" && (buildMode === "residential" || (buildMode === "materials" && quoteMassingSpec)) && engineReady && !walkMode && (
+          {stage === "three_d" && (buildMode === "residential" || (buildMode === "materials" && quoteMassingSpec)) && engineReady && !walkMode && !filmMode && (
             <ModelToolbar engine={engineRef.current} />
           )}
 
