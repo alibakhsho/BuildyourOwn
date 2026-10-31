@@ -34,6 +34,18 @@ export const PARTS = [
 ];
 export const partOfSys = (sys) => PARTS.find((p) => p.sys.includes(sys)) || null;
 
+/* The design object a piece belongs to, when that object has sizes you can
+   change (the Studio's size panel, "Change size" on the piece card). */
+const HOUSE_SYS = new Set(["wallFrame", "cladding", "roofFrame", "roofing", "foundation", "reo", "linings", "fixings", "floorFrame"]);
+export function paramGroupOf(m) {
+  if (!m) return null;
+  if (m.sys === "decking") return "deck";
+  if ((m.host || "").startsWith("Garage") || /^Garage door/.test(m.name || "")) return "garage";
+  if (m.sys === "fencing") return "fence";
+  if (HOUSE_SYS.has(m.sys)) return "house";
+  return null;
+}
+
 /* "See inside": each step takes away one more layer, outside in. */
 export const PEEL = [
   { label: "Finished house",            hide: [] },

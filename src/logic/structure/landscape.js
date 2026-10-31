@@ -54,6 +54,10 @@ export const LANDSCAPE_DEFAULTS = {
 
 const num = (v, d, lo, hi) => { const x = +v; return Number.isFinite(x) ? Math.max(lo, Math.min(hi, x)) : d; };
 
+/** A deck asked to run (nearly) the full width of the back wall: the hot-water
+    unit moves to the side wall (services.js) and the deck runs past its old spot. */
+export const deckRunsFullWidth = (L, w) => !!(L && L.enabled && L.deck && +L.deckWidthM >= w - 1.5);
+
 /** The landscape settings for a spec, with defaults filled and numbers kept sane. */
 export function landscapeSpec(spec) {
   const L = { ...LANDSCAPE_DEFAULTS, ...((spec && spec.landscape) || {}) };
@@ -285,7 +289,7 @@ export function yardLayout(ctx) {
     const cx = bdoor ? w / 2 - bdoor.u : 0;
     let x0 = Math.max(lim0, Math.min(lim1 - dw, cx - dw / 2)), x1 = x0 + dw;
     const hw0 = w / 3 - 0.45, hw1 = w / 3 + 0.45;          // hot-water unit (services.js) on the back wall
-    if (x0 < hw1 && x1 > hw0) {
+    if (!deckRunsFullWidth(L, w) && x0 < hw1 && x1 > hw0) {
       const left = [Math.max(lim0, hw0 - dw), hw0], right = [hw1, Math.min(lim1, hw1 + dw)];
       [x0, x1] = left[1] - left[0] >= right[1] - right[0] ? left : right;
     }

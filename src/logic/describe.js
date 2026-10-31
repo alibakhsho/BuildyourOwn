@@ -325,10 +325,121 @@ export function cleanDeveloper(f = {}) {
   return out;
 }
 
+/* ---------- changes to the house you already have ----------
+
+   "extend the deck to the width of the house", "make the deck 4 m deep",
+   "open the garage up at the back with another door". These change the
+   current spec instead of describing a new house: parseEdits() reads them
+   (free, built-in) and the AI returns the same `edits` shape. The new-house
+   reading above is untouched — "a house … plus a 30 m² deck" still becomes
+   extra scope. */
+
+const EDIT_VERB = /\b(extend|extending|widen|wider|enlarge|bigger|larger|stretch|lengthen|longer|deeper|shallower|narrower|resize|change|increase|expand|grow|shrink|smaller|reduce|make|move|full[- ]width|width of|across the|wall to wall)\b/;
+const FULL_WIDTH = /(full|whole|entire)[- ]width|(?:the )?width of the (?:house|home|back|rear|building)|(?:whole|entire|full) (?:back|rear)|across the (?:whole |entire |full )?(?:back|rear|house)|house width|wall to wall|corner to corner|along the (?:whole |entire )?(?:back|rear)/;
+const NOT_WANTED = /\b(remove|get rid of|delete|take (?:out|away)|do ?n[o']?t want|no longer)\b/;
+
+function editClauses(s) {
+  return s.split(/;|\.\s|,(?! \d)| then | also | plus | and (?=(?:i |we |also |then |make |add |open |extend |remove |put |give |change |widen |move |a |another ))/)
+    .map((c) => c.trim()).filter(Boolean);
+}
+
+/**
+ * Change requests in plain English → { landscape, patch, said[], found }.
+ * `spec` is the current house (its width answers "the width of the house").
+ */
+export function parseEdits(text, spec = {}) {
+  const s = normalise(text);
+  const land = {}, patch = {}, said = [];
+  const houseW = +spec.widthM || 12;
+  const cur = { deckWidthM: 5, deckDepthM: 3.6, ...(spec.landscape || {}) };
+  let lastGarage = false, lastDeck = false;
+  for (const c of editClauses(s)) {
+    /* ---- the deck ---- ("widen the deck … and make it deeper": "it" is still the deck) */
+    const deckClause = /\bdeck(?:ing)?\b/.test(c) || (lastDeck && /\b(it|that)\b/.test(c) && EDIT_VERB.test(c));
+    lastDeck = deckClause;
+    if (deckClause) {
+      const definite = /\b(the|our|my|that|existing|current|back|rear) deck/.test(c) || !/\bdeck/.test(c);
+      if (NOT_WANTED.test(c) || /\bno deck\b/.test(c)) { land.deck = false; said.push("Removed the deck."); continue; }
+      if (!EDIT_VERB.test(c) && !definite) continue;      // "a 30 m² deck" on a new house stays extra scope
+      land.enabled = true; land.deck = true;
+      let width = null, depth = null;
+      if (FULL_WIDTH.test(c)) width = houseW;
+      const p = pair(c);
+      if (p) { width = p[0]; depth = p[1]; }
+      const wide = num(/(\d+(?:\.\d+)?)\s*m?\s*(?:wide|in width|long|across)\b/, c) ?? num(/\bwidth (?:of |to )?(\d+(?:\.\d+)?)\s*m\b/, c);
+      const deep = num(/(\d+(?:\.\d+)?)\s*m?\s*(?:deep|in depth|out)\b/, c) ?? num(/\bdepth (?:of |to )?(\d+(?:\.\d+)?)\s*m\b/, c);
+      if (wide != null) width = wide;
+      if (deep != null) depth = deep;
+      const aboutDepth = /deeper|depth|\bdeep\b|further out|shallower/.test(c);
+      const less = /shallower|narrower|reduce|shrink|smaller/.test(c);
+      const by = num(/\bby (?:another |an extra |a further )?(\d+(?:\.\d+)?)\s*m\b(?!2)/, c);
+      const to = num(/\bto (?:about |around )?(\d+(?:\.\d+)?)\s*m\b(?!2)/, c);
+      if (by != null) {
+        if (aboutDepth) depth = (depth != null && deep == null ? depth : +cur.deckDepthM) + (less ? -by : by);
+        else width = (width != null && wide == null ? width : +cur.deckWidthM) + (less ? -by : by);
+      } else if (to != null && width == null && depth == null) { if (aboutDepth) depth = to; else width = to; }
+      const a = area(c);
+      if (a != null && width == null && depth == null) { depth = +cur.deckDepthM; width = a / depth; }
+      // "make the deck bigger / extend the deck": run it across the back
+      if (width == null && depth == null && /\b(bigger|larger|enlarge|extend|expand|grow)\b/.test(c)) width = houseW;
+      if (/merbau|hardwood/.test(c)) land.deckBoard = "merbau";
+      else if (/composite|trex|modwood/.test(c)) land.deckBoard = "composite";
+      else if (/\bpine\b|treated/.test(c)) land.deckBoard = "pine";
+      if (width != null) land.deckWidthM = Math.max(1.2, Math.min(20, +width.toFixed(2)));
+      if (depth != null) land.deckDepthM = Math.max(1.2, Math.min(10, +depth.toFixed(2)));
+      const bits = [];
+      if (land.deckWidthM != null) bits.push(land.deckWidthM >= houseW - 1.5 ? `the full width of the house (${land.deckWidthM} m)` : `${land.deckWidthM} m wide`);
+      if (land.deckDepthM != null) bits.push(`${land.deckDepthM} m deep`);
+      if (land.deckBoard) bits.push(`${land.deckBoard} boards`);
+      for (let i = said.length - 1; i >= 0; i--) if (said[i].startsWith("Deck ")) said.splice(i, 1);   // one line for the deck, the latest
+      said.push(bits.length ? `Deck now ${bits.join(", ")}.` : "Deck added at the back.");
+      continue;
+    }
+    /* ---- the garage ---- ("… the garage from the back and add another door": the door clause may not repeat "garage") */
+    const garageClause = /\bgarage\b/.test(c) || (lastGarage && /\bdoor\b/.test(c));
+    lastGarage = /\bgarage\b/.test(c);
+    if (garageClause) {
+      const rearish = /\b(back|rear|behind|drive[- ]?through|both ends|second|another|2nd|extra|other end)\b/.test(c);
+      const doorish = /\b(door|doors|open|opening|access|roller|panel[- ]?lift|tilt|drive)\b/.test(c);
+      if (rearish && doorish) {
+        if (NOT_WANTED.test(c) || /\b(close (?:up|off)?|no (?:back|rear)|block|brick (?:it )?up)\b/.test(c)) { patch.garageRearDoor = false; said.push("Closed up the back of the garage."); }
+        else if (!patch.garageRearDoor) { patch.hasGarage = true; patch.garageRearDoor = true; said.push("Added a second garage door at the back, so you can drive through to the yard."); }
+      } else if (NOT_WANTED.test(c) || /\b(no garage|without (?:a )?garage)\b/.test(c)) { patch.hasGarage = false; patch.garageRearDoor = false; said.push("Removed the garage."); }
+      else if (/\b(add|want|need|put)\b/.test(c) && !spec.hasGarage) { patch.hasGarage = true; said.push("Added a double garage."); }
+    }
+  }
+  const found = Object.keys(land).length > 0 || Object.keys(patch).length > 0;
+  return { landscape: land, patch, said, found };
+}
+
+/* Apply a patch to a residential spec. Understands nested landscape
+   settings ({ landscape: {...} } or "landscape.deckWidthM" keys) and keeps
+   the rear yard deep enough for the deck that was asked for. */
+export function mergeSpecPatch(spec, patch = {}) {
+  const out = { ...spec };
+  const land = { ...(spec.landscape || {}) };
+  let touched = false;
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (k === "landscape" && v && typeof v === "object") { Object.assign(land, v); touched = true; }
+    else if (k.startsWith("landscape.")) { land[k.slice(10)] = v; touched = true; }
+    else out[k] = v;
+  }
+  if (touched) {
+    if (land.deck !== false && land.deckDepthM != null) {
+      // the deck sits in the back yard: make room for it, the garden bed behind it and a walkway
+      const need = +land.deckDepthM + (land.beds === false ? 0 : +(land.bedDepthM || 1)) + 0.8;
+      if (+(land.rearYardM || 8) < need) land.rearYardM = Math.ceil(need * 2) / 2;
+    }
+    out.landscape = land;
+  }
+  if (out.hasGarage === false) out.garageRearDoor = false;
+  return out;
+}
+
 /* What the paid AI is asked to return for each mode — the same shapes the
    rules above produce, so one set of builders handles both. */
 export const FEATURE_SCHEMAS = {
-  house: `{"features":{"bedrooms":int,"bathrooms":int,"storeys":1|2|3,"areaM2":number,"widthM":number,"lengthM":number,"cladding":"brick"|"weatherboard"|"render","roof":"colorbond"|"tile"|"shingle","garage":bool,"solar":bool,"site":"flat"|"sloping"|"difficult","framing":"timber"|"steel"},"extras":[{"preset":"deck"|"pool"|"fencing"|"retaining"|"carport"|"concreting","dim":number,"variant":string,"labour":bool,"label":string}],"note":string}`,
+  house: `{"features":{"bedrooms":int,"bathrooms":int,"storeys":1|2|3,"areaM2":number,"widthM":number,"lengthM":number,"cladding":"brick"|"weatherboard"|"render","roof":"colorbond"|"tile"|"shingle","garage":bool,"solar":bool,"site":"flat"|"sloping"|"difficult","framing":"timber"|"steel"},"extras":[{"preset":"deck"|"pool"|"fencing"|"retaining"|"carport"|"concreting","dim":number,"variant":string,"labour":bool,"label":string}],"edits":{"landscape":{"deck":bool,"deckWidthM":number,"deckDepthM":number,"deckBoard":"merbau"|"pine"|"composite"},"patch":{"garageRearDoor":bool,"hasGarage":bool},"said":[string]},"note":string}`,
   multi: `{"types":[{"count":int,"name":string,"features":{<same house features as above>}}],"note":string}`,
   developer: `{"features":{"floors":int 2-120,"floorPlateM2":number 150-5000,"floorHeightM":number 2.9-6,"basementLevels":int 0-8,"structureType":"rc"|"steel"|"composite","facadeType":"curtain_wall"|"window_wall"|"precast","occupancy":"office"|"residential"|"mixed","passengerLifts":int,"goodsLifts":int,"hasEscalators":bool,"siteCondition":"flat"|"sloping"|"difficult"},"note":string}`,
 };

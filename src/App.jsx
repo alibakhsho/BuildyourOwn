@@ -67,7 +67,7 @@ import FilmPanel from "./components/FilmPanel.jsx";
 // the full-screen modelling workspace loads only when someone opens it
 const Studio3D = lazy(() => import("./components/Studio3D.jsx"));
 import BuildRequirements from "./components/BuildRequirements.jsx";
-import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
+import { houseSpecFromFeatures, cleanDeveloper, mergeSpecPatch } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import Marketplace, { MarketBadge } from "./modules/Marketplace.jsx";
@@ -1957,6 +1957,7 @@ export default function App() {
   const [filmMode, setFilmMode] = useState(false);   // the cinematic film is playing
   const [filmOpen, setFilmOpen] = useState(false);   // its panel is open under the viewport
   const [studioOpen, setStudioOpen] = useState(false); // the full-screen 3D Studio
+  const [studioSelect, setStudioSelect] = useState(null); // a piece to open the Studio on ("Change size")
   const overlayRef = useRef(null);                   // titles / letterbox canvas over the 3D
   const [walkRoom, setWalkRoom] = useState("");
   const [walkT, setWalkT] = useState(0);
@@ -2363,8 +2364,21 @@ export default function App() {
       return `Set up ${types.length} house type${types.length === 1 ? "" : "s"}, ${types.reduce((a, t) => a + t.count, 0)} dwellings.`;
     }
     const extras = scopeToLines(r.extras);
-    setSpec((sp) => ({ ...houseSpecFromFeatures(r.features || {}, sp), extras: [...(sp.extras || []), ...extras] }));
-    return `Updated the house${extras.length ? ` and added ${extras.length} extra line${extras.length === 1 ? "" : "s"}` : ""}.`;
+    // a re-description rebuilds the house; a change request ("extend the deck…") only changes what it names
+    const redescribed = Object.keys(r.features || {}).length > 0;
+    const ed = r.edits;
+    setSpec((sp) => {
+      let next = redescribed ? houseSpecFromFeatures(r.features, sp) : { ...sp };
+      if (extras.length) next = { ...next, extras: [...(sp.extras || []), ...extras] };
+      if (ed) next = mergeSpecPatch(next, { ...(ed.patch || {}), ...(Object.keys(ed.landscape || {}).length ? { landscape: ed.landscape } : {}) });
+      return next;
+    });
+    const parts = [];
+    if (ed?.said?.length) parts.push(ed.said.join(" "));
+    if (redescribed) parts.push("Updated the house.");
+    if (extras.length) parts.push(`Added ${extras.length} extra line${extras.length === 1 ? "" : "s"}.`);
+    if (ed) parts.push("Open the 3D model to see it.");
+    return parts.join(" ") || "Updated the house.";
   };
   const currency = currencySymbol(region);
 
@@ -2809,7 +2823,7 @@ export default function App() {
             {/* Start of the workflow: describe it, then fine-tune below. On a
                 plan without AI this runs on the built-in engine — no credits. */}
             {!(buildMode === "residential" && spec.importedLines && spec.importedLines.length > 0) && (
-              <DescribeCard key={buildMode} mode={buildMode} useAi={can.ai} onApply={applyDescribe} />
+              <DescribeCard key={buildMode} mode={buildMode} useAi={can.ai} onApply={applyDescribe} spec={buildMode === "residential" ? spec : undefined} />
             )}
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <button onClick={resetDefaults} className="ec-btn ec-btn-ghost" style={{ flex: 1, justifyContent: "center", fontSize: 13 }}>
@@ -2911,7 +2925,8 @@ export default function App() {
             <InputRow>
               <Field label="External doors"><input className="ec-input" type="number" min="1" max="8" step="1" value={spec.openings.doors} onChange={(e) => updateOpenings({ doors: +e.target.value })} /></Field>
               <Field label=" "><div style={{ display: "flex", gap: 8 }}>
-                <Toggle label="Garage" value={spec.hasGarage} onChange={(v) => update({ hasGarage: v })} />
+                <Toggle label="Garage" value={spec.hasGarage} onChange={(v) => update(v ? { hasGarage: true } : { hasGarage: false, garageRearDoor: false })} />
+                {spec.hasGarage && <Toggle label="Rear garage door" value={!!spec.garageRearDoor} onChange={(v) => update({ garageRearDoor: v })} />}
                 <Toggle label="Solar" value={spec.solar} onChange={(v) => update({ solar: v })} />
               </div></Field>
             </InputRow>
@@ -3013,6 +3028,7 @@ export default function App() {
                 onIsolate={(sys) => engineRef.current?.isolateLayer(sys)}
                 onFly={(m) => engineRef.current?.explore?.flyToMember(m.id)}
                 onFocus={(m) => { const X = engineRef.current?.explore; const p = X && partOfSys(m.sys); if (p) X.focus(p.id); }}
+                onEdit={buildMode === "residential" ? (m) => { setStudioSelect(m.id); setPiece(null); setStudioOpen(true); } : undefined}
                 style={exploreOn ? { left: "auto", right: 12, top: 52, bottom: "auto" } : undefined} />
             )}
             {/* Live indicator + current room (walk mode) */}
@@ -3104,7 +3120,10 @@ export default function App() {
           {studioOpen && engineRef.current && createPortal(
             <Suspense fallback={<div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#0f1115", color: "#a7b0bd", display: "grid", placeItems: "center" }}>Opening the studio…</div>}>
               <Studio3D engine={engineRef.current} returnTo={() => viewportRef.current} projectName={projectName}
-                onClose={() => setStudioOpen(false)} />
+                spec={buildMode === "residential" ? spec : null}
+                onSpecPatch={buildMode === "residential" ? (p) => setSpec((sp) => mergeSpecPatch(sp, p)) : undefined}
+                initialSelect={studioSelect}
+                onClose={() => { setStudioOpen(false); setStudioSelect(null); }} />
             </Suspense>,
             document.body
           )}
@@ -3195,7 +3214,7 @@ export default function App() {
           onSpecPatch={(patch) => {
             if (buildMode === "highrise") updateHr(patch);
             else if (buildMode === "materials" || buildMode === "multi") return; // no single building spec to patch
-            else update(patch);
+            else setSpec((sp) => mergeSpecPatch(sp, patch));   // understands landscape.* and the garage door
           }}
           onAddQuoteLines={(lines) => {
             const mk = (l) => ({ id: nextId(), kind: l.kind || "element", label: l.label || "AI line", qty: +l.qty || 1, unit: l.unit || "ea", rate: +l.rate || 0, useCustomRate: true });

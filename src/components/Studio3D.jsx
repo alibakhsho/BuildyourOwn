@@ -25,6 +25,7 @@ import { SYSTEMS } from "../logic/structure/model.js";
 import { SKY_PRESETS } from "../engine/environment.js";
 import { loadTextureManifest } from "../engine/materials3d.js";
 import { download } from "../engine/editor.js";
+import { paramGroupOf } from "../engine/explore.js";
 
 /* The Studio is always dark, like every pro 3D package: the model is the
    brightest thing on screen. Brand accent stays safety yellow. */
@@ -58,9 +59,10 @@ const TOOL_HINT = {
 const mm = (m) => Math.round(m * 1000);
 const fmtInt = (n) => (n ?? 0).toLocaleString();
 
-export default function Studio3D({ engine, returnTo, onClose, projectName = "model" }) {
+export default function Studio3D({ engine, returnTo, onClose, projectName = "model", spec, onSpecPatch, initialSelect }) {
   const hostRef = useRef(null);
   const [editor, setEditor] = useState(null);
+  const [paramGroup, setParamGroup] = useState(null);   // the design object whose size panel stays open across rebuilds
   const [, setTick] = useState(0);
   const bump = useCallback(() => setTick((t) => (t + 1) % 1e9), []);
   const [modelV, setModelV] = useState(0);
@@ -79,6 +81,14 @@ export default function Studio3D({ engine, returnTo, onClose, projectName = "mod
       if (!alive) return;
       engine.editor.onChange = bump;
       setEditor(engine.editor);
+      // opened from "Change size" on the 3D page: start with that piece picked
+      if (initialSelect != null && engine.structure?.members[initialSelect]) {
+        engine.editor.select([initialSelect]);
+        const g = paramGroupOf(engine.structure.members[initialSelect]);
+        if (g) { setParamGroup(g); selectGroup(engine, g); }
+        setRight("properties"); setShowRight(true);           // the size panel is the point: show it, drawer or not
+        engine.frameSelection();
+      }
     });
     const prevModel = engine.onModelChange;
     engine.onModelChange = () => { prevModel?.(); setModelV((v) => v + 1); };
@@ -133,6 +143,15 @@ export default function Studio3D({ engine, returnTo, onClose, projectName = "mod
   const members = engine.structure?.members || [];
   const one = sel.length === 1 ? members[sel[0]] : null;
 
+  // whatever is picked decides which size panel shows; it stays open while the model rebuilds
+  const pickedGroup = sel.length ? paramGroupOf(members[sel[0]]) : null;
+  useEffect(() => { if (pickedGroup) setParamGroup(pickedGroup); }, [pickedGroup]);
+  useEffect(() => {
+    // after a size change the model is rebuilt and the selection cleared: pick the object again
+    if (editor && paramGroup && !editor.selection.length) selectGroup(engine, paramGroup);
+  }, [modelV]); // eslint-disable-line react-hooks/exhaustive-deps
+  const activeGroup = onSpecPatch ? (pickedGroup || (!sel.length ? paramGroup : null)) : null;
+
   const capture = async (transparent) => {
     setBusy("Rendering image…");
     try {
@@ -181,6 +200,9 @@ export default function Studio3D({ engine, returnTo, onClose, projectName = "mod
               ))}
             </div>
             <div style={{ overflowY: "auto", flex: 1, padding: "12px 14px 24px" }}>
+              {editor && right === "properties" && activeGroup && (
+                <SizePanel group={activeGroup} spec={spec} engine={engine} onSpecPatch={onSpecPatch} onClose={() => { setParamGroup(null); editor.clearSelection(); }} />
+              )}
               {editor && right === "properties" && <Properties engine={engine} editor={editor} one={one} sel={sel} members={members} bump={bump} />}
               {right === "environment" && <EnvironmentPanel engine={engine} bump={bump} />}
             </div>
@@ -211,7 +233,7 @@ function Toolbar({ engine, editor, bump, onClose, capture, exportGlb, toggleLeft
   };
   const tool = editor?.tool || "select";
   return (
-    <header style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: `1px solid ${C.line}`, background: C.panel, flexWrap: narrow ? "nowrap" : "wrap", overflowX: narrow ? "auto" : "visible", minWidth: 0 }}>
+    <header style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: `1px solid ${C.line}`, background: C.panel, flexWrap: narrow ? "nowrap" : "wrap", overflowX: narrow ? "auto" : "visible", minWidth: 0, scrollbarWidth: "none" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 4, flexShrink: 0, position: narrow ? "sticky" : "static", left: 0, background: C.panel, zIndex: 1, paddingRight: narrow ? 6 : 0 }}>
         <span style={{ width: 22, height: 22, borderRadius: 5, background: C.accent, display: "grid", placeItems: "center", color: C.accentInk, fontWeight: 800, fontSize: 11 }}>3D</span>
         <span style={{ fontWeight: 700, fontSize: 13, letterSpacing: "-0.01em" }}>Studio</span>
@@ -381,6 +403,119 @@ function PieceRow({ m, depth, selected, hidden, onClick, onDouble, onEye }) {
       <span style={{ fontFamily: mono, fontSize: 10, color: selected ? C.accent : C.dim, minWidth: 54 }}>{m.mark}</span>
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</span>
       {onEye && <EyeBtn on={!hidden} onClick={(e) => { e.stopPropagation(); onEye(); }} />}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------ size panel
+   The design behind a piece: change the deck's width, the garage's doors, a
+   fence's height or the house's size, and the model, the drawings, the cut
+   list and the estimate all rebuild from it — unlike Transform below, which
+   only moves pieces in the picture. */
+/* Pick every piece of a design object, so its outline shows. */
+function selectGroup(engine, group) {
+  const ed = engine.editor;
+  if (!ed || !engine.structure) return;
+  if (group === "deck") ed.selectWhere((m) => m.sys === "decking" && m.kind === "board");
+  else if (group === "garage") ed.selectWhere((m) => (m.host || "").startsWith("Garage") && (m.sys === "cladding" || m.sys === "openings"));
+  else if (group === "fence") ed.selectWhere((m) => m.sys === "fencing" && /sheet|paling|picket/.test(m.kind || ""));
+}
+
+function SizePanel({ group, spec, engine, onSpecPatch, onClose }) {
+  const s = spec || {};
+  const L = { deck: true, deckWidthM: 5, deckDepthM: 3.6, deckBoard: "merbau", fence: "colorbond", fenceHeightM: 1.8, ...(s.landscape || {}) };
+  const built = engine.structure?.landscape?.deck;
+  const houseW = +s.widthM || 12;
+  const patch = (p) => onSpecPatch?.(p);
+  const title = { deck: "Deck", garage: "Garage", fence: "Fence", house: "House size" }[group];
+  return (
+    <div style={{ border: `1px solid ${C.accent}`, borderRadius: 10, padding: "10px 12px 12px", marginBottom: 14, background: "rgba(245,197,24,0.06)" }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ fontWeight: 800, fontSize: 14 }}>{title}</div>
+        <button onClick={onClose} style={{ ...linkBtn, color: C.soft }}>Close</button>
+      </div>
+      <div style={{ color: C.soft, fontSize: 11, marginTop: 2, lineHeight: 1.45 }}>Changes the design: the model, drawings, cut list and price all update.</div>
+
+      {group === "deck" && (
+        <>
+          <ParamNumber label="Width along the house" unit="m" min={1.2} max={Math.max(1.2, houseW)} step={0.1} value={+L.deckWidthM}
+            onCommit={(v) => patch({ landscape: { enabled: true, deck: true, deckWidthM: v } })} />
+          <button style={{ ...ghostBtn, width: "100%", marginTop: -2, marginBottom: 8 }}
+            onClick={() => patch({ landscape: { enabled: true, deck: true, deckWidthM: houseW } })}>Make it the full width of the house ({houseW} m)</button>
+          <ParamNumber label="Depth out into the yard" unit="m" min={1.2} max={8} step={0.1} value={+L.deckDepthM}
+            onCommit={(v) => patch({ landscape: { enabled: true, deck: true, deckDepthM: v } })} />
+          <label style={{ display: "block", marginTop: 4 }}>
+            <div style={{ color: C.soft, marginBottom: 4 }}>Boards</div>
+            <select value={L.deckBoard} onChange={(e) => patch({ landscape: { deckBoard: e.target.value } })} style={{ ...inputSt, cursor: "pointer" }}>
+              <option value="merbau">Merbau hardwood</option><option value="pine">Treated pine</option><option value="composite">Composite</option>
+            </select>
+          </label>
+          {built && <div style={{ color: C.dim, fontSize: 11, marginTop: 8, lineHeight: 1.45 }}>As built: {(built.x1 - built.x0).toFixed(2)} × {(built.z1 - built.z0).toFixed(2)} m{(built.x1 - built.x0) < +L.deckWidthM - 0.05 ? " — kept 300 mm clear of each corner of the house" : ""}.</div>}
+          <button style={{ ...ghostBtn, width: "100%", marginTop: 10, color: C.danger }} onClick={() => patch({ landscape: { deck: false } })}>Remove the deck</button>
+        </>
+      )}
+
+      {group === "garage" && (
+        <>
+          <Toggle label="Second door at the back (drive-through)" on={!!s.garageRearDoor} onChange={(v) => patch({ hasGarage: true, garageRearDoor: v })} />
+          <div style={{ color: C.dim, fontSize: 11, lineHeight: 1.45 }}>Both doors are 4.8 × 2.1 m sectional doors with motors. The back one opens onto the yard.</div>
+          <button style={{ ...ghostBtn, width: "100%", marginTop: 10, color: C.danger }} onClick={() => { onClose(); patch({ hasGarage: false }); }}>Remove the garage</button>
+        </>
+      )}
+
+      {group === "fence" && (
+        <>
+          <ParamNumber label="Height" unit="m" min={0.9} max={2.4} step={0.1} value={+L.fenceHeightM} onCommit={(v) => patch({ landscape: { fenceHeightM: v } })} />
+          <label style={{ display: "block" }}>
+            <div style={{ color: C.soft, marginBottom: 4 }}>Type</div>
+            <select value={L.fence} onChange={(e) => patch({ landscape: { fence: e.target.value } })} style={{ ...inputSt, cursor: "pointer" }}>
+              <option value="colorbond">Colorbond steel</option><option value="paling">Timber paling</option><option value="none">No fence</option>
+            </select>
+          </label>
+        </>
+      )}
+
+      {group === "house" && (
+        <>
+          <ParamNumber label="Width (front wall)" unit="m" min={6} max={30} step={0.1} value={+s.widthM} onCommit={(v) => patch({ widthM: v })} />
+          <ParamNumber label="Length (side wall)" unit="m" min={6} max={40} step={0.1} value={+s.lengthM} onCommit={(v) => patch({ lengthM: v })} />
+          <ParamNumber label="Wall height" unit="m" min={2.4} max={3.6} step={0.05} value={+s.wallHeightM} onCommit={(v) => patch({ wallHeightM: v })} />
+          <ParamNumber label="Roof pitch" unit="°" min={5} max={45} step={1} value={+s.roofPitch || 22} onCommit={(v) => patch({ roofPitch: v })} />
+        </>
+      )}
+    </div>
+  );
+}
+
+/* A number you can drag or type; it only rebuilds the model when you let go or press Enter. */
+function ParamNumber({ label, unit, min, max, step, value, onCommit }) {
+  const [v, setV] = useState(value);
+  const [txt, setTxt] = useState(String(value));
+  useEffect(() => { setV(value); setTxt(String(value)); }, [value]);
+  const commit = (n) => {
+    const x = Math.max(min, Math.min(max, Math.round(+n / step) * step));
+    if (!Number.isFinite(x)) { setTxt(String(value)); return; }
+    const clean = +x.toFixed(2);
+    setV(clean); setTxt(String(clean));
+    if (Math.abs(clean - value) > 1e-6) onCommit(clean);
+  };
+  return (
+    <div style={{ margin: "10px 0" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span style={{ color: C.soft }}>{label}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button onClick={() => commit(v - step * (unit === "°" ? 1 : 5))} aria-label={`${label} smaller`} style={{ ...ghostBtn, padding: "2px 8px" }}>−</button>
+          <input value={txt} inputMode="decimal" aria-label={label} onChange={(e) => setTxt(e.target.value)} onBlur={() => commit(txt)}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+            style={{ ...inputSt, width: 62, textAlign: "right", fontFamily: mono, padding: "4px 6px" }} />
+          <span style={{ color: C.dim, width: 12 }}>{unit}</span>
+          <button onClick={() => commit(v + step * (unit === "°" ? 1 : 5))} aria-label={`${label} bigger`} style={{ ...ghostBtn, padding: "2px 8px" }}>+</button>
+        </span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={v} aria-label={`${label} slider`}
+        onChange={(e) => { setV(+e.target.value); setTxt(e.target.value); }}
+        onPointerUp={(e) => commit(+e.currentTarget.value)} onKeyUp={(e) => commit(+e.currentTarget.value)}
+        style={{ width: "100%", accentColor: C.accent }} />
     </div>
   );
 }
@@ -582,7 +717,7 @@ function EnvironmentPanel({ engine, bump }) {
 function StatusBar({ engine, editor, stats, sel, bump }) {
   const snapOn = !!editor?.snap.move;
   return (
-    <footer style={{ display: "flex", alignItems: "center", gap: 14, padding: "5px 12px", borderTop: `1px solid ${C.line}`, background: C.panel, color: C.dim, fontFamily: mono, fontSize: 10.5, flexWrap: "nowrap", overflowX: "auto", whiteSpace: "nowrap", minWidth: 0 }}>
+    <footer style={{ display: "flex", alignItems: "center", gap: 14, padding: "5px 12px", borderTop: `1px solid ${C.line}`, background: C.panel, color: C.dim, fontFamily: mono, fontSize: 10.5, flexWrap: "nowrap", overflowX: "auto", whiteSpace: "nowrap", minWidth: 0, scrollbarWidth: "none" }}>
       <span>{fmtInt(stats?.pieces)} / {fmtInt(stats?.members)} pieces drawn</span>
       <span>{fmtInt(stats?.triangles)} triangles</span>
       <span>{fmtInt(stats?.calls)} draw calls</span>

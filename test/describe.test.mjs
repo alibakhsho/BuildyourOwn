@@ -1,5 +1,5 @@
 /* The free "Describe your project" engine — no AI, no network. */
-import { parseScope, parseHouse, houseSpecFromFeatures, parseMulti, parseDeveloper, cleanDeveloper, normalise } from "../src/logic/describe.js";
+import { parseScope, parseHouse, houseSpecFromFeatures, parseMulti, parseDeveloper, cleanDeveloper, normalise, parseEdits, mergeSpecPatch } from "../src/logic/describe.js";
 import { WallBuilder } from "../src/logic/wall-builder.js";
 
 let pass = 0, fail = 0;
@@ -110,6 +110,32 @@ ok("multi: a duplex is two dwellings", parseMulti("a brick duplex").types[0]?.co
   const c = cleanDeveloper({ facadeType: "brick", occupancy: "hotel", floors: 300, floorPlateM2: 50 });
   ok("developer: values the engine can't price are dropped", !("facadeType" in c) && !("occupancy" in c), c);
   ok("developer: numbers clamped to engine ranges", c.floors === 120 && c.floorPlateM2 === 150, c);
+}
+
+/* ---- changes to the house you already have (the requests that used to do nothing) ---- */
+{
+  const house = { widthM: 12, lengthM: 15, hasGarage: true, landscape: { enabled: true } };
+  let r = parseEdits("extend the deck to the width of the house", house);
+  ok("edit: deck to the width of the house → deck 12 m wide", r.found && r.landscape.deck && r.landscape.enabled && r.landscape.deckWidthM === 12, r);
+  r = parseEdits("i want to open up the garage from the back and add another garage door", house);
+  ok("edit: open the garage from the back + another door → rear garage door", r.patch.garageRearDoor === true && r.patch.hasGarage === true, r);
+  r = parseEdits("open up the garage from the back and add another door", house);
+  ok("edit: the door clause needn't repeat 'garage'", r.patch.garageRearDoor === true, r);
+  r = parseEdits("make the deck 4m deep", house);
+  ok("edit: deck depth", r.landscape.deckDepthM === 4 && r.landscape.deckWidthM == null, r);
+  r = parseEdits("extend the deck by 2m", { ...house, landscape: { enabled: true, deckWidthM: 5 } });
+  ok("edit: extend by 2 m adds to the current width", r.landscape.deckWidthM === 7, r);
+  r = parseEdits("widen the deck to 9m and make it deeper by 1m", house);
+  ok("edit: 'it' still means the deck", r.landscape.deckWidthM === 9 && r.landscape.deckDepthM === 4.6 && r.said.length === 1, r);
+  r = parseEdits("make the deck 8 x 4 composite", house);
+  ok("edit: width × depth and boards", r.landscape.deckWidthM === 8 && r.landscape.deckDepthM === 4 && r.landscape.deckBoard === "composite", r);
+  ok("edit: remove the deck", parseEdits("remove the deck", house).landscape.deck === false);
+  ok("edit: close up the back of the garage", parseEdits("remove the back garage door", house).patch.garageRearDoor === false);
+  r = parseEdits("4 bed 2 bath brick house plus a 30m2 merbau deck", house);
+  ok("edit: a new-house description is not an edit (its deck stays extra scope)", !r.found, r);
+  const merged = mergeSpecPatch(house, { landscape: { deck: true, deckDepthM: 8 }, "landscape.deckBoard": "pine" });
+  ok("merge: nested and dotted landscape keys, yard deepened for the deck", merged.landscape.enabled && merged.landscape.deckDepthM === 8 && merged.landscape.deckBoard === "pine" && merged.landscape.rearYardM >= 9.8, merged.landscape);
+  ok("merge: no garage → no rear garage door", mergeSpecPatch({ hasGarage: true, garageRearDoor: true }, { hasGarage: false }).garageRearDoor === false);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

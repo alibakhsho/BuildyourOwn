@@ -16,12 +16,13 @@ import { useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { chat as aiChat } from "../ai/client.js";
 import { WallBuilder } from "../logic/wall-builder.js";
-import { parseScope, parseHouse, parseMulti, parseDeveloper, FEATURE_SCHEMAS } from "../logic/describe.js";
+import { parseScope, parseHouse, parseMulti, parseDeveloper, parseEdits, FEATURE_SCHEMAS } from "../logic/describe.js";
 
 const COPY = {
   residential: {
     title: "Describe your home",
     example: "4 bed 2 bath double storey brick house, about 250m², double garage, colorbond roof, plus a 30m² merbau deck",
+    change: "extend the deck to the width of the house · add a second garage door at the back",
     button: "Set up my estimate",
   },
   materials: {
@@ -42,7 +43,7 @@ const COPY = {
 };
 
 /* Prompts for the AI path — each asks for exactly what the built-in engine returns. */
-function aiPrompt(mode) {
+function aiPrompt(mode, spec) {
   if (mode === "materials") {
     const presets = WallBuilder.presets.map((p) => `"${p.id}" (${p.label}, dim=${p.dim}${p.variants ? `, variants: ${p.variants.map((v) => v.id).join("/")}` : ""})`).join("; ");
     const addons = WallBuilder.addons.map((a) => `"${a.id}" (${a.label})`).join(", ");
@@ -53,25 +54,52 @@ For dim=wall give lengthM & heightM (default 2.4), finish paint|render|tile|none
 Reply with ONLY JSON: {"items":[{"preset":id,"lengthM":n,"heightM":n,"dim":n,"finish":s,"sides":n,"variant":id,"labour":bool,"addons":[{"id":id,"qty":n}],"label":s}],"note":s}`;
   }
   const schema = mode === "residential" ? FEATURE_SCHEMAS.house : mode === "multi" ? FEATURE_SCHEMAS.multi : FEATURE_SCHEMAS.developer;
-  return `Read a plain-English building description and return ONLY these features as JSON — omit anything not stated or strongly implied. Never invent costs. Convert feet to metres.
+  const base = `Read a plain-English building description and return ONLY these features as JSON — omit anything not stated or strongly implied. Never invent costs. Convert feet to metres.
 Shape: ${schema}`;
+  if (mode !== "residential") return base;
+  const L = spec?.landscape || {};
+  return `${base}
+The user may instead ask to CHANGE the house they already have ("extend the deck to the width of the house", "open the garage up at the back with another door"). Put those in "edits" and leave "features" empty unless the house itself is being re-described.
+The current house: ${spec?.widthM || "?"} m wide (that is the length of the back wall) × ${spec?.lengthM || "?"} m deep, ${spec?.hasGarage ? `double garage${spec?.garageRearDoor ? " with a rear door" : ""}` : "no garage"}, ${L.enabled ? `landscaping on, deck ${L.deck === false ? "none" : `${L.deckWidthM ?? 5} m wide × ${L.deckDepthM ?? 3.6} m deep (${L.deckBoard || "merbau"})`}` : "no landscaping yet (a deck edit turns it on)"}.
+Deck width runs along the back wall; depth runs out into the yard. "said" is one short plain sentence per change.`;
 }
 
-function parseLocal(mode, text) {
+function parseLocal(mode, text, spec) {
   if (mode === "materials") { const r = parseScope(text); return { kind: "scope", items: r.items, note: r.note, found: r.items.length > 0 }; }
   if (mode === "multi") { const r = parseMulti(text); return { kind: "multi", types: r.types, found: r.found }; }
   if (mode === "highrise") { const r = parseDeveloper(text); return { kind: "developer", features: r.features, found: r.found }; }
-  const r = parseHouse(text); return { kind: "house", features: r.features, extras: r.extras, found: r.found };
+  const r = parseHouse(text);
+  const edits = parseEdits(text, spec || {});
+  return houseResult(r.features, r.extras, edits);
 }
 
-function fromAi(mode, j) {
+/* A house result, with change requests taking priority over a re-description
+   of the same thing ("open the garage at the back" is an edit, not "has a garage"). */
+function houseResult(features = {}, extras = [], edits = null, note) {
+  const f = { ...features };
+  let x = extras;
+  if (edits?.found) {
+    if ("garageRearDoor" in (edits.patch || {}) || "hasGarage" in (edits.patch || {})) delete f.garage;
+    if (Object.keys(edits.landscape || {}).length) x = x.filter((e) => e.preset !== "deck");
+  }
+  const found = Object.keys(f).length > 0 || x.length > 0 || !!edits?.found;
+  return { kind: "house", features: f, extras: x, edits: edits?.found ? edits : null, note, found };
+}
+
+function fromAi(mode, j, text, spec) {
   if (mode === "materials") return { kind: "scope", items: Array.isArray(j.items) ? j.items : [], note: j.note, found: (j.items || []).length > 0 };
   if (mode === "multi") return { kind: "multi", types: (j.types || []).filter((t) => +t.count > 0).map((t) => ({ count: Math.round(+t.count), name: t.name || "House type", features: t.features || {} })), note: j.note, found: (j.types || []).length > 0 };
   if (mode === "highrise") return { kind: "developer", features: j.features || {}, note: j.note, found: !!j.features && Object.keys(j.features).length > 0 };
-  return { kind: "house", features: j.features || {}, extras: Array.isArray(j.extras) ? j.extras : [], note: j.note, found: !!j.features };
+  // the AI's edits, or the built-in reader's when the AI missed them
+  const e = j.edits && typeof j.edits === "object" ? j.edits : {};
+  let edits = { landscape: e.landscape || {}, patch: e.patch || {}, said: Array.isArray(e.said) ? e.said : [] };
+  edits.found = Object.keys(edits.landscape).length > 0 || Object.keys(edits.patch).length > 0;
+  if (!edits.found) edits = parseEdits(text, spec || {});
+  else if (!edits.said.length) edits.said = ["Updated the house."];
+  return houseResult(j.features || {}, Array.isArray(j.extras) ? j.extras : [], edits, j.note);
 }
 
-export default function DescribeCard({ mode, useAi, onApply }) {
+export default function DescribeCard({ mode, useAi, onApply, spec }) {
   const copy = COPY[mode] || COPY.residential;
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -84,13 +112,13 @@ export default function DescribeCard({ mode, useAi, onApply }) {
     let result = null, via = "built-in";
     if (useAi) {
       try {
-        const out = await aiChat({ system: aiPrompt(mode), tier: "fast", maxTokens: 1200, messages: [{ role: "user", content: t }] });
+        const out = await aiChat({ system: aiPrompt(mode, spec), tier: "fast", maxTokens: 1200, messages: [{ role: "user", content: t }] });
         const a = out.indexOf("{"), b = out.lastIndexOf("}");
         const j = a >= 0 && b > a ? JSON.parse(out.slice(a, b + 1)) : null;
-        if (j) { result = fromAi(mode, j); via = "ai"; }
+        if (j) { result = fromAi(mode, j, t, spec); via = "ai"; }
       } catch { /* fall back to the built-in engine below */ }
     }
-    if (!result || !result.found) { result = parseLocal(mode, t); if (via === "ai") via = "built-in"; }
+    if (!result || !result.found) { result = parseLocal(mode, t, spec); if (via === "ai") via = "built-in"; }
     if (!result.found) {
       setMsg({ tone: "warn", text: `I couldn't pick out enough to work with. Try something like: "${copy.example}"` });
       setBusy(false); return;
@@ -118,6 +146,7 @@ export default function DescribeCard({ mode, useAi, onApply }) {
       </div>
       <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
         Say it like you'd say it to a builder — we'll fill in everything below, then adjust what you like.
+        {copy.change ? <> You can also ask for a change: <i>{copy.change}</i>.</> : null}
       </p>
       <textarea className="ec-input" rows={3} value={text} placeholder={`e.g. ${copy.example}`}
         onChange={(e) => setText(e.target.value)}

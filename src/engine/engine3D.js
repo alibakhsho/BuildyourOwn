@@ -457,7 +457,8 @@ export class Engine3D {
     const key = [Math.round((w || 0) * 2), Math.round((l || 0) * 2), Math.round((h || 0) * 2)].join(":");
     if (key !== this._frameKey) {
       this._frameKey = key;
-      this.home();
+      // in the Studio a size change must not throw the camera off what you are editing
+      if (!this.studio) this.home();
     }
   }
 

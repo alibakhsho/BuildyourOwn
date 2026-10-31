@@ -264,7 +264,7 @@ function floorPlanSheet(S, f, info) {
     const G = garage, Gw = G.x1 - G.x0, Gl = G.z1 - G.z0;
     const gwalls = [
       { side: "front", start: [G.x0, G.z1], dir: [1, 0], out: [0, 1], len: Gw, from: 0, to: Gw, ops: [{ u: Gw / 2, w: G.doorW, kind: "garage" }] },
-      { side: "back", start: [G.x1, G.z0], dir: [-1, 0], out: [0, -1], len: Gw, from: 0, to: Gw, ops: [] },
+      { side: "back", start: [G.x1, G.z0], dir: [-1, 0], out: [0, -1], len: Gw, from: 0, to: Gw, ops: G.rearDoor ? [{ u: Gw / 2, w: G.doorW, kind: "garage" }] : [] },
       { side: "left", start: [G.x0, G.z0], dir: [0, 1], out: [-1, 0], len: Gl, from: bu.total, to: Gl - bu.total, ops: [] },
     ];
     for (const g of gwalls) {
@@ -402,7 +402,7 @@ function elevation(S, side, area) {
       const apex = ffl + G.h + (Gw / 2) * tanp;
       s += poly(V, [[a, gSoffit], [(a + b) / 2, apex], [b, gSoffit]], `fill="#f6f4ef" ${ST.medium}`);
       s += line(V, [a - (side === "front" ? 0.45 : 0), gSoffit - 0.05], [(a + b) / 2, apex + 0.15], ST.heavy) + line(V, [(a + b) / 2, apex + 0.15], [b + (side === "back" ? 0.45 : 0), gSoffit - 0.05], ST.heavy);
-      if (side === "front") {
+      if (side === "front" || G.rearDoor) {
         const du0 = a + Gw / 2 - G.doorW / 2, du1 = a + Gw / 2 + G.doorW / 2;
         s += rectUV(V, du0, ffl, du1, ffl + G.doorH, `fill="#f2f2f0" ${ST.medium}`);
         for (let k = 1; k < 4; k++) s += line(V, [du0, ffl + (G.doorH * k) / 4], [du1, ffl + (G.doorH * k) / 4], ST.fine);
