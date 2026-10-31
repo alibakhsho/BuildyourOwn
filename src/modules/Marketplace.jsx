@@ -1324,12 +1324,20 @@ function ProfileEditor({ uid, pro, canBuild, onSaved }) {
   const [tradesText, setTradesText] = useState(() => pro.trades.join(", "));   // raw text; split on save
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState({ error: "", ok: "" });
+  const [imgMsg, setImgMsg] = useState({ error: "", ok: "" });
   const set = (k, v) => setP((x) => ({ ...x, [k]: v }));
-  // Single-image pickers hand back a list (or an updater of one); keep the first.
-  const setImage = (k) => (v) => setP((x) => {
-    const list = typeof v === "function" ? v(x[k] ? [x[k]] : []) : v;
-    return { ...x, [k]: list[0] || null };
-  });
+  // Single-image pickers hand back a list (or an updater of one); keep the
+  // first. Pictures save on their own, straight away (saveMyProImage).
+  const setImage = (k) => async (v) => {
+    const next = (typeof v === "function" ? v(p[k] ? [p[k]] : []) : v)[0] || null;
+    set(k, next);
+    setImgMsg({ error: "", ok: "Saving…" });
+    try {
+      await MK.saveMyProImage(uid, k, next);
+      setImgMsg({ error: "", ok: "Saved." });
+      onSaved();
+    } catch (e) { setImgMsg({ error: e.message, ok: "" }); }
+  };
   const save = async (changes = {}) => {
     setBusy(true); setMsg({ error: "", ok: "" });
     try {
@@ -1378,11 +1386,12 @@ function ProfileEditor({ uid, pro, canBuild, onSaved }) {
           )}
         </div>
       </Section>
-      <Section title="Logo & cover">
+      <Section title="Profile photo & banner">
         <div className="space-y-3 border border-rule bg-card p-4">
-          <Field group label="Logo"><MediaPicker uid={uid} single paths={p.logoPath ? [p.logoPath] : []} onChange={setImage("logoPath")} /></Field>
-          <Field group label="Cover photo"><MediaPicker uid={uid} single paths={p.coverPath ? [p.coverPath] : []} onChange={setImage("coverPath")} /></Field>
-          <p className="text-[11px] text-steel">Press Save after changing images.</p>
+          <Field group label="Profile photo or logo" hint="Square works best"><MediaPicker uid={uid} single paths={p.logoPath ? [p.logoPath] : []} onChange={setImage("logoPath")} /></Field>
+          <Field group label="Banner" hint="A wide photo — a finished job or a render"><MediaPicker uid={uid} single paths={p.coverPath ? [p.coverPath] : []} onChange={setImage("coverPath")} /></Field>
+          {imgMsg.error ? <p className="text-xs text-alert">{imgMsg.error}</p>
+            : <p className={cn("text-[11px]", imgMsg.ok === "Saved." ? "text-ok" : "text-steel")}>{imgMsg.ok || "Pictures save as soon as you add them."}</p>}
         </div>
       </Section>
     </div>
