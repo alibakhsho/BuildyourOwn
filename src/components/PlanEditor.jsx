@@ -107,7 +107,8 @@ export default function PlanEditor({ spec, setSpec, currency = "$", total = null
   };
   const startDrag = (e, r, mode) => {
     e.preventDefault(); e.stopPropagation();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
+    // keep the drag when the pointer leaves the room; never let a refused capture stop the drag
+    try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* pointer not capturable (pen lifted, synthetic) */ }
     setSel(r.key);
     setDrag({ key: r.key, mode, start: toPlan(e), orig: { x: r.x, z: r.z, w: r.w, l: r.l }, cur: { x: r.x, z: r.z, w: r.w, l: r.l }, item: r.item });
   };
@@ -139,8 +140,19 @@ export default function PlanEditor({ spec, setSpec, currency = "$", total = null
     if (Math.abs(c.x - o.x) < 0.01 && Math.abs(c.z - o.z) < 0.01 && Math.abs(c.w - o.w) < 0.01 && Math.abs(c.l - o.l) < 0.01 && !d.over) return;
     const me = rooms.find((r) => r.key === d.key);
     if (d.mode === "move" && d.over) {
-      // dropped on another room: the two swap places (each takes the other's spot and size)
       const B = d.over;
+      // dropped on another room: the two swap places — keeping their own sizes when both still fit…
+      const rest = rooms.filter((r) => r.key !== me.key && r.key !== B.key);
+      const hits = (a, b) => a.x < b.x + b.w - 0.02 && a.x + a.w > b.x + 0.02 && a.z < b.z + b.l - 0.02 && a.z + a.l > b.z + 0.02;
+      const inside = (a) => a.x >= -1e-6 && a.z >= -1e-6 && a.x + a.w <= plate.w + 1e-6 && a.z + a.l <= plate.l + 1e-6;
+      // each anchored to the corner of the other's spot that keeps it inside the floor
+      const anchor = (spot, w, l) => ({ x: Math.min(spot.x, plate.w - w), z: Math.min(spot.z, plate.l - l), w, l });
+      const A2 = anchor(B, o.w, o.l), B2 = anchor(o, B.w, B.l);
+      if (inside(A2) && inside(B2) && !hits(A2, B2) && !rest.some((r) => hits(r, A2) || hits(r, B2))) {
+        placeRooms([{ key: me.key, item: me.item, ...A2 }, { key: B.key, item: B.item, ...B2 }], `Swapped ${me.item.name} and ${B.item.name}.`);
+        return;
+      }
+      // …otherwise each takes the other's space and size
       placeRooms([{ key: me.key, item: me.item, x: B.x, z: B.z, w: B.w, l: B.l }, { key: B.key, item: B.item, x: o.x, z: o.z, w: o.w, l: o.l }],
         `Swapped ${me.item.name} and ${B.item.name}: each took the other's space, so ${me.item.name} is now ${B.w.toFixed(1)} × ${B.l.toFixed(1)} m and ${B.item.name} ${o.w.toFixed(1)} × ${o.l.toFixed(1)} m. Drag their edges to adjust.`);
       return;
