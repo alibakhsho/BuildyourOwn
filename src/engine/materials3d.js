@@ -306,6 +306,21 @@ export function floorTileTexture() {
   });
 }
 
+/* Gloss subway wall tile, 300 × 75, half-bond, light grout — splashbacks and
+   shower walls. Near-white so a finish colour tints it true. */
+export function wallTileTexture() {
+  return canvasTex("walltile", 512, 1.2, (g, size, ppm) => {
+    g.fillStyle = "#f7f6f2"; g.fillRect(0, 0, size, size);
+    const tw = 0.3 * ppm, th = 0.075 * ppm;
+    g.fillStyle = "rgba(150,145,135,0.55)";
+    for (let r = 0, y = 0; y < size; r++, y += th) {
+      g.fillRect(0, y, size, 1.5);
+      for (let x = r % 2 ? tw / 2 : 0; x < size; x += tw) g.fillRect(x, y, 1.5, th);
+    }
+    speckle(g, size, 1200, 0.025, 77);
+  });
+}
+
 /* Normal map for corrugated sheet: 10 sine corrugations across the sheet
    width (v), constant along its length (u). Mipmapped, so the ribs read up
    close and blend cleanly at a distance (no moiré). */

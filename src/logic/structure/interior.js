@@ -167,6 +167,8 @@ export function kitchenFitout(M, cell, y0, k) {
   piece("cabinet", "Base cabinets", "Base cabinets 870 high", "joinery", 0, run, y0 + 0.435, 0.29, 0.87, 0.58, { code: "K-BC" });
   piece("benchtop", "Benchtop", "20 mm engineered stone benchtop", "stone", -0.01, run + 0.01, y0 + 0.88, 0.31, 0.02, 0.62, { code: "K-BT" });
   piece("cabinet", "Overhead cabinets", "Overhead cabinets 700 high", "joinery", 0, run, y0 + 1.85, 0.175, 0.7, 0.35, { code: "K-OC" });
+  const SB = { glass: "6 mm toughened glass splashback", stone: "20 mm stone slab splashback" };
+  piece("splashback", "Splashback", SB[k.splashback] || "Tiled splashback, 600 high", "splashback", 0, run, y0 + 1.195, 0.008, 0.61, 0.008, { unit: "m2", code: "K-SB" });
   piece("sink", "Kitchen sink", "Stainless double-bowl sink + mixer", "chrome", run * 0.35 - 0.4, run * 0.35 + 0.4, y0 + 0.885, 0.3, 0.012, 0.44, { unit: "ea", code: "K-SK" });
   piece("cooktop", "Cooktop", "900 mm cooktop + oven + rangehood", "black", run * 0.72 - 0.45, run * 0.72 + 0.45, y0 + 0.895, 0.3, 0.008, 0.5, { unit: "ea", code: "K-CT" });
   piece("rangehood", "Rangehood", "900 mm rangehood", "chrome", run * 0.72 - 0.45, run * 0.72 + 0.45, y0 + 1.6, 0.25, 0.12, 0.5, { noSchedule: true, code: "K-RH" });
@@ -188,6 +190,9 @@ export function bathroomFitout(M, cell, y0) {
   // shower in the far corner
   const sw = Math.min(1.0, cell.w * 0.45), sl = Math.min(1.0, cell.l * 0.45);
   M.add({ ...base, kind: "shower", name: "Shower base", profile: "Tiled shower recess, waterproofed", mat: "floorTile", unit: "ea", a: [x0, y0 + 0.02, z1 - sl / 2], b: [x0 + sw, y0 + 0.02, z1 - sl / 2], d: 0.04, w: sl, up: [0, 1, 0], code: "B-SH" });
+  // shower walls tiled to 2.0 m on the two walls of the corner
+  M.add({ ...base, kind: "wallTile", name: "Shower wall tiles", profile: "Wall tiles to 2000, on waterproofing", mat: "wallTile", unit: "m2", a: [x0 - 0.002, y0 + 1.0, z1 - sl], b: [x0 - 0.002, y0 + 1.0, z1 + 0.005], d: 2.0, w: 0.008, up: [0, 1, 0], code: "B-WT" });
+  M.add({ ...base, kind: "wallTile", name: "Shower wall tiles", profile: "Wall tiles to 2000, on waterproofing", mat: "wallTile", unit: "m2", a: [x0 - 0.006, y0 + 1.0, z1 + 0.002], b: [x0 + sw, y0 + 1.0, z1 + 0.002], d: 2.0, w: 0.008, up: [0, 1, 0], code: "B-WT" });
   M.add({ ...base, kind: "screen", name: "Shower screen", profile: "Semi-frameless shower screen", mat: "glass", unit: "ea", a: [x0 + sw, y0 + 1.0, z1 - sl], b: [x0 + sw, y0 + 1.0, z1], d: 2.0 - 0.04, w: 0.01, up: [0, 1, 0], code: "B-SS" });
   M.add({ ...base, kind: "screen", name: "Shower screen", profile: "Semi-frameless shower screen", mat: "glass", noSchedule: true, a: [x0, y0 + 1.0, z1 - sl], b: [x0 + sw, y0 + 1.0, z1 - sl], d: 2.0 - 0.04, w: 0.01, up: [0, 1, 0], code: "B-SS" });
   if (cell.w * cell.l > 7) {

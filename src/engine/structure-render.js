@@ -19,7 +19,7 @@ import { basis, STAGE_OF } from "../logic/structure/model.js";
 import {
   worldBox, concreteTexture, timberFloorTexture, pineTexture, lvlTexture, particleboardTexture, insulationTexture,
   wrapTexture, pvTexture, garageDoorTexture, brickFaceTexture, mortarTexture, carpetTexture, floorTileTexture,
-  brickTexture, renderTexture, weatherboardTexture, corrugatedNormalMap, grassTexture, gravelTexture,
+  brickTexture, renderTexture, weatherboardTexture, corrugatedNormalMap, grassTexture, gravelTexture, wallTileTexture,
 } from "./materials3d.js";
 
 /* ---------- unit geometries: X = length, Y = d (along up), Z = w ---------- */
@@ -125,6 +125,8 @@ function makeMaterial(key, opts) {
     case "particleboard": return std({ map: particleboardTexture(), roughness: 0.85 });
     case "floorTimber": return std({ map: timberFloorTexture(), roughness: 0.55 });
     case "floorTile": return std({ map: floorTileTexture(), roughness: 0.3 });
+    case "wallTile": return std({ map: wallTileTexture(), roughness: 0.12 });
+    case "splashback": return std({ map: wallTileTexture(), roughness: 0.1 });
     case "carpet": return std({ map: carpetTexture(), roughness: 1 });
     case "joinery": return std({ color: 0xf2efe9, roughness: 0.45 });
     case "stone": return std({ color: 0xe9e7e2, roughness: 0.25 });
@@ -178,7 +180,7 @@ function material(key, opts) {
 }
 
 /* Sheets whose textures must keep their real size: individual meshes. */
-const WORLD_UV = new Set(["concrete", "wrap", "insulation", "mortar", "render", "brickTex", "floorTimber", "floorTile", "carpet", "particleboard", "weatherboard",
+const WORLD_UV = new Set(["concrete", "wrap", "insulation", "mortar", "render", "brickTex", "floorTimber", "floorTile", "wallTile", "splashback", "carpet", "particleboard", "weatherboard",
   "turf", "gravel", "pebble", "mulch", "soil", "exposedAgg", "sleeper"]);
 const NO_SHADOW = new Set(["screw", "tie", "nailplate", "nut", "washer", "hinge", "rose", "lever", "deadlock", "clamp", "bar", "rug", "book", "art"]);
 /* Pieces too small to see from across the site: drawn only when the camera
@@ -251,7 +253,7 @@ export function renderMembers(group, members, opts = {}) {
       mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(...X), new THREE.Vector3(...Y), new THREE.Vector3(...Z)));
       mesh.position.set((m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2);
       mesh.castShadow = m.sys !== "interior"; mesh.receiveShadow = true;
-      mesh.userData = { sys: m.sys, stage: STAGE_OF[m.sys], skin: !!m.skin, zone: m.zone || null, memberIds: [m.id], single: true };
+      mesh.userData = { sys: m.sys, stage: STAGE_OF[m.sys], skin: !!m.skin, zone: m.zone || null, memberIds: [m.id], single: true, mat: m.mat };
       group.add(mesh);
       meshes.push(mesh);
       byId.set(m.id, { mesh, instance: -1 });
@@ -279,7 +281,7 @@ export function renderMembers(group, members, opts = {}) {
     mesh.castShadow = !small && b.mat !== "glass" && b.mat !== "flyscreen";
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;      // instances span the site; per-mesh culling would pop
-    mesh.userData = { sys: b.sys, stage: STAGE_OF[b.sys], skin: b.skin, zone: b.zone, memberIds: ids, total: b.list.length, instanced: true,
+    mesh.userData = { sys: b.sys, stage: STAGE_OF[b.sys], skin: b.skin, zone: b.zone, memberIds: ids, total: b.list.length, instanced: true, mat: matKey,
       // CAD lines: repeated cladding pieces draw as one surface (no line per brick)
       flatAxis: FLAT_AXIS[b.shape] || FLAT_AXIS[b.list[0].kind] || null,
       fine: b.list.every((m) => FINE.has(m.kind)) };

@@ -220,7 +220,7 @@ export function buildStructure(spec, { detail = "full" } = {}) {
 
   // walkthrough stops: the centre of every room at eye height
   const waypoints = [];
-  for (const fl of layout.floors) for (const c of fl.cells) if (!c.item.circulation) waypoints.push({ x: c.x + c.w / 2, z: c.z + c.l / 2, y: fl.y + 1.55, name: c.item.name });
+  for (const fl of layout.floors) for (const c of fl.cells) if (!c.item.circulation) waypoints.push({ x: c.x + c.w / 2, z: c.z + c.l / 2, y: fl.y + 1.55, name: c.item.name, w: c.w, l: c.l, floorY: fl.y });
 
   return {
     members: M.members,

@@ -1,7 +1,7 @@
 /* =========================================================================
    InteriorCard — furniture & styling in the left rail: furnish the rooms
    (on by default) and pick an interior style. The 3D model, the cut list
-   (as an FF&E list) and the cinematic film all follow it.
+   (as an FF&E list) and the walkthrough all follow it.
    ========================================================================= */
 import InputCard from "./ui/InputCard.jsx";
 import Field from "./ui/Field.jsx";
@@ -26,7 +26,7 @@ export default function InteriorCard({ spec, update }) {
       )}
       <p className="ec-mono" style={{ fontSize: 11, color: TOKENS.steel, marginTop: 6, lineHeight: 1.5 }}>
         Every room furnished for what it is, against its real walls and clear of its doors: beds, sofas, dining, study, rugs, art, curtains and lighting, a car in the garage and a setting on the deck.
-        Shown in 3D and the film; listed in the cut list, not priced.
+        Shown in 3D and the walkthrough; listed in the cut list, not priced.
       </p>
     </InputCard>
   );

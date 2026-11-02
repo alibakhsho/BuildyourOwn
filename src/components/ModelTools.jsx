@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { buildStructure, schedule, scheduleCsv, unitLabel, SYSTEMS } from "../logic/structure/index.js";
+import { FINISHES, finishOption, swatchOf } from "../logic/finishes.js";
 
 const YARD_OFF = { fencing: false, decking: false, paving: false, garden: false, lawn: false, retaining: false, furniture: false };
 const PRESETS = {
@@ -203,7 +204,7 @@ export function LayersPanel({ engine, version }) {
 
 const mm = (v) => `${Math.round(v * 1000).toLocaleString()} mm`;
 
-export function PieceCard({ member, structure, onClose, onIsolate }) {
+export function PieceCard({ member, structure, onClose, onIsolate, finish, onFinish }) {
   if (!member) return null;
   const same = structure ? structure.members.filter((m) => m.profile === member.profile && m.name === member.name && !m.noSchedule).length : null;
   const size = member.unit === "ea" ? null
@@ -219,9 +220,41 @@ export function PieceCard({ member, structure, onClose, onIsolate }) {
       <div style={{ fontSize: 11, color: TOKENS.steel, marginTop: 4 }}>
         <span className="ec-mono">{member.mark}</span> · {member.host}{same != null ? ` · ${same.toLocaleString()} in the build` : ""}
       </div>
-      <button onClick={() => onIsolate?.(member.sys)} style={{ marginTop: 6, border: "none", background: "none", padding: 0, cursor: "pointer", color: TOKENS.hivis, font: "inherit", fontSize: 12, fontWeight: 600 }}>
-        Show only {SYSTEMS[member.sys]?.label.toLowerCase()} →
-      </button>
+      {onIsolate && (
+        <button onClick={() => onIsolate(member.sys)} style={{ marginTop: 6, border: "none", background: "none", padding: 0, cursor: "pointer", color: TOKENS.hivis, font: "inherit", fontSize: 12, fontWeight: 600 }}>
+          Show only {SYSTEMS[member.sys]?.label.toLowerCase()} →
+        </button>
+      )}
+      <FinishPicker mat={member.mat} value={finish} onChange={onFinish} />
+    </div>
+  );
+}
+
+/* Swatches for the picked piece's finish (tiles, mirror, glass, splashback…).
+   One choice recolours every piece of that finish in the house. */
+function FinishPicker({ mat, value, onChange }) {
+  const f = FINISHES[mat];
+  if (!f) return null;
+  const cur = finishOption(mat, value);
+  return (
+    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${TOKENS.rule}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11 }}>
+        <span className="ec-mono" style={{ color: TOKENS.steel, letterSpacing: "0.08em" }}>{f.label.toUpperCase()}</span>
+        <span style={{ fontWeight: 600, color: TOKENS.ink }}>{cur.name}</span>
+      </div>
+      {onChange ? (
+        <div role="radiogroup" aria-label={f.label} style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+          {f.options.map((opt) => {
+            const on = opt.id === cur.id;
+            return (
+              <button key={opt.id} role="radio" aria-checked={on} title={opt.name} aria-label={opt.name} onClick={() => onChange(mat, opt.id)}
+                style={{ width: 26, height: 26, borderRadius: "50%", cursor: "pointer", padding: 0, background: swatchOf(opt),
+                  border: `2px solid ${on ? TOKENS.hivis : TOKENS.rule}`, boxShadow: on ? `0 0 0 2px ${TOKENS.card}, 0 0 0 4px ${TOKENS.hivis}` : "none" }} />
+            );
+          })}
+        </div>
+      ) : null}
+      {onChange && <div style={{ fontSize: 10.5, color: TOKENS.steel, marginTop: 5 }}>Changes every {f.label.toLowerCase()} piece in the house.</div>}
     </div>
   );
 }
