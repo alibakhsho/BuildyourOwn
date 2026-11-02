@@ -13,7 +13,7 @@ import { highlightMember } from "./structure-render.js";
 import { SYSTEMS } from "../logic/structure/model.js";
 import { explodeOffset, explodeCycle, EXPLODE_SPREAD } from "../logic/structure/explode.js";
 import { grassTexture, gravelTexture } from "./materials3d.js";
-import { CinemaPlayer } from "./cinema.js";
+import { finishProps } from "../logic/finishes.js";
 
 export class Engine3D {
   constructor(mountEl, { quality = "auto" } = {}) {
@@ -148,9 +148,9 @@ export class Engine3D {
 
     // Walkthrough state
     this.mode = "orbit"; // "orbit" | "walk"
-    this.walkWaypoints = [];
-    this.walkT = 0;          // 0..1 along the whole path
-    this.walkSpeed = 0.0009; // per frame
+    this.walkWaypoints = []; // rooms (name, centre, extent) — where a walk can start or jump to
+    this._walkRoof = false;  // roof + ceilings off while walking, so daylight reaches the rooms
+    this._walkServices = false; // pipes + cables hidden in the walls while walking
     this.roofMeshes = [];    // hidden during walkthrough
     this.onWalkProgress = null;
     this.onModeChange = null;
@@ -173,22 +173,26 @@ export class Engine3D {
     this.controls.dampingFactor = 0.09;
     this.controls.screenSpacePanning = true;
     this.controls.zoomToCursor = true;
-    this.controls.minDistance = 0.4;
+    this.controls.minDistance = 0.05;   // right up to a single screw
     this.controls.maxDistance = 600;
     this.controls.maxPolarAngle = Math.PI * 0.495;
     // "auto-rotate" is the drifting camera (_driftStep), not OrbitControls' fixed-point spin
     this.controls.autoRotate = false;
     this.controls.addEventListener("start", () => {
       this._drift = null;
+      this._fly = null;
       if (this.autoRotate) { this.autoRotate = false; this.onAutoRotateChange?.(false); }
     });
     this.controls.addEventListener("change", () => { this._needsRender = true; });
-    // a click (press + release without moving) picks the piece under the cursor
+    // a click (press + release without moving) picks the piece under the cursor;
+    // a double-click flies up close to it
     let downX = 0, downY = 0;
     el.addEventListener("pointerdown", (e) => { downX = e.clientX; downY = e.clientY; });
     el.addEventListener("pointerup", (e) => {
-      if (e.button === 0 && Math.hypot(e.clientX - downX, e.clientY - downY) < 5 && this.mode === "orbit") this.pickAt(e.clientX, e.clientY);
+      if (e.button === 0 && Math.hypot(e.clientX - downX, e.clientY - downY) < 5) this.pickAt(e.clientX, e.clientY);
     });
+    el.addEventListener("dblclick", (e) => this.focusAt(e.clientX, e.clientY));
+    this._bindWalkInput(el);
   }
 
   /* Sparse low-poly trees around the site edge — scale + life, not a forest. */
@@ -255,6 +259,8 @@ export class Engine3D {
     this.buildSummary = summary;
     this.structure = structure;
     this.memberHits = byId;
+    this._indexFinishes();
+    this.setFinishes(spec.finishes);
     this._yardOn = !!structure?.landscape;
     if (this._pad) this._pad.visible = !this._yardOn && this.siteVisible !== false;
     if (this._grid) this._grid.visible = !this._yardOn && this.siteVisible !== false;
@@ -368,8 +374,12 @@ export class Engine3D {
     this._applyVisibility();
     this._needsRender = true;
   }
-  /* Layer visibility in effect: the user's choice, plus what a film shot hides. */
-  _layers() { return this._filmLayers ? { ...(this.layerVisible || {}), ...this._filmLayers } : this.layerVisible || {}; }
+  /* Layer visibility in effect: the user's choice, and while walking the pipes
+     and cables stay inside the walls unless asked for. */
+  _layers() {
+    const lv = this.layerVisible || {};
+    return this.mode === "walk" && !this._walkServices ? { ...lv, electrical: false, plumbing: false, drainage: false } : lv;
+  }
   _applyVisibility() {
     const lv = this._layers();
     this.buildingGroup.traverse((o) => {
@@ -384,6 +394,13 @@ export class Engine3D {
 
   /* ---- Picking: click a piece, get its record ---- */
   pickAt(clientX, clientY) {
+    const h = this._hitAt(clientX, clientY);
+    const id = h ? h.id : null;
+    this.select(id);
+    return id;
+  }
+  /* The first solid piece under a screen point: { id, point, distance }. */
+  _hitAt(clientX, clientY) {
     if (!this.structure) return null;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
@@ -394,9 +411,82 @@ export class Engine3D {
     // see-through things (glass, x-rayed skins) don't block the pick
     const hits = ray.intersectObjects(targets, false).filter((h) => !(h.object.material.transparent && h.object.material.opacity < 0.5));
     const h = hits[0];
-    const id = h ? h.object.userData.memberIds[h.instanceId ?? 0] : null;
-    this.select(id);
-    return id;
+    if (!h) return null;
+    return { id: h.object.userData.memberIds[h.instanceId ?? 0], point: h.point, distance: h.distance };
+  }
+
+  /* Fly up close to the piece under a screen point (double-click / double-tap):
+     the stand-off is from the piece's size, so a screw fills the view at a
+     hand's width and a wall frame from a couple of metres. */
+  focusAt(clientX, clientY) {
+    const h = this._hitAt(clientX, clientY);
+    if (!h) return null;
+    const m = this.structure.members[h.id];
+    this.select(h.id);
+    const size = m ? Math.max(m.len || 0, m.d || 0, m.w || 0) : 1;
+    const dist = Math.min(2.5, Math.max(0.16, size * 1.1));
+    const cam = this.camera.position;
+    const dir = cam.clone().sub(h.point).normalize();
+    if (this.mode === "walk") {
+      const W = this._walk;
+      const to = h.point.clone().addScaledVector(dir, dist);
+      const look = h.point.clone().sub(to);
+      W.fly = { t0: performance.now(), dur: 650, from: W.pos.clone(), to, yaw0: W.yaw, pitch0: W.pitch,
+        yaw1: W.yaw + wrapAngle(Math.atan2(-look.x, -look.z) - W.yaw), pitch1: Math.atan2(look.y, Math.hypot(look.x, look.z)) };
+    } else {
+      if (this.view !== "persp") this.setView("persp", { keep: true });
+      this._drift = null;
+      if (this.autoRotate) { this.autoRotate = false; this.onAutoRotateChange?.(false); }
+      this._fly = { t0: performance.now(), dur: 650, cam0: cam.clone(), tgt0: this.controls.target.clone(),
+        cam1: h.point.clone().addScaledVector(dir, dist), tgt1: h.point.clone() };
+    }
+    this._needsRender = true;
+    return h.id;
+  }
+
+  /* ---- Finishes: tiles, mirror, glass, splashback, benchtop… ----
+     Materials are shared by key, so one change recolours every piece of that
+     material in the house, live, without a rebuild. The untouched look is
+     kept on the material so "Standard" always returns to it. */
+  setFinishes(map) {
+    const next = { ...(map || {}) };
+    const changed = JSON.stringify(next) !== JSON.stringify(this.finishes || {});
+    this.finishes = next;
+    // drop the yellow selection tint so the new finish shows on the picked piece too
+    if (changed && this._unhighlight) { this._unhighlight(); this._unhighlight = null; }
+    this._applyFinishes();
+  }
+  _indexFinishes() {
+    const byKey = new Map();
+    this.buildingGroup.traverse((o) => {
+      const k = o.userData && o.userData.mat;
+      const mat = o.userData && (o.userData._mat || o.material);   // the real material, not a style or highlight stand-in
+      if (!k || !mat || Array.isArray(mat)) return;
+      (byKey.get(k) || byKey.set(k, new Set()).get(k)).add(mat);
+    });
+    this._finishMats = byKey;
+  }
+  _applyFinishes() {
+    if (!this._finishMats) return;
+    const want = this.finishes || {};
+    for (const [key, mats] of this._finishMats) {
+      const props = finishProps(key, want[key]);
+      for (const mat of mats) {
+        const ud = mat.userData || (mat.userData = {});
+        if (!props && !ud.finishBase) continue;
+        if (!ud.finishBase) ud.finishBase = { color: mat.color.getHex(), opacity: mat.opacity, roughness: mat.roughness, metalness: mat.metalness, transparent: mat.transparent, depthWrite: mat.depthWrite };
+        const b = ud.finishBase;
+        mat.color.setHex(props && props.color != null ? props.color : b.color);
+        mat.roughness = props && props.roughness != null ? props.roughness : b.roughness;
+        mat.metalness = props && props.metalness != null ? props.metalness : b.metalness;
+        const op = props && props.opacity != null ? props.opacity : b.opacity;
+        mat.opacity = op;
+        mat.transparent = op < 1 ? true : b.transparent;
+        mat.depthWrite = op < 1 ? false : b.depthWrite;
+        mat.needsUpdate = true;
+      }
+    }
+    this._needsRender = true;
   }
   select(id) {
     if (this._unhighlight) { this._unhighlight(); this._unhighlight = null; }
@@ -559,8 +649,8 @@ export class Engine3D {
     }
   }
 
-  /* Roof and ceilings lifted off: the walkthrough, and the film's interior shots. */
-  _roofHidden() { return this.mode === "walk" || (this.mode === "film" && !!this._filmRoofOff); }
+  /* Roof and ceilings lifted off while walking (unless the walker turns them back on). */
+  _roofHidden() { return this.mode === "walk" && !this._walkRoof; }
 
   /* Back to the starting 3/4 view of the whole building. */
   home() {
@@ -743,6 +833,7 @@ export class Engine3D {
 
   _clearGroup() {
     const g = this.buildingGroup;
+    this._finishMats = null;
     g.traverse((o) => {
       if (!o.isMesh) return;
       // instanced members share unit geometries — free only their instances
@@ -1084,186 +1175,260 @@ export class Engine3D {
     this._needsRender = true;
   }
 
-  /* ----- Cinematic film (logic/cinematic.js plans it, cinema.js plays it) ----- */
-  playFilm(film, { onFrame, onEnd, recorder } = {}) {
-    if (!film || !film.shots?.length) return false;
-    if (this.mode === "walk") this.stopWalk();
-    this._film = { player: new CinemaPlayer(film), t0: performance.now(), onFrame, onEnd, recorder,
-      fov: this.persp.fov, fog: [this.scene.fog.near, this.scene.fog.far], wasAuto: this.autoRotate };
-    if (this.view !== "persp") this.setView("persp", { keep: true });
-    this.select?.(null);
-    this.mode = "film";
-    this._filmRoofOff = false;
-    this._filmLayers = null;
-    this.autoRotate = false;
-    this.controls.enabled = false;
-    this.scene.fog.near = 140; this.scene.fog.far = 700;
-    this.progress = 1; this.setProgress(1);
-    this._showFine = false;
-    if (this.structure) this._applyVisibility();
-    this.paused = false;
-    this.onModeChange?.("film");
-    return true;
-  }
-  stopFilm() {
-    const F = this._film;
-    if (!F) return;
-    this._film = null;
-    this.mode = "orbit";
-    this._filmRoofOff = false;
-    this._filmLayers = null;
-    this.persp.fov = F.fov; this.persp.updateProjectionMatrix();
-    this.scene.fog.near = F.fog[0]; this.scene.fog.far = F.fog[1];
-    this.progress = 1; this.setProgress(1);
-    if (this.structure) this._applyVisibility();
-    this.controls.enabled = true;
-    this.home();
-    this.autoRotate = F.wasAuto;
-    this.onModeChange?.("orbit");
-    F.onEnd?.();
-  }
-  /* Jump the film to t seconds (scrubbing, and frame-exact captures). */
-  /* Jump the film to t seconds; hold = freeze there (pause, and frame-exact captures). */
-  seekFilm(t, { hold = false } = {}) {
-    if (!this._film) return;
-    this._film.t0 = performance.now() - Math.max(0, t) * 1000;
-    this._film.hold = hold ? Math.max(0, t) : null;
-  }
-  pauseFilm(paused) {
-    const F = this._film;
-    if (!F) return;
-    if (paused && F.hold == null) F.hold = (performance.now() - F.t0) / 1000;
-    else if (!paused && F.hold != null) { F.t0 = performance.now() - F.hold * 1000; F.hold = null; }
-  }
-  _filmStep() {
-    const F = this._film;
-    const t = F.hold ?? (performance.now() - F.t0) / 1000;
-    if (t >= F.player.duration) { this.stopFilm(); return; }
-    const st = F.player.sample(t);
-    if (st.roofOff !== this._filmRoofOff || !this._filmLayers) {
-      // a finished house doesn't show its pipes and cables; roof off also drops the roof framing
-      this._filmRoofOff = st.roofOff;
-      this._filmLayers = { electrical: false, plumbing: false, drainage: false, ...(st.roofOff ? { roofFrame: false, roofing: false, solar: false } : {}) };
-      if (this.structure) this._applyVisibility();
-    }
-    if (st.build != null) { this.progress = st.build; this.setProgress(st.build); }
-    else if (this.progress !== 1) { this.progress = 1; this.setProgress(1); }
-    if (this.persp.fov !== st.fov) { this.persp.fov = st.fov; this.persp.updateProjectionMatrix(); }
-    this.camera.position.set(st.pos[0], st.pos[1], st.pos[2]);
-    this.camera.lookAt(st.look[0], st.look[1], st.look[2]);
-    this.renderFrame();
-    F.recorder?.frame(st);          // same task as the render, so the drawing buffer is intact
-    F.onFrame?.(st);
-  }
   setPlaying(v) { this.playing = v; }
 
-  /* ----- Walkthrough ----- */
+  /* ----- Walkthrough: a free first-person camera -----
+     Drag to look around, W A S D to walk, ← → to turn, Q / E (or C / Space)
+     to sink and rise, wheel or pinch to step forward and back, Shift to hurry,
+     Alt to creep up on a screw. Click a piece to read it, double-click to fly
+     up close. Touch screens drag to look, pinch to step and use the on-screen
+     pad (walkInput). Walls don't stop you: this is a viewer, so you can step
+     through a wall to see the frame, wrap and fixings inside it. */
   startWalk() {
-    // For a house / custom build, use the cinematic dollhouse tour derived from
-    // the current spec (towers keep their level-by-level waypoints).
-    if (!this.isTower && this.spec && this.spec.widthM > 0) {
-      const floorH = this.spec.wallHeightM || 2.7;
-      const totalH = floorH * (this.spec.floors || 1);
-      this.walkWaypoints = this._buildTour(this.spec.widthM, this.spec.lengthM, totalH);
-    }
-    if (this.walkWaypoints.length === 0) return false;
-    // ensure fully built so interior exists
+    const rooms = this.walkWaypoints || [];
+    if (!rooms.length) return false;
+    this.playExplode(false);
+    if (this.explodeT) this.setExplode(0);
+    this.playing = false;
     this.progress = 1;
     this.setProgress(1);
+    if (this.view !== "persp") this.setView("persp", { keep: true });
+    this._fly = null;
     this.mode = "walk";
     this.autoRotate = false;
-    this.controls.autoRotate = false;
+    this._drift = null;
     this.controls.enabled = false;
-    if (this.view !== "persp") this.setView("persp", { keep: true });
-    this.walkT = 0;
-    // hide roof so we can see inside; soften fog
-    this.roofMeshes.forEach((m) => (m.visible = false));
+    const P = this.persp;
+    this._walk = {
+      pos: new THREE.Vector3(), yaw: 0, pitch: -0.06, keys: new Set(), pad: { f: 0, s: 0, u: 0 },
+      fly: null, last: 0, room: null, roomAt: 0,
+      saved: { near: P.near, far: P.far, fov: P.fov, fog: [this.scene.fog.near, this.scene.fog.far] },
+    };
+    P.rotation.order = "YXZ";
+    P.near = 0.02; P.far = 400; P.updateProjectionMatrix();
+    this.scene.fog.near = 60; this.scene.fog.far = 220;
+    this._showFine = true;                       // every screw, plate and tie, all the time
+    this._placeInRoom(0, false);
+    this.roofMeshes.forEach((m) => (m.visible = this._walkRoof));
     if (this.structure) this._applyVisibility();
-    this.scene.fog.near = 60; this.scene.fog.far = 200;
-    if (this.onModeChange) this.onModeChange("walk");
+    this._needsRender = true;
+    this.onModeChange?.("walk");
     return true;
   }
   stopWalk() {
+    const W = this._walk;
     this.mode = "orbit";
+    this._walk = null;
+    const P = this.persp;
+    if (W) {
+      P.near = W.saved.near; P.far = W.saved.far; P.fov = W.saved.fov;
+      this.scene.fog.near = W.saved.fog[0]; this.scene.fog.far = W.saved.fog[1];
+    }
+    P.rotation.order = "XYZ";
+    P.updateProjectionMatrix();
     this.roofMeshes.forEach((m) => (m.visible = true));
     if (this.structure) this._applyVisibility();
-    this.scene.fog.near = Math.max(62, (this.frameRadius || 50) * 1.2); this.scene.fog.far = Math.max(175, (this.frameRadius || 50) * 3);
     this.controls.enabled = true;
     this.home();
-    this.autoRotate = true;
-    if (this.onModeChange) this.onModeChange("orbit");
+    this.onModeChange?.("orbit");
   }
-  setWalkT(t) { this.walkT = Math.max(0, Math.min(1, t)); }
 
-  /* Sample camera position + look target along the waypoint path at param t (0..1).
-     Waypoints may carry an explicit `look` target; otherwise the camera looks
-     toward the next waypoint. Look targets are interpolated so the pan is smooth. */
-  _sampleWalk(t) {
-    const wp = this.walkWaypoints;
-    const n = wp.length;
-    const ey = (p) => (p.y != null ? p.y : this._eyeY());
-    const lookOf = (p, fb) => (p.look ? p.look : fb);
-    if (n === 1) {
-      return { pos: [wp[0].x, ey(wp[0]), wp[0].z], look: lookOf(wp[0], [wp[0].x + 1, ey(wp[0]), wp[0].z]), name: wp[0].name };
+  /* The rooms a walk can jump to, in plan order. */
+  walkRooms() { return (this.walkWaypoints || []).map((r, i) => ({ i, name: r.name })); }
+  /* Jump (fly) to the middle of room i, facing across it. */
+  walkToRoom(i) { if (this.mode === "walk") this._placeInRoom(i, true); }
+  /* Roof and ceilings on or off while walking. */
+  setWalkRoof(on) {
+    this._walkRoof = !!on;
+    if (this.mode !== "walk") return;
+    this.roofMeshes.forEach((m) => (m.visible = this._walkRoof));
+    if (this.structure) this._applyVisibility();
+    this._needsRender = true;
+  }
+  /* Pipes and cables shown or hidden while walking. */
+  setWalkServices(on) {
+    this._walkServices = !!on;
+    if (this.mode === "walk" && this.structure) this._applyVisibility();
+    this._needsRender = true;
+  }
+  /* Lens: narrower field of view = zoom in without moving (20–75°). */
+  setWalkLens(fov) {
+    this.persp.fov = Math.max(12, Math.min(80, +fov || 60));
+    this.persp.updateProjectionMatrix();
+    this._needsRender = true;
+  }
+  /* On-screen pad: f forward/back, s right/left, u up/down, each -1..1. */
+  walkInput(f = 0, s = 0, u = 0) {
+    if (!this._walk) return;
+    this._walk.pad = { f: +f || 0, s: +s || 0, u: +u || 0 };
+    if (f || s || u) this._walk.fly = null;
+  }
+
+  _placeInRoom(i, fly) {
+    const W = this._walk, r = (this.walkWaypoints || [])[i];
+    if (!W || !r) return;
+    // stand near one end of the room, looking down its long side
+    const alongX = (r.w || 0) >= (r.l || 0);
+    const back = Math.max(0, ((alongX ? r.w : r.l) || 0) * 0.5 - 0.6);
+    const to = new THREE.Vector3(r.x - (alongX ? back : 0), r.y, r.z + (alongX ? 0 : back));
+    const yaw = alongX ? -Math.PI / 2 : 0;          // facing +x, or -z
+    if (fly) {
+      W.fly = { t0: performance.now(), dur: 900, from: W.pos.clone(), to, yaw0: W.yaw, pitch0: W.pitch,
+        yaw1: W.yaw + wrapAngle(yaw - W.yaw), pitch1: -0.06 };
+    } else {
+      W.pos.copy(to); W.yaw = yaw; W.pitch = -0.06; W.fly = null;
     }
-    const segs = n - 1;
-    const scaled = t * segs;
-    const i = Math.min(segs - 1, Math.floor(scaled));
-    const local = scaled - i;
-    const a = wp[i], b = wp[i + 1];
-    const px = a.x + (b.x - a.x) * local;
-    const pz = a.z + (b.z - a.z) * local;
-    const py = ey(a) + (ey(b) - ey(a)) * local;
-    const fb = [b.x, ey(b), b.z];
-    const la = lookOf(a, fb), lb = lookOf(b, fb);
-    return {
-      pos: [px, py, pz],
-      look: [la[0] + (lb[0] - la[0]) * local, la[1] + (lb[1] - la[1]) * local, la[2] + (lb[2] - la[2]) * local],
-      name: local < 0.5 ? a.name : b.name,
+    this._needsRender = true;
+  }
+
+  _bindWalkInput(el) {
+    const ptrs = new Map();
+    let pinch = 0;
+    const W = () => (this.mode === "walk" ? this._walk : null);
+    const down = (e) => {
+      if (!W()) return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      el.setPointerCapture?.(e.pointerId);
+      if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
+    };
+    const move = (e) => {
+      const w = W(), p = ptrs.get(e.pointerId);
+      if (!w || !p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      p.x = e.clientX; p.y = e.clientY;
+      if (ptrs.size === 1) {
+        // look: slower when zoomed in, so a close-up doesn't swing away
+        const k = 0.0042 * (this.persp.fov / 60);
+        w.yaw -= dx * k;
+        w.pitch = Math.max(-1.5, Math.min(1.5, w.pitch - dy * k));
+        w.fly = null;
+      } else if (ptrs.size === 2) {
+        const [a, b] = [...ptrs.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        this._walkStepForward((d - pinch) * 0.012);
+        pinch = d;
+      }
+      this._needsRender = true;
+    };
+    const up = (e) => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = 0; };
+    const wheel = (e) => {
+      if (!W()) return;
+      e.preventDefault();
+      const fast = e.shiftKey ? 3 : 1, slow = e.altKey ? 0.2 : 1;
+      this._walkStepForward(-Math.sign(e.deltaY) * Math.min(1, Math.abs(e.deltaY) / 100) * 0.35 * fast * slow);
+    };
+    const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "") || e.target?.isContentEditable;
+    const MOVE_KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE", "KeyC", "Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "ShiftLeft", "ShiftRight", "AltLeft", "AltRight"]);
+    const kdown = (e) => {
+      const w = W();
+      if (!w || typing(e) || e.metaKey || e.ctrlKey) return;
+      if (MOVE_KEYS.has(e.code)) {
+        w.keys.add(e.code); w.fly = null;
+        if (e.code.startsWith("Arrow") || e.code === "Space" || e.code.startsWith("Alt")) e.preventDefault();
+      } else if (e.code === "Equal" || e.code === "NumpadAdd") this.setWalkLens(this.persp.fov - 5);
+      else if (e.code === "Minus" || e.code === "NumpadSubtract") this.setWalkLens(this.persp.fov + 5);
+      else if (e.code === "Escape") this.stopWalk();
+    };
+    const kup = (e) => { this._walk?.keys.delete(e.code); };
+    const blur = () => { this._walk?.keys.clear(); };
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+    el.addEventListener("wheel", wheel, { passive: false });
+    window.addEventListener("keydown", kdown);
+    window.addEventListener("keyup", kup);
+    window.addEventListener("blur", blur);
+    this._unbindWalkInput = () => {
+      window.removeEventListener("keydown", kdown);
+      window.removeEventListener("keyup", kup);
+      window.removeEventListener("blur", blur);
     };
   }
 
-  /* Cinematic tour path from the building envelope: approach the front, then
-     rise into a roof-off dollhouse orbit that reveals the whole layout — no
-     more staring into an interior partition wall. */
-  _buildTour(w, l, totalH) {
-    const diag = Math.sqrt(w * w + l * l);
-    const R = diag * 0.72 + 6;                    // orbit radius, outside the walls
-    const H = totalH + Math.max(6, diag * 0.3);   // dollhouse height above the roofline
-    const front = l / 2;
-    const c = [0, Math.min(2.2, totalH * 0.45), 0]; // look at the building, low
-    return [
-      { x: 0,          y: 1.9,      z: front + Math.max(9, l * 0.85), look: [0, 1.7, front - 1], name: "Approaching front" },
-      { x: 0,          y: 1.9,      z: front + 1.6,                   look: [0, 1.6, 0],          name: "At the entry" },
-      { x: w * 0.4,    y: H * 0.62, z: front + R * 0.4,               look: c,                    name: "Rising over the layout" },
-      { x: R,          y: H,        z: R * 0.25,                      look: c,                    name: "Layout" },
-      { x: R * 0.25,   y: H,        z: -R,                            look: c,                    name: "Rear" },
-      { x: -R,         y: H,        z: -R * 0.25,                     look: c,                    name: "Side" },
-      { x: -R * 0.25,  y: H,        z: R,                             look: c,                    name: "Layout" },
-      { x: 0,          y: H * 0.8,  z: front + R * 0.55,              look: c,                    name: "Layout" },
-    ];
+  /* Step along the view direction (pitch included), so you can lean in to a joint. */
+  _walkStepForward(d) {
+    const W = this._walk;
+    if (!W || !d) return;
+    const cp = Math.cos(W.pitch);
+    W.pos.x -= Math.sin(W.yaw) * cp * d;
+    W.pos.z -= Math.cos(W.yaw) * cp * d;
+    W.pos.y = Math.max(0.12, W.pos.y + Math.sin(W.pitch) * d);
+    W.fly = null;
+    this._needsRender = true;
   }
-  _eyeY() {
-    const ffl = Math.max(0.15, (this.spec && this.spec.slabThicknessM) || 0.1);
-    return ffl + 1.55;
+
+  _walkStep() {
+    const W = this._walk;
+    if (!W) return;
+    const now = performance.now();
+    const dt = W.last ? Math.min(0.1, Math.max(0, (now - W.last) / 1000)) : 0;
+    W.last = now;
+    const k = W.keys, has = (...c) => c.some((x) => k.has(x));
+    const f = (has("KeyW", "ArrowUp") ? 1 : 0) - (has("KeyS", "ArrowDown") ? 1 : 0) + W.pad.f;
+    const s = (has("KeyD") ? 1 : 0) - (has("KeyA") ? 1 : 0) + W.pad.s;
+    const u = (has("KeyE", "Space") ? 1 : 0) - (has("KeyQ", "KeyC") ? 1 : 0) + W.pad.u;
+    const turn = (has("ArrowLeft") ? 1 : 0) - (has("ArrowRight") ? 1 : 0);
+    let moved = false;
+    if (W.fly) {
+      const F = W.fly;
+      const p = Math.min(1, (now - F.t0) / F.dur), e = easeOutCubic(p);
+      W.pos.lerpVectors(F.from, F.to, e);
+      W.yaw = F.yaw0 + (F.yaw1 - F.yaw0) * e;
+      W.pitch = F.pitch0 + (F.pitch1 - F.pitch0) * e;
+      if (p >= 1) W.fly = null;
+      moved = true;
+    } else if (f || s || u || turn) {
+      const speed = 1.5 * (has("ShiftLeft", "ShiftRight") ? 3 : 1) * (has("AltLeft", "AltRight") ? 0.15 : 1);
+      const sy = Math.sin(W.yaw), cy = Math.cos(W.yaw);
+      W.pos.x += (-sy * f + cy * s) * speed * dt;
+      W.pos.z += (-cy * f - sy * s) * speed * dt;
+      W.pos.y = Math.max(0.12, W.pos.y + u * speed * dt);
+      W.yaw += turn * 1.6 * dt;
+      moved = true;
+    }
+    const P = this.persp;
+    P.position.copy(W.pos);
+    P.rotation.set(W.pitch, W.yaw, 0, "YXZ");
+    // which room am I in? (four times a second is plenty)
+    if (now - W.roomAt > 250) {
+      W.roomAt = now;
+      const name = this._roomAt(W.pos);
+      if (name !== W.room) { W.room = name; this.onWalkProgress?.(null, name); }
+    }
+    if (moved || this._needsRender) {
+      this.renderFrame();
+      this._needsRender = false;
+    }
+  }
+  _roomAt(p) {
+    for (const r of this.walkWaypoints || []) {
+      if (r.w == null) continue;
+      const fy = r.floorY ?? r.y - 1.55;
+      if (Math.abs(p.x - r.x) <= r.w / 2 && Math.abs(p.z - r.z) <= r.l / 2 && p.y >= fy - 0.2 && p.y < fy + 3.2) return r.name;
+    }
+    const env = this.structure?.env;
+    if (env && (Math.abs(p.x) > env.w / 2 || Math.abs(p.z) > env.l / 2)) return "Outside";
+    return p.y < 0.4 ? "Under the floor" : "";
+  }
+
+  /* Orbit-mode fly-to (double-click): ease camera and target together. */
+  _flyStep() {
+    const F = this._fly;
+    const p = Math.min(1, (performance.now() - F.t0) / F.dur), e = easeOutCubic(p);
+    this.controls.target.lerpVectors(F.tgt0, F.tgt1, e);
+    this.camera.position.lerpVectors(F.cam0, F.cam1, e);
+    if (p >= 1) this._fly = null;
+    this._needsRender = true;
   }
 
   animate() {
     this._animId = requestAnimationFrame(this.animate);
     // nothing to do while the canvas is off-screen or the tab is hidden
-    if (this.paused && !(this.mode === "film" && this._film?.recorder)) return;   // a recording keeps going off-screen
+    if (this.paused) return;
 
-    if (this.mode === "film" && this._film) { this._filmStep(); return; }
-    if (this.mode === "walk") {
-      this.walkT += this.walkSpeed;
-      if (this.walkT >= 1) this.walkT = 0; // loop the tour
-      const s = this._sampleWalk(this.walkT);
-      this.camera.position.set(s.pos[0], s.pos[1], s.pos[2]);
-      this.camera.lookAt(s.look[0], s.look[1], s.look[2]);
-      if (this.onWalkProgress) this.onWalkProgress(this.walkT, s.name);
-      this.renderFrame();
-      return;
-    }
+    if (this.mode === "walk") { this._walkStep(); return; }
+    if (this._fly) this._flyStep();
     if (this.playing) {
       this.progress += 0.0035;
       if (this.progress >= 1) {
@@ -1287,6 +1452,9 @@ export class Engine3D {
       : this.camera.position.distanceTo(this.controls.target);
     const fine = span < 16;
     if (fine !== this._showFine && this.structure) { this._showFine = fine; this._applyVisibility(); this._needsRender = true; }
+    // close-ups need a near clip plane in millimetres, not 10 cm
+    const near = this.camera === this.persp && span < 3 ? 0.02 : 0.1;
+    if (this.persp.near !== near && this.camera === this.persp) { this.persp.near = near; this.persp.updateProjectionMatrix(); }
     if (moved || this._needsRender || this.playing) {
       this.renderFrame();
       this._needsRender = false;
@@ -1324,6 +1492,7 @@ export class Engine3D {
 
   dispose() {
     cancelAnimationFrame(this._animId);
+    this._unbindWalkInput?.();
     this.controls?.dispose();
     this.cadLines?.dispose();
     this._resizeObs.disconnect();
@@ -1334,4 +1503,9 @@ export class Engine3D {
       this.mount.removeChild(this.renderer.domElement);
     }
   }
+}
+
+/* Shortest signed turn from one heading to another, in (-π, π]. */
+function wrapAngle(a) {
+  return Math.atan2(Math.sin(a), Math.cos(a));
 }
