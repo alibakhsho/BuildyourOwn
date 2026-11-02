@@ -54,7 +54,7 @@ import { MODE_LABEL, BUILD_MODE_IDS } from "./lib/entitlements.js";
 import { buildMultiEstimate } from "./logic/multi-dwelling.js";
 import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, houseType } from "./modules/MultiDwelling.jsx";
 import DescribeCard from "./components/DescribeCard.jsx";
-import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/ModelTools.jsx";
+import { ModelToolbar, LayersPanel, PieceCard, CutList, ExplodeCallouts } from "./components/ModelTools.jsx";
 import Drawings from "./components/Drawings.jsx";
 import ServicesBim from "./components/ServicesBim.jsx";
 import Landscape from "./components/Landscape.jsx";
@@ -2995,6 +2995,7 @@ export default function App() {
                 </>
               )}
             </div>
+            {stage === "three_d" && engineReady && !walkMode && !filmMode && <ExplodeCallouts engine={engineRef.current} />}
             {stage === "three_d" && piece && (
               <PieceCard member={piece} structure={engineRef.current?.structure}
                 onClose={() => engineRef.current?.select(null)}
