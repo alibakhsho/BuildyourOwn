@@ -212,7 +212,89 @@ export class Engine3D {
       g.position.set(x, 0, z);
       g.rotation.y = (x + z) % 3;
       this.scene.add(g);
+      (this._trees ||= []).push(g);
     }
+  }
+
+  /* ---- The real site: a satellite photo under the model ----
+     opts = { url, spanM, rotationY, boundary: [[east, north] m], opacity }
+     or null to take it away. The photo is centred on the lot (its bounding
+     rectangle's centre), laid at true scale, and turned so the lot's street
+     side faces +z like the model's front. North-up imagery: east = +x,
+     north = -z before the turn. The lot's boundary is drawn on top. */
+  setSiteImagery(opts) {
+    const key = opts ? `${opts.url}|${opts.spanM}` : "";
+    if (!opts) {
+      this._disposeSiteImagery();
+      this._applySiteDressing();
+      this._needsRender = true;
+      return;
+    }
+    if (!this._siteImg || this._siteImg.key !== key) {
+      this._disposeSiteImagery();
+      const group = new THREE.Group();
+      group.name = "Site — satellite";
+      const tex = new THREE.TextureLoader().load(opts.url, () => { this._needsRender = true; }, undefined, () => {
+        // a failed picture leaves the plain grass: say nothing in the model, the card shows the error
+        group.visible = false; this._needsRender = true;
+      });
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.userData.mimeType = "image/jpeg";   // a photo: the .glb export keeps it JPEG (smaller, faster than PNG)
+      tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy?.() || 1);
+      const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1, metalness: 0, transparent: (opts.opacity ?? 1) < 1, opacity: opts.opacity ?? 1 });
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(opts.spanM, opts.spanM), mat);
+      plane.name = "Satellite ground";
+      plane.rotation.x = -Math.PI / 2;
+      plane.position.y = -0.025;            // over the grass, under the yard's lawn and paving
+      plane.receiveShadow = true;
+      group.add(plane);
+      this.scene.add(group);
+      this._siteImg = { key, group, plane, tex, mat, line: null };
+    }
+    const S = this._siteImg;
+    S.mat.opacity = opts.opacity ?? 1;
+    S.mat.transparent = S.mat.opacity < 1;
+    // boundary: rebuilt each time (it is a handful of points)
+    if (S.line) { S.group.remove(S.line); S.line.geometry.dispose(); S.line.material.dispose(); S.line = null; }
+    if (Array.isArray(opts.boundary) && opts.boundary.length >= 3) {
+      const pts = opts.boundary.map(([x, y]) => new THREE.Vector3(x, 0.06, -y));
+      const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xf5c518 }));
+      line.name = "Lot boundary";
+      S.group.add(line);
+      S.line = line;
+    }
+    S.rotationY = opts.rotationY || 0;
+    this._placeSiteImagery();
+    this._applySiteDressing();
+    this._needsRender = true;
+  }
+
+  /* Centre the photo on the model's lot (or the house when there is no yard). */
+  _placeSiteImagery() {
+    const S = this._siteImg;
+    if (!S) return;
+    const lot = this.structure?.landscape?.lot;
+    S.group.position.set(lot ? (lot.X0 + lot.X1) / 2 : 0, 0, lot ? (lot.Z0 + lot.Z1) / 2 : 0);
+    S.group.rotation.y = S.rotationY || 0;
+    S.group.visible = this.siteVisible !== false && !this.isTower && !this.spec?.estate;
+  }
+
+  /* With the real ground showing, the made-up pad, setout grid and trees go. */
+  _applySiteDressing() {
+    const real = !!this._siteImg && this._siteImg.group.visible;
+    const on = this.siteVisible !== false;
+    for (const t of this._trees || []) t.visible = on && !real;
+    if (this._pad) this._pad.visible = on && !real && !this._yardOn;
+    if (this._grid) this._grid.visible = on && !real && !this._yardOn;
+  }
+
+  _disposeSiteImagery() {
+    const S = this._siteImg;
+    if (!S) return;
+    this.scene.remove(S.group);
+    S.plane.geometry.dispose(); S.mat.dispose(); S.tex.dispose();
+    if (S.line) { S.line.geometry.dispose(); S.line.material.dispose(); }
+    this._siteImg = null;
   }
 
   resize() {
@@ -256,6 +338,7 @@ export class Engine3D {
     this._yardOn = !!structure?.landscape;
     if (this._pad) this._pad.visible = !this._yardOn && this.siteVisible !== false;
     if (this._grid) this._grid.visible = !this._yardOn && this.siteVisible !== false;
+    if (this._siteImg) { this._placeSiteImagery(); this._applySiteDressing(); }
     this.selected = null;
     this._unhighlight = null;
     this.roofMeshes = [];
@@ -335,6 +418,7 @@ export class Engine3D {
     for (const o of this.siteObjects || []) o.visible = !!v;
     // a modelled yard has its own lawn and paving: no building pad or setout grid over it
     if (this._yardOn) { if (this._pad) this._pad.visible = false; if (this._grid) this._grid.visible = false; }
+    if (this._siteImg) { this._placeSiteImagery(); this._applySiteDressing(); }
     this._needsRender = true;
   }
 
@@ -1177,6 +1261,7 @@ export class Engine3D {
 
   dispose() {
     cancelAnimationFrame(this._animId);
+    this._disposeSiteImagery();
     this.controls?.dispose();
     this.cadLines?.dispose();
     this._resizeObs.disconnect();

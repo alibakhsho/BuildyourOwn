@@ -12,6 +12,20 @@ import { useEffect, useMemo, useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { buildStructure, schedule, scheduleCsv, unitLabel, SYSTEMS } from "../logic/structure/index.js";
 
+/* Download the model as .glb (Blender, or any glTF viewer). Shared by the
+   toolbar and the BIM card; the exporter itself loads on first click. */
+export async function downloadGlb(engine, projectName) {
+  const { exportGlb } = await import("../engine/export-glb.js");
+  const name = `${String(projectName || "my-build").replace(/[^\w-]+/g, "-")}.glb`;
+  const blob = await exportGlb(engine, { projectName: projectName || "My build" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  return name;
+}
+
 const YARD_OFF = { fencing: false, decking: false, paving: false, garden: false, lawn: false, retaining: false, furniture: false };
 const PRESETS = {
   finished:   { label: "Finished",  layers: {}, site: true, mode: "finished" },
@@ -31,8 +45,9 @@ const segBtn = (on) => ({
 });
 const label = { fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: TOKENS.steel, fontFamily: "var(--font-mono, monospace)" };
 
-export function ModelToolbar({ engine, onPreset }) {
+export function ModelToolbar({ engine, onPreset, projectName }) {
   const [view, setView] = useState(engine?.view || "persp");
+  const [glb, setGlb] = useState("");
   const [style, setStyle] = useState(engine?.style || "realistic");
   const [preset, setPreset] = useState("finished");
   const [section, setSection] = useState("off");
@@ -100,6 +115,13 @@ export function ModelToolbar({ engine, onPreset }) {
             style={{ width: 120, accentColor: TOKENS.ink }} aria-label="Section position" />
         )}
       </div>
+      {!engine.isTower && (
+        <button style={{ ...group, ...segBtn(false), borderRight: `1px solid ${TOKENS.rule}` }} disabled={glb === "busy"}
+          title="Download this model as .glb — opens in Blender (File → Import → glTF), or hand it to Claude with the Blender connector"
+          onClick={async () => { setGlb("busy"); try { await downloadGlb(engine, projectName); setGlb(""); } catch (e) { setGlb(e.message || "Export failed"); } }}>
+          {glb === "busy" ? "Exporting…" : glb ? `⚠ ${glb}` : "⬇ Blender (.glb)"}
+        </button>
+      )}
     </div>
   );
 }

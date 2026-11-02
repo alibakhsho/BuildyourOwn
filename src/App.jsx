@@ -54,6 +54,9 @@ import { MODE_LABEL, BUILD_MODE_IDS } from "./lib/entitlements.js";
 import { buildMultiEstimate } from "./logic/multi-dwelling.js";
 import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, houseType } from "./modules/MultiDwelling.jsx";
 import DescribeCard from "./components/DescribeCard.jsx";
+import SiteCard from "./components/SiteCard.jsx";
+import { imageryFor } from "./lib/site-client.js";
+import { lotDims, imageryRotationY } from "./logic/site.js";
 import { ModelToolbar, LayersPanel, PieceCard, CutList } from "./components/ModelTools.jsx";
 import Drawings from "./components/Drawings.jsx";
 import ServicesBim from "./components/ServicesBim.jsx";
@@ -62,7 +65,7 @@ import LandscapeCard from "./components/LandscapeCard.jsx";
 import InteriorCard from "./components/InteriorCard.jsx";
 import FilmPanel from "./components/FilmPanel.jsx";
 import BuildRequirements from "./components/BuildRequirements.jsx";
-import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
+import { houseSpecFromFeatures, houseSpecFromPlan, cleanDeveloper } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import Marketplace, { MarketBadge } from "./modules/Marketplace.jsx";
@@ -819,6 +822,11 @@ const Reporter = {
 
     lines.push("PROJECT BRIEF");
     lines.push(half);
+    if (spec.land?.address) {
+      lines.push(pad("Site", 32) + spec.land.address);
+      if (spec.land.lot) lines.push(pad("Lot", 32) + `${spec.land.lot.label ? spec.land.lot.label + " · " : ""}${spec.land.lot.areaM2} m²`);
+      if (spec.land.zoning) lines.push(pad("Zoning", 32) + `${spec.land.zoning.code} ${spec.land.zoning.name}`);
+    }
     lines.push(pad("Footprint", 32) + `${spec.widthM} m × ${spec.lengthM} m`);
     lines.push(pad("Floors", 32) + `${spec.floors}`);
     lines.push(pad("Wall height (per floor)", 32) + `${spec.wallHeightM} m`);
@@ -2051,6 +2059,18 @@ export default function App() {
   }, [spec, hrSpec, matSpec, mdSpec, buildMode, engineReady]);
 
   useEffect(() => { if (buildMode === "residential" || buildMode === "multi") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
+
+  /* The real block under the model: the satellite photo from "Your land",
+     at true scale, turned so the street faces the house's front. */
+  useEffect(() => {
+    const eng = engineRef.current;
+    if (!eng) return;
+    const land = buildMode === "residential" ? spec.land : null;
+    const img = land && land.showImagery !== false ? imageryFor(land) : null;
+    if (!img) { eng.setSiteImagery(null); return; }
+    const d = land.lot ? lotDims(land.lot) : null;
+    eng.setSiteImagery({ url: img.url, spanM: img.spanM, rotationY: d ? imageryRotationY(d.streetBearing) : 0, boundary: land.lot?.boundary });
+  }, [spec.land, buildMode, engineReady]);
   useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
 
   /* The current page's secondary tabs, and which one is showing. A stale
@@ -2350,6 +2370,14 @@ export default function App() {
       });
       setMdSpec((m) => ({ ...m, types }));
       return `Set up ${types.length} house type${types.length === 1 ? "" : "s"}, ${types.reduce((a, t) => a + t.count, 0)} dwellings.`;
+    }
+    if (r.kind === "plan") {
+      // a photo / PDF of the plan, read by the AI and checked by the owner
+      const { summary } = houseSpecFromPlan(r.brief, spec);
+      setSpec((sp) => houseSpecFromPlan(r.brief, sp).spec);
+      const bits = [summary.bedrooms && `${summary.bedrooms} bed`, summary.bathrooms && `${summary.bathrooms} bath/WC`, summary.garage && "garage",
+        `${summary.footprint[0]} × ${summary.footprint[1]} m footprint`].filter(Boolean).join(", ");
+      return `Set up from your plan: ${summary.rooms} rooms — ${bits}.${summary.guessed ? ` ${summary.guessed} room${summary.guessed === 1 ? " had" : "s had"} no printed size, so a typical one is used — check the room schedule.` : ""}`;
     }
     const extras = scopeToLines(r.extras);
     setSpec((sp) => ({ ...houseSpecFromFeatures(r.features || {}, sp), extras: [...(sp.extras || []), ...extras] }));
@@ -2798,7 +2826,7 @@ export default function App() {
             {/* Start of the workflow: describe it, then fine-tune below. On a
                 plan without AI this runs on the built-in engine — no credits. */}
             {!(buildMode === "residential" && spec.importedLines && spec.importedLines.length > 0) && (
-              <DescribeCard key={buildMode} mode={buildMode} useAi={can.ai} onApply={applyDescribe} />
+              <DescribeCard key={buildMode} mode={buildMode} useAi={can.ai} onApply={applyDescribe} onUpgrade={() => setUpgrade("ai")} />
             )}
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <button onClick={resetDefaults} className="ec-btn ec-btn-ghost" style={{ flex: 1, justifyContent: "center", fontSize: 13 }}>
@@ -2838,6 +2866,8 @@ export default function App() {
             <ImportedPanel spec={spec} estimate={estimate} currency={currencySymbol(region)} onClear={clearImport} onUnlock={unlockImport} />
           ) : (
           <>
+          <SiteCard spec={spec} setSpec={setSpec} />
+
           <InputCard title="Dimensions" badge="Parametric" onClear={() => clearSection("dimensions")}>
             <SliderField label="Length" value={spec.lengthM} unit="m" min={3} max={60} step={0.5} onChange={(v) => update({ lengthM: v })} />
             <SliderField label="Width" value={spec.widthM} unit="m" min={3} max={60} step={0.5} onChange={(v) => update({ widthM: v })} />
@@ -3073,7 +3103,7 @@ export default function App() {
           </>)}
 
           {stage === "three_d" && (buildMode === "residential" || (buildMode === "materials" && quoteMassingSpec)) && engineReady && !walkMode && !filmMode && (
-            <ModelToolbar engine={engineRef.current} />
+            <ModelToolbar engine={engineRef.current} projectName={projectName} />
           )}
 
           {/* Headline cost cards — Estimate and Costs pages */}
@@ -3145,7 +3175,7 @@ export default function App() {
             {activeTab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
             {activeTab === "layers" && <LayersPanel engine={engineRef.current} version={modelVersion} />}
             {activeTab === "cutlist" && (buildMode === "residential" ? spec : quoteMassingSpec) && <CutList spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
-            {activeTab === "services" && (buildMode === "residential" ? spec : quoteMassingSpec) && <ServicesBim spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
+            {activeTab === "services" && (buildMode === "residential" ? spec : quoteMassingSpec) && <ServicesBim spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} engine={engineRef.current} />}
             {activeTab === "landscape" && buildMode === "residential" && <Landscape spec={spec} setSpec={setSpec} projectName={projectName} region={region} currency={currencySymbol(region)} />}
             {activeTab === "drawings" && (buildMode === "residential" ? spec : quoteMassingSpec) && <Drawings spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} projectNo={projectNo} region={region} />}
               </motion.div>

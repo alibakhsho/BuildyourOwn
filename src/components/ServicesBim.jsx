@@ -12,8 +12,11 @@ import { colors as TOKENS } from "../design/system.js";
 import { buildStructure, schedule, unitLabel, servicesCompliance, servicesTakeoff } from "../logic/structure/index.js";
 import { exportIfc } from "../logic/bim/ifc.js";
 import { planDxf } from "../logic/bim/dxf.js";
+import { downloadGlb } from "./ModelTools.jsx";
+import { blenderPrompt } from "../engine/export-glb.js";
 
 const fileSafe = (s) => String(s || "build").replace(/[^\w-]+/g, "-");
+const name0 = (p) => String(p || "my-build").replace(/[^\w-]+/g, "-");   // same as downloadGlb's file name
 const money = (v) => `$${Math.round(v).toLocaleString("en-AU")}`;
 
 function save(text, name, type) {
@@ -24,7 +27,20 @@ function save(text, name, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
-export default function ServicesBim({ spec, projectName }) {
+export default function ServicesBim({ spec, projectName, engine }) {
+  const [glbMsg, setGlbMsg] = useState("");
+  const [copied, setCopied] = useState(false);
+  const glbName = `${name0(projectName)}.glb`;
+  const glb = async () => {
+    setBusy("glb"); setGlbMsg("");
+    try { await downloadGlb(engine, projectName); setGlbMsg(`Saved ${glbName} to your Downloads.`); }
+    catch (e) { setGlbMsg(e.message || "Export failed."); }
+    setBusy("");
+  };
+  const copyPrompt = async () => {
+    try { await navigator.clipboard.writeText(blenderPrompt({ fileName: glbName, spec, land: spec.land })); setCopied(true); setTimeout(() => setCopied(false), 2000); }
+    catch { setGlbMsg("Couldn't copy — your browser blocked the clipboard."); }
+  };
   const S = useMemo(() => buildStructure(spec), [spec]);
   const trades = useMemo(() => servicesTakeoff(schedule(S.members)), [S]);
   const checks = useMemo(() => servicesCompliance(S), [S]);
@@ -129,6 +145,21 @@ export default function ServicesBim({ spec, projectName }) {
             </button>
           ))}
         </div>
+        {engine && (
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${TOKENS.rule}` }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Blender — and Claude driving Blender</div>
+            <div style={{ fontSize: 13, color: TOKENS.steel, margin: "4px 0 10px", maxWidth: "75ch", lineHeight: 1.55 }}>
+              <strong>.glb</strong> is the 3D model exactly as the viewport shows it — every visible layer, its colours, and the satellite photo of your block at true scale.
+              Open it in Blender (File → Import → glTF 2.0) for renders and walk-through films. With the <strong>Blender connector</strong> set up for Claude (see <code>docs/BLENDER.md</code>),
+              copy the prompt below into Claude and it will import the file, light it, place cameras and render for you.
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button className="ec-btn ec-btn-hivis" disabled={!!busy} onClick={glb}>{busy === "glb" ? "Exporting…" : "Blender — .glb model"}</button>
+              <button className="ec-btn ec-btn-ghost" onClick={copyPrompt}>{copied ? "Copied ✓" : "Copy the prompt for Claude"}</button>
+            </div>
+            {glbMsg && <div className="ec-mono" style={{ fontSize: 11, marginTop: 8, color: TOKENS.steel }}>{glbMsg}</div>}
+          </div>
+        )}
         <div style={{ fontSize: 11.5, color: TOKENS.steel, marginTop: 12, lineHeight: 1.5 }}>
           These are open-standard files for coordination, pricing and design development. They are not stamped construction documents: the certifier approves the
           building, the engineer certifies structure, and the licensed trades certify their own installations.

@@ -15,7 +15,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import { readPlanWithClaude, planReaderError } from "../api/_lib/plan-reader.js";
+import { readPlanWithClaude, readBriefWithClaude, planReaderError } from "../api/_lib/plan-reader.js";
 import { checkAiAccess, authorizeAi } from "../api/_lib/ai-access.js";
 import { withPlanRead } from "../api/_lib/metering.js";
 import { preflight, LIMITS, clampModel, clampTokens, promptSize, mapAnthropicError } from "../api/_lib/guard.js";
@@ -28,6 +28,7 @@ import billingWebhook from "../api/billing/webhook.js";
 import accountDelete from "../api/account/delete.js";
 import marketNotify from "../api/market/notify.js";
 import { healthReport } from "../api/health.js";
+import siteHandler from "../api/_lib/site.js";
 
 // Load server/.env regardless of the cwd the process was started from.
 const here = dirname(fileURLToPath(import.meta.url));
@@ -55,6 +56,8 @@ const hasKey = () => !!(process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_A
 const DEFAULT_MODEL = process.env.BYO_AI_MODEL || "claude-opus-5";
 
 app.get("/api/health", (_req, res) => res.json(healthReport()));
+// "Your land" — address, lot, terrain, satellite (api/_lib/site.js)
+app.get("/api/site/:op", (req, res) => siteHandler(req, res, req.params.op));
 
 app.post("/api/ai/chat", async (req, res) => {
   if (!hasKey()) {
@@ -114,7 +117,7 @@ app.post("/api/ai/vision", async (req, res) => {
   const access = await authorizeAi(req);
   if (access.denied) return res.status(access.denied.status).json({ error: access.denied.error, code: access.denied.code });
 
-  const { image, imageWidth, imageHeight, pxPerMetre, model, pageText } = req.body || {};
+  const { image, imageWidth, imageHeight, pxPerMetre, model, pageText, purpose } = req.body || {};
   if (!image?.data || !image?.mediaType) {
     return res.status(400).json({ error: "An image (base64 data + mediaType) is required." });
   }
@@ -123,7 +126,10 @@ app.post("/api/ai/vision", async (req, res) => {
   }
   try {
     // Same metering as the Vercel route (api/ai/vision.js).
-    const data = await withPlanRead(access, () => readPlanWithClaude(new Anthropic(), {
+    const data = await withPlanRead(access, () => purpose === "brief"
+      // "Upload plans" on the Describe card: rooms and sizes, no polygons
+      ? readBriefWithClaude(new Anthropic(), { image, model: clampModel(model, DEFAULT_MODEL), pageText: typeof pageText === "string" ? pageText.slice(0, 12000) : "" })
+      : readPlanWithClaude(new Anthropic(), {
       image, imageWidth, imageHeight, pxPerMetre, model: clampModel(model, DEFAULT_MODEL),
       pageText: typeof pageText === "string" ? pageText.slice(0, 16000) : "",
     }));

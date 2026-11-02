@@ -26,6 +26,10 @@
     {
       "source": "/api/accounting/:path*",
       "destination": "/api/accounting?route=:path*"
+    },
+    {
+      "source": "/api/site/:op",
+      "destination": "/api/health?site=:op"
     }
   ]
 }

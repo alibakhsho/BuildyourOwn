@@ -26,6 +26,20 @@ const BASE = import.meta.env?.VITE_AI_BACKEND || "";
  * @returns {Promise<{rooms, schedule, scaleNote, notes}>}
  */
 export async function readPlan(blob, ctx = {}) {
+  return normalise(await postPlan(blob, ctx), ctx);
+}
+
+/**
+ * "Upload plans" on the Describe card: a photo or PDF page of a house plan →
+ * rooms, sizes, storeys, garage (api/_lib/plan-reader.js BRIEF_SCHEMA). The
+ * card shows the list for checking; logic/describe.js houseSpecFromPlan
+ * turns it into the estimate. One plan read is counted, like a takeoff read.
+ */
+export async function readPlanBrief(blob, ctx = {}) {
+  return normaliseBrief(await postPlan(blob, { ...ctx, purpose: "brief" }));
+}
+
+async function postPlan(blob, ctx) {
   const dataUrl = await blobToDataURL(blob);
   const m = /^data:(image\/[a-z+]+);base64,(.*)$/i.exec(dataUrl);
   if (!m) throw new Error("Could not encode that image for the plan reader.");
@@ -45,6 +59,7 @@ export async function readPlan(blob, ctx = {}) {
         pxPerMetre: ctx.pxPerMetre || null,
         // a PDF sheet's own text layer (labels, figured dimensions) — exact where pixels are not
         pageText: ctx.pageText || "",
+        purpose: ctx.purpose || undefined,
       }),
     });
   } catch {
@@ -66,7 +81,34 @@ export async function readPlan(blob, ctx = {}) {
   const data = await resp.json();
   // a plan read was counted — let the account meter refresh
   if (typeof window !== "undefined") window.dispatchEvent(new Event("byo:profile-stale"));
-  return normalise(data, ctx);
+  return data;
+}
+
+const fin = (v, lo = 0, hi = 1e6) => (Number.isFinite(v) && v > lo && v < hi ? v : 0);
+
+/** Clamp the brief to sane house numbers: a misread "36000" bedroom becomes 0 (unknown), not a 36 m room. */
+export function normaliseBrief(d = {}) {
+  const rooms = (Array.isArray(d.rooms) ? d.rooms : []).slice(0, 60).map((r) => ({
+    name: String(r.name || r.type || "Room").slice(0, 40),
+    type: String(r.type || "Other"),
+    widthM: fin(+r.widthM, 0.5, 25),
+    lengthM: fin(+r.lengthM, 0.5, 25),
+    level: Math.max(0, Math.min(3, Math.round(+r.level || 0))),
+  }));
+  return {
+    isPlan: d.isPlan !== false,
+    storeys: Math.round(fin(+d.storeys, 0, 4)),
+    overallWidthM: fin(+d.overallWidthM, 3, 80),
+    overallLengthM: fin(+d.overallLengthM, 3, 80),
+    totalAreaM2: fin(+d.totalAreaM2, 15, 3000),
+    rooms,
+    windows: Math.round(fin(+d.windows, 0, 120)),
+    externalDoors: Math.round(fin(+d.externalDoors, 0, 20)),
+    garageSpaces: Math.round(fin(+d.garageSpaces, 0, 6)),
+    roof: ["colorbond", "tile", "shingle"].includes(d.roof) ? d.roof : "",
+    cladding: ["brick", "weatherboard", "render"].includes(d.cladding) ? d.cladding : "",
+    notes: d.notes ? String(d.notes).slice(0, 600) : "",
+  };
 }
 
 /**

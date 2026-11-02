@@ -24,6 +24,8 @@ Optional:
 | `BYO_AI_ENABLED` | `false` | Kill switch — turns AI off instantly without removing the key. |
 | `BYO_ALLOWED_ORIGINS` | `buildyour-own.vercel.app` | Locks the AI routes to your domain. |
 | `BYO_AI_MODEL` | `claude-opus-5` | Overrides the default model. |
+| `GOOGLE_MAPS_API_KEY` | `AIza...` | **Your land**: Google address search, satellite photo and terrain. Enable *Geocoding API*, *Maps Static API* and *Elevation API* on the key and restrict it to those three. Without it the app uses free providers (OpenStreetMap, Esri imagery, Open-Meteo), which are fine for testing but not for production traffic. |
+| `BYO_NSW_CADASTRE_URL` / `BYO_NSW_ZONING_URL` | ArcGIS layer URL | Only if NSW moves its public lot or zoning service. |
 
 **`VITE_` vars are baked in at build time.** After adding or changing any,
 you must **redeploy** (Vercel → Deployments → ⋯ → Redeploy). A refresh alone

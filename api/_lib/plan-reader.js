@@ -172,3 +172,97 @@ export function planReaderError(e) {
   if (status === 413) return { status, error: e.message || "That image is too large. Crop it and try again." };
   return { status, error: e?.message || "The plan reader failed." };
 }
+
+/* =========================================================================
+   Plan → brief: the "Upload plans" tab on the Describe card.
+
+   A homeowner's plan is rarely a CAD sheet. It is a phone photo of a
+   brochure, a builder's sales plan, or a page of a PDF — shot at an angle,
+   with glare, sometimes cut off. They don't want a takeoff, they want the
+   estimate set up: how many bedrooms, how big each room is, the overall
+   footprint, the garage. So this mode asks for exactly that, with no pixel
+   polygons (which a skewed photo can't give anyway), and the app maps it
+   onto the same house spec the Describe card fills (logic/describe.js →
+   houseSpecFromPlan). The owner checks the list before it is applied.
+   ========================================================================= */
+
+export const BRIEF_ROOM_TYPES = ["Bedroom", "Bathroom", "Ensuite", "WC", "Kitchen", "Living", "Dining", "Family", "Study", "Media", "Laundry", "Garage", "Alfresco", "Hallway", "Walk-in robe", "Other"];
+
+export const BRIEF_SCHEMA = {
+  type: "object",
+  properties: {
+    isPlan: { type: "boolean", description: "True if the image shows a floor plan of a building." },
+    storeys: { type: "number", description: "Number of storeys shown or stated. 0 if unknown." },
+    overallWidthM: { type: "number", description: "Overall width of the building across the front in metres, from printed overall dimensions. 0 if not printed." },
+    overallLengthM: { type: "number", description: "Overall depth of the building front to back in metres, from printed overall dimensions. 0 if not printed." },
+    totalAreaM2: { type: "number", description: "Total floor area if printed (e.g. an area schedule or 'Total 245 m²' / squares × 9.29). 0 if not printed." },
+    rooms: {
+      type: "array",
+      description: "Every room on the plan.",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Label as printed, e.g. 'BED 2', 'Master', 'Family'." },
+          type: { type: "string", enum: BRIEF_ROOM_TYPES },
+          widthM: { type: "number", description: "Room width in metres from the printed dimension (3600 → 3.6). 0 if not printed." },
+          lengthM: { type: "number", description: "Room length in metres. 0 if not printed." },
+          level: { type: "number", description: "0 = ground floor, 1 = first floor." },
+        },
+        required: ["name", "type", "widthM", "lengthM", "level"],
+        additionalProperties: false,
+      },
+    },
+    windows: { type: "number", description: "Windows you can count on the plan. 0 if they can't be made out." },
+    externalDoors: { type: "number", description: "Doors in the outside walls (front door, sliders, laundry door). 0 if unclear." },
+    garageSpaces: { type: "number", description: "Car spaces in the garage, 0 if no garage." },
+    roof: { type: "string", enum: ["colorbond", "tile", "shingle", "unknown"] },
+    cladding: { type: "string", enum: ["brick", "weatherboard", "render", "unknown"] },
+    notes: { type: "string", description: "Under 80 words: what was hard to read, what was estimated rather than read, anything cut off." },
+  },
+  required: ["isPlan", "storeys", "overallWidthM", "overallLengthM", "totalAreaM2", "rooms", "windows", "externalDoors", "garageSpaces", "roof", "cladding", "notes"],
+  additionalProperties: false,
+};
+
+export const BRIEF_SYSTEM = `You are helping an Australian homeowner set up a building estimate from a picture of a house plan. The picture is often a phone photo of a printed plan or a builder's brochure — taken at an angle, with glare, folds or part of the sheet cut off — or a page from a PDF.
+
+Read what is printed. Do not invent a typical house.
+
+- List every room with its printed label. Choose its type from the list; a master bedroom is "Bedroom", a powder room or toilet is "WC", a "meals" or "kitchen/meals" area is "Kitchen" (with "Dining" for a separate dining room), "rumpus"/"games"/"retreat" is "Family", "theatre" is "Media", "porch"/"patio"/"alfresco"/"verandah" is "Alfresco".
+- Room sizes: Australian plans print them in millimetres (3600 x 4200) or as metres (3.6 x 4.2); convert to metres. Brochures sometimes print feet-and-inches; convert. If a room has no printed size, give 0 — never measure a skewed photo.
+- Overall dimensions: use the printed overall (outermost) dimension strings. If none are printed, give 0.
+- Total area: only if printed. Brochures often give it in "squares" — 1 square = 9.29 m².
+- Count windows and external doors only where you can actually see them; 0 means "couldn't tell", which is better than a guess.
+- Roof and cladding: only if a note or elevation on the sheet says so; otherwise "unknown".
+- If the picture is not a floor plan, set isPlan false, return no rooms, and say what it is in notes.`;
+
+export async function readBriefWithClaude(client, { image, model, pageText }) {
+  const textBlock = pageText && String(pageText).trim()
+    ? `\n\nThe page's PDF text layer, exact as typed (each line "x,y text"):\n<pdf_text>\n${String(pageText).slice(0, 12000)}\n</pdf_text>`
+    : "";
+  const effort = ["low", "medium", "high"].includes(process.env.BYO_BRIEF_EFFORT) ? process.env.BYO_BRIEF_EFFORT : "medium";
+  const t0 = Date.now();
+  const resp = await client.messages.create({
+    model: model || "claude-opus-5",
+    max_tokens: 12000,
+    system: BRIEF_SYSTEM,
+    output_config: { effort, format: { type: "json_schema", schema: BRIEF_SCHEMA } },
+    messages: [{
+      role: "user",
+      content: [
+        { type: "image", source: { type: "base64", media_type: image.mediaType, data: image.data } },
+        { type: "text", text: `Read this house plan and return the rooms and overall sizes.${textBlock}` },
+      ],
+    }],
+  });
+  console.info(`[plan-brief] ${resp.model} effort=${effort} stop=${resp.stop_reason} in=${resp.usage?.input_tokens} out=${resp.usage?.output_tokens} ${Math.round((Date.now() - t0) / 1000)}s`);
+  if (resp.stop_reason === "refusal") {
+    throw Object.assign(new Error("The model declined to read this image. If it is a house plan, try a straighter, closer photo."), { status: 422 });
+  }
+  if (resp.stop_reason === "max_tokens") {
+    throw Object.assign(new Error("That plan was too much to read in one go. Photograph one floor at a time."), { status: 413 });
+  }
+  const text = (resp.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+  try { return JSON.parse(text); } catch {
+    throw Object.assign(new Error("The plan reader returned malformed data."), { status: 502 });
+  }
+}

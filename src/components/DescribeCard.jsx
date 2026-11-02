@@ -11,12 +11,16 @@
        reason, the built-in engine answers instead.
    Either way the reader only says WHAT was described; our estimating
    engines turn that into quantities and prices.
+
+   For a home there is a second tab, "Upload plans": a phone photo or PDF
+   of the plan, read by the AI plan reader (components/PlanUpload.jsx).
    ========================================================================= */
 import { useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { chat as aiChat } from "../ai/client.js";
 import { WallBuilder } from "../logic/wall-builder.js";
 import { parseScope, parseHouse, parseMulti, parseDeveloper, FEATURE_SCHEMAS } from "../logic/describe.js";
+import PlanUpload from "./PlanUpload.jsx";
 
 const COPY = {
   residential: {
@@ -71,8 +75,16 @@ function fromAi(mode, j) {
   return { kind: "house", features: j.features || {}, extras: Array.isArray(j.extras) ? j.extras : [], note: j.note, found: !!j.features };
 }
 
-export default function DescribeCard({ mode, useAi, onApply }) {
+const tabBtn = (on) => ({
+  flex: 1, padding: "7px 10px", border: "none", cursor: "pointer", font: "inherit", fontSize: 12, fontWeight: 700,
+  display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+  background: on ? TOKENS.ink : "transparent", color: on ? TOKENS.paper : TOKENS.ink,
+});
+
+export default function DescribeCard({ mode, useAi, onApply, onUpgrade }) {
   const copy = COPY[mode] || COPY.residential;
+  const plans = mode === "residential";       // a plan photo describes one home
+  const [tab, setTab] = useState("describe");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { tone: "ok"|"warn", text }
@@ -113,11 +125,26 @@ export default function DescribeCard({ mode, useAi, onApply }) {
         </div>
         <span className="ec-mono" title={useAi ? "Uses the AI assistant on your plan" : "Runs on our own engine — free, instant, no AI credits"}
           style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", padding: "3px 10px", borderRadius: 999, background: useAi ? TOKENS.emphasis : TOKENS.paperLight, color: useAi ? TOKENS.onEmphasis : TOKENS.steel, border: useAi ? "none" : `1px solid ${TOKENS.rule}` }}>
-          {useAi ? "AI" : "Built-in · free"}
+          {useAi || tab === "upload" ? "AI" : "Built-in · free"}
         </span>
       </div>
+      {plans && (
+        <div role="tablist" aria-label="How to start" style={{ display: "flex", border: `1px solid ${TOKENS.rule}`, borderRadius: 9, overflow: "hidden", margin: "4px 0 10px", background: TOKENS.card }}>
+          <button role="tab" aria-selected={tab === "describe"} style={tabBtn(tab === "describe")} onClick={() => setTab("describe")}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>
+            Describe it
+          </button>
+          <button role="tab" aria-selected={tab === "upload"} style={{ ...tabBtn(tab === "upload"), borderLeft: `1px solid ${TOKENS.rule}` }} onClick={() => setTab("upload")}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h3l2-2h6l2 2h3v12H4z" /><circle cx="12" cy="13" r="3.5" /></svg>
+            Upload plans
+          </button>
+        </div>
+      )}
+      {plans && tab === "upload" ? (
+        <PlanUpload useAi={useAi} onApply={onApply} onUpgrade={onUpgrade} />
+      ) : (<>
       <p style={{ fontSize: 12, color: TOKENS.inkSoft, margin: "0 0 8px", lineHeight: 1.45 }}>
-        Say it like you'd say it to a builder — we'll fill in everything below, then adjust what you like.
+        Say it like you'd say it to a builder — we'll fill in everything below, then adjust what you like.{plans ? " Have a plan? Use Upload plans — a phone photo is fine." : ""}
       </p>
       <textarea className="ec-input" rows={3} value={text} placeholder={`e.g. ${copy.example}`}
         onChange={(e) => setText(e.target.value)}
@@ -129,6 +156,7 @@ export default function DescribeCard({ mode, useAi, onApply }) {
       {msg && (
         <div className="ec-mono" style={{ fontSize: 11, marginTop: 8, lineHeight: 1.45, color: msg.tone === "ok" ? TOKENS.ok : TOKENS.alert }}>{msg.text}</div>
       )}
+      </>)}
     </div>
   );
 }

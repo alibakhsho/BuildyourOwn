@@ -4,7 +4,7 @@
    Both call the same reader in api/_lib/plan-reader.js.
    ========================================================================= */
 import Anthropic from "@anthropic-ai/sdk";
-import { readPlanWithClaude, planReaderError } from "../_lib/plan-reader.js";
+import { readPlanWithClaude, readBriefWithClaude, planReaderError } from "../_lib/plan-reader.js";
 import { nativeCors, preflight, LIMITS, clampModel } from "../_lib/guard.js";
 import { authorizeAi } from "../_lib/ai-access.js";
 import { withPlanRead } from "../_lib/metering.js";
@@ -39,7 +39,7 @@ export default async function handler(req, res) {
   const access = await authorizeAi(req);
   if (access.denied) return res.status(access.denied.status).json({ error: access.denied.error, code: access.denied.code });
 
-  const { image, imageWidth, imageHeight, pxPerMetre, model, pageText } = req.body || {};
+  const { image, imageWidth, imageHeight, pxPerMetre, model, pageText, purpose } = req.body || {};
   if (!image?.data || !image?.mediaType) {
     return res.status(400).json({ error: "An image (base64 data + mediaType) is required." });
   }
@@ -49,7 +49,10 @@ export default async function handler(req, res) {
   try {
     // One plan read is reserved against the plan's monthly cap before the
     // model call, and refunded if the call fails.
-    const data = await withPlanRead(access, () => readPlanWithClaude(new Anthropic(), {
+    const data = await withPlanRead(access, () => purpose === "brief"
+      // "Upload plans" on the Describe card: rooms and sizes, no polygons
+      ? readBriefWithClaude(new Anthropic(), { image, model: clampModel(model, undefined), pageText: typeof pageText === "string" ? pageText.slice(0, 12000) : "" })
+      : readPlanWithClaude(new Anthropic(), {
       image, imageWidth, imageHeight, pxPerMetre, model: clampModel(model, undefined),
       pageText: typeof pageText === "string" ? pageText.slice(0, 16000) : "",
     }));

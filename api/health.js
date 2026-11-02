@@ -1,7 +1,13 @@
-/* Vercel serverless health check — GET /api/health → { ok, hasKey, billing, email }.
+/* Vercel serverless health check — GET /api/health → { ok, hasKey, billing, email, site }.
+
+   Also serves the land lookups, GET /api/site/:op (see api/_lib/site.js):
+   vercel.json rewrites them to /api/health?site=:op, because the Hobby plan
+   caps a project at 12 functions and every one is already in use.
    Lets you confirm the deployment picked up its env vars without ever
    exposing a value: only whether each is set (and, for Stripe, whether the
    key is a test or live one). Mirrors server/index.js's /api/health. */
+import siteHandler from "./_lib/site.js";
+
 const set = (k) => !!(process.env[k] && process.env[k].trim());
 
 /* Which kind of Stripe key is configured — the prefix only, never the key. */
@@ -28,9 +34,12 @@ export function healthReport() {
       resendKey: set("RESEND_API_KEY"),
       fromSet: set("MARKET_EMAIL_FROM"),
     },
+    // "Your land": Google when keyed, free providers otherwise.
+    site: { googleMaps: set("GOOGLE_MAPS_API_KEY") },
   };
 }
 
-export default function handler(_req, res) {
+export default function handler(req, res) {
+  if (req.query?.site) return siteHandler(req, res, req.query.site);
   res.status(200).json(healthReport());
 }

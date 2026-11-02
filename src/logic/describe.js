@@ -251,6 +251,99 @@ export function houseSpecFromFeatures(f, base = {}) {
   return spec;
 }
 
+/* ---------- a plan photo / PDF page → the house ---------- */
+
+/* Plan room types → the estimate's room schedule types (App ROOM_TYPES). */
+const PLAN_ROOM = {
+  Bedroom: "Bedroom", Living: "Living", Family: "Living", Dining: "Dining", Study: "Study", Media: "Media",
+  Laundry: "Laundry", Hallway: "Hallway", "Walk-in robe": "Walk-in robe", Other: "Other",
+};
+const FINISH = { Bedroom: "carpet", Living: "timber", Dining: "timber", Study: "carpet", Media: "carpet", Laundry: "tile", Hallway: "timber", "Walk-in robe": "carpet", Other: "timber" };
+const WET = new Set(["Bathroom", "Ensuite", "WC"]);
+const GARAGE_W = 6.0;   // house-geometry STD.garage.w — the model adds the garage beside the house
+
+/**
+ * What the plan reader saw (ai/vision.js normaliseBrief) → the house spec.
+ * Rooms keep their printed names and sizes; a room printed without a size
+ * gets a typical one so it still prices, and is counted in `guessed`.
+ * Bathrooms, ensuites and WCs go to the bathroom schedule; kitchens to the
+ * kitchen schedule; the garage to the garage toggle (the model draws it).
+ * @returns {{ spec, summary: { rooms, bedrooms, bathrooms, storeys, footprint:[w,l], guessed } }}
+ */
+export function houseSpecFromPlan(b, base = {}) {
+  const rooms = Array.isArray(b?.rooms) ? b.rooms : [];
+  const count = (t) => rooms.filter((r) => r.type === t).length;
+  const bedrooms = count("Bedroom");
+  const wet = rooms.filter((r) => WET.has(r.type));
+  const garageRoom = rooms.find((r) => r.type === "Garage");
+  const levels = rooms.length ? Math.max(...rooms.map((r) => r.level || 0)) + 1 : 1;
+  const storeys = Math.max(1, Math.min(3, b?.storeys || levels));
+  const hasGarage = (b?.garageSpaces || 0) > 0 || !!garageRoom;
+
+  // footprint: printed overalls (minus the garage the model adds beside the house),
+  // else printed total area, else the rooms themselves plus walls and circulation
+  let widthM = null, lengthM = null, areaM2 = null;
+  if (b?.overallWidthM && b?.overallLengthM) {
+    const gArea = hasGarage ? (garageRoom?.widthM && garageRoom?.lengthM ? garageRoom.widthM * garageRoom.lengthM : GARAGE_W * 6) : 0;
+    lengthM = Math.round(b.overallLengthM * 2) / 2;
+    widthM = Math.max(6, Math.round(((b.overallWidthM * b.overallLengthM - gArea) / b.overallLengthM) * 2) / 2);
+  } else if (b?.totalAreaM2) {
+    areaM2 = b.totalAreaM2;
+  } else {
+    const sized = rooms.filter((r) => r.type !== "Garage" && r.type !== "Alfresco" && r.widthM && r.lengthM);
+    if (sized.length >= 3) areaM2 = Math.round(sized.reduce((a, r) => a + r.widthM * r.lengthM, 0) * 1.2);
+  }
+
+  const features = { storeys, garage: hasGarage };
+  if (bedrooms) features.bedrooms = bedrooms;
+  if (wet.length) features.bathrooms = wet.filter((r) => r.type !== "WC").length || 1;
+  if (widthM && lengthM) { features.widthM = widthM; features.lengthM = lengthM; }
+  else if (areaM2) features.areaM2 = areaM2;
+  if (b?.roof) features.roof = b.roof;
+  if (b?.cladding) features.cladding = b.cladding;
+  const spec = houseSpecFromFeatures(features, base);
+
+  let guessed = 0;
+  const size = (r, w, l) => {
+    if (r.widthM && r.lengthM) return [r.widthM, r.lengthM];
+    guessed++;
+    return [w, l];
+  };
+  const TYPICAL = { Bedroom: [3.4, 3.1], Living: [5, 4.5], Dining: [3.6, 3.2], Study: [3, 2.8], Media: [4, 3.6], Laundry: [2.2, 2], Hallway: [1.2, 6], "Walk-in robe": [2, 1.8], Other: [3, 3] };
+  const schedule = rooms.filter((r) => PLAN_ROOM[r.type]);
+  if (schedule.length) {
+    let firstBed = true;
+    spec.rooms = schedule.map((r) => {
+      const type = PLAN_ROOM[r.type];
+      const [w, l] = size(r, ...(TYPICAL[type] || TYPICAL.Other));
+      const isBed = type === "Bedroom";
+      const master = isBed && (firstBed || /master|main|parent/i.test(r.name));
+      if (isBed) firstBed = false;
+      return { id: rid(), name: r.name, type, widthM: w, lengthM: l, floorFinish: FINISH[type], robe: isBed ? (master ? "walk_in" : "built_in") : "none", robeLengthM: isBed ? (master ? 2.4 : 1.8) : 0 };
+    });
+  }
+  if (wet.length) {
+    spec.bathrooms = wet.map((r, i) => {
+      const [w, l] = size(r, r.type === "WC" ? 1.0 : r.type === "Ensuite" ? 2.6 : 3.0, r.type === "WC" ? 1.6 : r.type === "Ensuite" ? 2.0 : 2.4);
+      return { id: rid(), label: r.name, widthM: w, lengthM: l, hasBath: r.type === "Bathroom" && i === wet.findIndex((x) => x.type === "Bathroom"),
+        hasShower: r.type !== "WC", vanityCount: 1, toiletCount: 1, wallTileFullHeight: r.type === "Ensuite" };
+    });
+  }
+  const kitchen = rooms.find((r) => r.type === "Kitchen");
+  if (kitchen) {
+    const run = kitchen.widthM && kitchen.lengthM ? Math.round(Math.max(3, Math.min(10, (kitchen.widthM + kitchen.lengthM) * 0.75)) * 10) / 10 : 5;
+    const prev = (base.kitchens || [])[0] || {};
+    spec.kitchens = [{ cabinetry: "flatpack", benchtop: "laminate", splashback: "tile", appliances: "mid", sinkTap: true, ...prev, id: prev.id || rid(), benchLengthM: run, island: run >= 6 }];
+  }
+  if (b?.windows) spec.openings = { ...spec.openings, windowsCount: b.windows, windowsM2: Math.round(b.windows * 1.7) };
+  if (b?.externalDoors) spec.openings = { ...spec.openings, doors: Math.max(1, Math.min(8, b.externalDoors)) };
+
+  return {
+    spec,
+    summary: { rooms: rooms.length, bedrooms, bathrooms: wet.length, storeys, footprint: [spec.widthM, spec.lengthM], guessed, garage: hasGarage },
+  };
+}
+
 /* ---------- multi-dwelling ---------- */
 
 const UNIT_WORD = /(house|home|dwelling|unit|townhouse|villa|duplex|terrace|lot)s?/;
