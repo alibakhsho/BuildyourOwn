@@ -11,6 +11,7 @@ import { easeOutCubic } from "../lib/format.js";
 import { buildHouse } from "./house-builder.js";
 import { highlightMember } from "./structure-render.js";
 import { SYSTEMS } from "../logic/structure/model.js";
+import { explodeOffset, explodeCycle, EXPLODE_SPREAD } from "../logic/structure/explode.js";
 import { grassTexture, gravelTexture } from "./materials3d.js";
 import { CinemaPlayer } from "./cinema.js";
 
@@ -35,6 +36,7 @@ export class Engine3D {
     if ("colorSpace" in skyTex) skyTex.colorSpace = THREE.SRGBColorSpace;
     this.scene.background = skyTex;
     this.scene.fog = new THREE.Fog(0xdfe6e2, 62, 175);
+    this._sky = skyTex; this._fog = this.scene.fog;
 
     this.camera = new THREE.PerspectiveCamera(45, this.width / this.height, 0.1, 500);
     this.camera.position.set(28, 22, 28);
@@ -268,6 +270,7 @@ export class Engine3D {
     const lot = structure?.landscape?.lot;
     this._frameCamera(lot ? (lot.X1 - lot.X0) * 0.8 : spec.widthM, lot ? (lot.Z1 - lot.Z0) * 0.8 : spec.lengthM, (spec.wallHeightM || 2.7) * (spec.floors || 1));
     this.applyViewMode();
+    if (this.explodeT) this.setExplode(this.explodeT);
     this._needsRender = true;
   }
 
@@ -332,6 +335,7 @@ export class Engine3D {
   /* Show or hide the ground, pad, grid and trees. */
   setSiteVisible(v) {
     this.siteVisible = !!v;
+    if (this._studio) { this._studio.site = !!v; this._needsRender = true; return; }
     for (const o of this.siteObjects || []) o.visible = !!v;
     // a modelled yard has its own lawn and paving: no building pad or setout grid over it
     if (this._yardOn) { if (this._pad) this._pad.visible = false; if (this._grid) this._grid.visible = false; }
@@ -429,6 +433,108 @@ export class Engine3D {
         o.material = o.userData._xray; o.castShadow = false;
       } else { o.material = o.userData._mat; o.castShadow = true; }
     });
+  }
+
+  /* ---- Exploded assembly (logic/structure/explode.js says where each
+     piece goes). Only translations change, so it is one pass over the
+     instance matrices; picking, highlights, sections and CAD lines all
+     follow the moved pieces. ---- */
+  _explodeSetup() {
+    const s = this.structure;
+    if (!s) return null;
+    const env = { w: s.env?.w ?? this.spec?.widthM ?? 10, l: s.env?.l ?? this.spec?.lengthM ?? 10, plateY: s.env?.plateY ?? 2.7 };
+    const entries = [], bySys = new Map();
+    this.buildingGroup.traverse((o) => {
+      const ids = o.userData && o.userData.memberIds;
+      if (!o.isMesh || !ids || !ids.length) return;
+      const n = ids.length, off = new Float32Array(n * 3), ctr = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const m = s.members[ids[i]];
+        if (!m) continue;
+        off.set(explodeOffset(m, env), i * 3);
+        ctr.set([(m.a[0] + m.b[0]) / 2, (m.a[1] + m.b[1]) / 2, (m.a[2] + m.b[2]) / 2], i * 3);
+      }
+      const E = { o, off, ctr, base: o.isInstancedMesh ? Float32Array.from(o.instanceMatrix.array) : o.position.toArray() };
+      entries.push(E);
+      // a spread sample of each system's pieces, for the callouts
+      const sys = o.userData.sys, list = bySys.get(sys) || [];
+      const step = Math.max(1, Math.floor(n / 60));
+      for (let i = 0; i < n; i += step) list.push([E, i]);
+      bySys.set(sys, list);
+    });
+    return { entries, bySys };
+  }
+
+  /* t 0..1 pulls the building apart. pieces: also open a gap between
+     every individual piece (studs, bricks, battens, screws). */
+  setExplode(t, opts = {}) {
+    const prev = this.explodeT || 0;
+    this.explodeT = Math.max(0, Math.min(1, +t || 0));
+    this._followExplode(this.explodeT - prev);
+    if ("pieces" in opts) this.explodePieces = !!opts.pieces;
+    if (!this._explode) this._explode = this._explodeSetup();
+    if (!this._explode) return;
+    const e = this.explodeT, k = this.explodePieces ? EXPLODE_SPREAD * e : 0;
+    for (const { o, off, ctr, base } of this._explode.entries) {
+      if (o.isInstancedMesh) {
+        const arr = o.instanceMatrix.array, n = off.length / 3;
+        for (let i = 0; i < n; i++) {
+          const j = i * 16 + 12, q = i * 3;
+          arr[j] = base[j] + off[q] * e + ctr[q] * k;
+          arr[j + 1] = base[j + 1] + off[q + 1] * e + ctr[q + 1] * k * 0.5;
+          arr[j + 2] = base[j + 2] + off[q + 2] * e + ctr[q + 2] * k;
+        }
+        o.instanceMatrix.needsUpdate = true;
+      } else {
+        o.position.set(base[0] + off[0] * e + ctr[0] * k, base[1] + off[1] * e + ctr[1] * k * 0.5, base[2] + off[2] * e + ctr[2] * k);
+      }
+    }
+    this._needsRender = true;
+  }
+
+  /* Keep the pulled-apart stack in frame: as the layers rise, the orbit
+     target rises with them and the camera eases back a little. */
+  _followExplode(dt) {
+    if (!dt || !this.structure || this.mode !== "orbit" || this.camera !== this.persp) return;
+    const env = this.structure.env || {};
+    const S = Math.max(env.w || 10, env.l || 10) * 0.12 + 0.6;
+    const t = this.controls.target, cam = this.camera.position;
+    const off = cam.clone().sub(t).multiplyScalar(Math.exp(dt * 0.26));   // exact inverse on the way back
+    t.y += dt * S * 1.6;
+    cam.copy(t).add(off);
+    if (this._drift) this._drift = null;
+    this.controls.update();
+  }
+
+  /* Loop assemble → explode → assemble, like the joinery viewer. */
+  playExplode(on) {
+    this._explodePlay = on ? { t0: performance.now() - 0.15 * 9000 } : null;
+    this._needsRender = true;
+  }
+
+  /* Numbered labels for the exploded layers: one per visible system, on
+     the sampled piece nearest the camera, in screen pixels. */
+  explodeCallouts() {
+    if (!this._explode || !(this.explodeT > 0.05)) return [];
+    const lv = this._layers(), e = this.explodeT, k = this.explodePieces ? EXPLODE_SPREAD * e : 0;
+    const cam = this.camera, w = this.width || 1, h = this.height || 1, v = new THREE.Vector3();
+    const out = [];
+    for (const [sys, list] of this._explode.bySys) {
+      if (lv[sys] === false || !SYSTEMS[sys]) continue;
+      let best = null, bd = Infinity;
+      for (const [E, i] of list) {
+        if (!E.o.visible || (E.o.isInstancedMesh && i >= E.o.count)) continue;
+        const q = i * 3;
+        v.set(E.ctr[q] + E.off[q] * e + E.ctr[q] * k, E.ctr[q + 1] + E.off[q + 1] * e + E.ctr[q + 1] * k * 0.5, E.ctr[q + 2] + E.off[q + 2] * e + E.ctr[q + 2] * k);
+        const d = v.distanceToSquared(cam.position);
+        if (d < bd) { bd = d; best = v.clone(); }
+      }
+      if (!best) continue;
+      best.project(cam);
+      if (best.z > 1 || Math.abs(best.x) > 1.1 || Math.abs(best.y) > 1.1) continue;
+      out.push({ sys, label: SYSTEMS[sys].label, order: SYSTEMS[sys].order, x: (best.x + 1) / 2 * w, y: (1 - best.y) / 2 * h });
+    }
+    return out.sort((a, b) => a.order - b.order).map((c, i) => ({ ...c, n: i + 1 }));
   }
 
   /* Orbit radius + height that frame the whole building whatever its size. */
@@ -541,14 +647,49 @@ export class Engine3D {
      (white architectural model with edges). */
   setStyle(style) {
     this.style = style;
-    if ((style === "lines" || style === "white") && !this.cadLines) {
+    if (this._edgeStyle() && !this.cadLines) {
       this.cadLines = new CadLines(this.renderer, this.scene, this.camera, (o) => {
         for (let p = o; p; p = p.parent) if (p === this.buildingGroup) return true;
         return false;
       });
     }
+    this._applyStudio(style === "studio");
     this._applyStyle();
     this._needsRender = true;
+  }
+  /* Styles drawn with CAD edges over the shading. */
+  _edgeStyle() { return this.style === "lines" || this.style === "white" || this.style === "studio"; }
+  /* "studio": the model on a plain seamless backdrop with a soft contact
+     shadow and CAD edges — the look of an exploded joinery drawing. The
+     sky, fog and site come back when you leave it. */
+  _applyStudio(on) {
+    if (on === !!this._studio) return;
+    if (on) {
+      if (!this._studioBg) {
+        const c = document.createElement("canvas");
+        c.width = 2; c.height = 256;
+        const g = c.getContext("2d"), grad = g.createLinearGradient(0, 0, 0, 256);
+        grad.addColorStop(0, "#eceae5"); grad.addColorStop(0.6, "#e2dfd8"); grad.addColorStop(1, "#d6d3cb");
+        g.fillStyle = grad; g.fillRect(0, 0, 2, 256);
+        this._studioBg = new THREE.CanvasTexture(c);
+        if ("colorSpace" in this._studioBg) this._studioBg.colorSpace = THREE.SRGBColorSpace;
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(800, 800), new THREE.ShadowMaterial({ opacity: 0.22 }));
+        floor.rotation.x = -Math.PI / 2; floor.position.y = -0.02; floor.receiveShadow = true;
+        this._studioFloor = floor;
+      }
+      this._studio = { site: this.siteVisible !== false };
+      this.scene.background = this._studioBg;
+      this.scene.fog = null;
+      this.scene.add(this._studioFloor);
+      for (const o of this.siteObjects || []) o.visible = false;
+    } else {
+      const site = this._studio.site;
+      this._studio = null;
+      this.scene.background = this._sky;
+      this.scene.fog = this._fog;
+      this.scene.remove(this._studioFloor);
+      this.setSiteVisible(site);
+    }
   }
   _applyStyle() {
     const white = this.style === "white";
@@ -572,7 +713,7 @@ export class Engine3D {
 
   /* One frame, in the current style. */
   renderFrame() {
-    if ((this.style === "lines" || this.style === "white") && this.cadLines) {
+    if (this._edgeStyle() && this.cadLines) {
       const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
       if (size.x !== this._linesW || size.y !== this._linesH) { this._linesW = size.x; this._linesH = size.y; this.cadLines.setSize(size.x, size.y); }
       this.cadLines.setCamera(this.camera);
@@ -611,6 +752,7 @@ export class Engine3D {
       if (o.userData._xray) o.userData._xray.dispose();
     });
     while (g.children.length) g.remove(g.children[0]);
+    this._explode = null;
   }
 
   /* Empty the model entirely — materials-only mode shows just the site. */
@@ -1130,6 +1272,11 @@ export class Engine3D {
         if (this.onComplete) this.onComplete();
       }
       this.setProgress(this.progress);
+    }
+    if (this._explodePlay && this.mode === "orbit") {
+      const t = explodeCycle((performance.now() - this._explodePlay.t0) / 1000);
+      this.setExplode(t);
+      this.onExplode?.(t);
     }
     if (this.autoRotate && this.mode === "orbit" && this.view === "persp" && this.controls.enabled) this._driftStep();
     // damping and the drift keep the camera moving after input stops
