@@ -32,6 +32,6 @@ export const SITE_URL = "https://buildyourown.dev";
    tagId looks like "AW-123456789"; signUpLabel is the conversion action's
    label (the part after the slash in its send_to, e.g. "AbC-dEfGhIj"). */
 export const GOOGLE_ADS = Object.freeze({
-  tagId: "",
-  signUpLabel: "",
+  tagId: "AW-18557376869",
+  signUpLabel: "rL3jCKqOwbIdEOWy7JBF",
 });
