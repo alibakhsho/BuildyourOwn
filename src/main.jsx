@@ -4,6 +4,7 @@ import App from "./App.jsx";
 import "./styles/tailwind.css";
 import { applyTheme, initialTheme } from "./design/theme.js";
 import { trackPageView } from "./lib/analytics.js";
+import { loadGoogleAds } from "./lib/google-ads.js";
 import { AuthProvider } from "./state/auth.jsx";
 import { supabase } from "./lib/supabase.js";
 import { isNative, initNativeAuth } from "./lib/native.js";
@@ -13,6 +14,9 @@ applyTheme(initialTheme());
 
 // Track page views for analytics funnel
 trackPageView();
+
+// Google Ads tag: off until its ID is set in lib/public-config.js; web only.
+loadGoogleAds();
 
 // Finishes Google / email-link sign-ins that return to the app by deep link.
 initNativeAuth(supabase);

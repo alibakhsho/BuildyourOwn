@@ -13,6 +13,8 @@
        lib/analytics.js sends only the referring site's origin
        (Vercel Web Analytics is not loaded; if it's added, update "collect")
      - AI chat, project summaries and plan images go to Anthropic
+     - the Google Ads tag (lib/google-ads.js) loads on the live website
+       only, once its ID is set in lib/public-config.js
      - fonts load from Google Fonts (design/system.js); self-hosting them
        would let "share" and "overseas" drop Google for most visitors
      - api/account/delete.js deletes the photos, then the account and its
@@ -68,7 +70,7 @@ export function privacyPolicy(L = LEGAL) {
           { list: [
             "Sellers you contact: we store your enquiry and send it to that seller, by email and in the app, so they can reply. Sellers are separate businesses that handle your details under their own privacy obligations, and our Terms require them to use your details only to deal with your enquiry.",
             "Everyone: profiles, portfolios and listings sellers publish are public.",
-            "Our service providers, who store or process information for us: Supabase (database, sign-in and photo storage), Vercel (website hosting and server logs), Stripe (payments), Resend (sending email), Anthropic (AI features), Google (fonts used on the site, which means your browser sends Google your IP address and browser details, and Google sign-in if you use it), and Xero or MYOB (only if you connect your accounting software, once available).",
+            "Our service providers, who store or process information for us: Supabase (database, sign-in and photo storage), Vercel (website hosting and server logs), Stripe (payments), Resend (sending email), Anthropic (AI features), Google (fonts used on the site, which means your browser sends Google your IP address and browser details, Google sign-in if you use it, and the Google Ads tag on our website, which tells us when an ad led to a sign-up), and Xero or MYOB (only if you connect your accounting software, once available).",
             "Others where the law requires or allows it, for example to respond to a lawful request or to protect someone's safety, and a buyer of our business if it's sold.",
           ] },
           "We don't sell personal information.",
@@ -111,7 +113,7 @@ export function privacyPolicy(L = LEGAL) {
         id: "cookies",
         heading: "Cookies and storage on your device",
         body: [
-          "We use your browser's storage to keep you signed in, remember your settings and save your projects on your device. We don't use advertising cookies or third-party advertising trackers.",
+          "We use your browser's storage to keep you signed in, remember your settings and save your projects on your device. On our website (not the app), we use the Google Ads tag, which sets cookies so Google can tell us when someone who clicked one of our ads goes on to create an account. Google receives your IP address, browser details and the pages you visit on our site. You can turn off personalised ads at adssettings.google.com. We don't use any other advertising trackers.",
         ],
       },
       {

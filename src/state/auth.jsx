@@ -15,6 +15,7 @@ import { supabase, isAuthConfigured, redirectTo, authLinkState, onAuthLink, fini
 import { isNative, openExternal, onAppResume } from "../lib/native.js";
 import { startCloudSync, stopCloudSync } from "./cloud-sync.js";
 import { deleteAccountOnServer, BillingError } from "../lib/billing.js";
+import { trackSignUpConversion } from "../lib/google-ads.js";
 import { PLANS, entitlementsFor, SEGMENT_PLAN, planRank } from "../lib/entitlements.js";
 
 const AuthCtx = createContext(null);
@@ -82,6 +83,7 @@ export function AuthProvider({ children }) {
     let pending = false;
     try { pending = localStorage.getItem(OAUTH_TERMS_KEY) === "1"; localStorage.removeItem(OAUTH_TERMS_KEY); } catch { /* storage blocked */ }
     if (!pending) return;
+    trackSignUpConversion();                     // first return from a Google sign-up
     supabase.auth.updateUser({ data: { terms_version: LEGAL.termsVersion, privacy_version: LEGAL.privacyVersion } }).catch(() => {});
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -143,6 +145,7 @@ export function AuthProvider({ children }) {
       },
     });
     if (error) throw new Error(error.message);
+    trackSignUpConversion();
     // With email confirmation on, there is a user but no session yet.
     return { needsEmailConfirmation: !data.session };
   }, []);

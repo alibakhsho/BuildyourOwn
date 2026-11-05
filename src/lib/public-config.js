@@ -26,3 +26,12 @@ export const PUBLIC_SUPABASE = Object.freeze({
 /* The live site — used for links that must point at production (email
    redirects from the phone app, the app's API base). */
 export const SITE_URL = "https://buildyourown.dev";
+
+/* Google Ads tag (lib/google-ads.js). Both values are public: they're in the
+   page source of every site that runs Google Ads. Empty = tag off.
+   tagId looks like "AW-123456789"; signUpLabel is the conversion action's
+   label (the part after the slash in its send_to, e.g. "AbC-dEfGhIj"). */
+export const GOOGLE_ADS = Object.freeze({
+  tagId: "",
+  signUpLabel: "",
+});
