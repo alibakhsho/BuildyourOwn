@@ -1,14 +1,15 @@
 /* =========================================================================
    ModelTools — the CAD-style controls around the 3D model.
      ModelToolbar  views (3D / plan / elevations), display style, quick
-                   presets (finished, frame, structure, slab, x-ray) and
-                   section cuts
+                   presets (finished, frame, structure, slab, x-ray),
+                   section cuts and the exploded assembly
+     ExplodeCallouts  numbered layer labels over the exploded model
      LayersPanel   every building system as a layer, with piece counts
      PieceCard     what you clicked: mark, product, size, where it is
      CutList       the full schedule / cut list, CSV download
    The engine does the drawing; these only call its API (engine3D.js).
    ========================================================================= */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { colors as TOKENS } from "../design/system.js";
 import { buildStructure, schedule, scheduleCsv, unitLabel, SYSTEMS } from "../logic/structure/index.js";
 import { paramGroupOf } from "../engine/explore.js";
@@ -23,7 +24,7 @@ const PRESETS = {
   xray:       { label: "X-ray",     layers: {}, site: true, mode: "structural" },
 };
 const VIEWS = [["persp", "3D"], ["top", "Plan"], ["front", "Front"], ["back", "Rear"], ["left", "Left"], ["right", "Right"]];
-const STYLES = [["realistic", "Realistic"], ["lines", "Lines"], ["white", "White model"]];
+const STYLES = [["realistic", "Realistic"], ["lines", "Lines"], ["white", "White model"], ["studio", "Studio"]];
 
 const group = { display: "inline-flex", border: `1px solid ${TOKENS.rule}`, borderRadius: 8, overflow: "hidden", background: TOKENS.card };
 const segBtn = (on) => ({
@@ -38,7 +39,17 @@ export function ModelToolbar({ engine, onPreset }) {
   const [preset, setPreset] = useState("finished");
   const [section, setSection] = useState("off");
   const [at, setAt] = useState(0);
+  const [explode, setExplode] = useState(engine?.explodeT || 0);
+  const [exploding, setExploding] = useState(false);
+  const [pieces, setPieces] = useState(!!engine?.explodePieces);
   const env = engine?.structure?.env;
+
+  // the engine's assemble/explode loop drives the slider while it plays
+  useEffect(() => {
+    if (!engine) return;
+    engine.onExplode = (t) => setExplode(t);
+    return () => { engine.onExplode = null; engine.playExplode(false); };
+  }, [engine]);
 
   // ranges for the section slider, from the building itself
   const range = useMemo(() => {
@@ -81,6 +92,21 @@ export function ModelToolbar({ engine, onPreset }) {
         ))}
       </div>
       <div style={{ display: "inline-flex", alignItems: "center", gap: 8, ...group, padding: "3px 8px" }}>
+        <span style={label}>Explode</span>
+        <button style={{ ...segBtn(exploding), border: `1px solid ${TOKENS.rule}`, borderRadius: 6, padding: "3px 8px" }} aria-pressed={exploding}
+          title="Pull the building apart and put it back together, on a loop"
+          onClick={() => { const on = !exploding; setExploding(on); engine.playExplode(on); }}>{exploding ? "Pause" : "Play"}</button>
+        <input type="range" min={0} max={1} step={0.01} value={explode} aria-label="Explode amount"
+          onChange={(e) => { setExploding(false); engine.playExplode(false); setExplode(+e.target.value); engine.setExplode(+e.target.value); }}
+          style={{ width: 110, accentColor: TOKENS.ink }} />
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+          title="Also open a gap between every stud, brick, batten and screw">
+          <input type="checkbox" checked={pieces} style={{ accentColor: TOKENS.ink }}
+            onChange={(e) => { setPieces(e.target.checked); engine.setExplode(engine.explodeT || 0, { pieces: e.target.checked }); }} />
+          Every piece
+        </label>
+      </div>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, ...group, padding: "3px 8px" }}>
         <span style={label}>Section</span>
         <select value={section} onChange={(e) => doSection(e.target.value)}
           style={{ border: "none", background: "transparent", font: "inherit", fontSize: 12, fontWeight: 600, color: TOKENS.ink, cursor: "pointer" }}>
@@ -95,6 +121,38 @@ export function ModelToolbar({ engine, onPreset }) {
             style={{ width: 120, accentColor: TOKENS.ink }} aria-label="Section position" />
         )}
       </div>
+    </div>
+  );
+}
+
+/* Numbered labels on the exploded layers, laid over the 3D view (the
+   parent must be position: relative). Polls the engine each frame while
+   the model is apart; draws nothing when it is assembled. */
+export function ExplodeCallouts({ engine }) {
+  const [items, setItems] = useState([]);
+  const last = useRef("");
+  useEffect(() => {
+    if (!engine) return;
+    let raf = 0;
+    const tick = () => {
+      const list = engine.explodeCallouts?.() || [];
+      const key = list.map((c) => `${c.sys}:${c.x | 0}:${c.y | 0}`).join("|");
+      if (key !== last.current) { last.current = key; setItems(list); }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [engine]);
+  if (!items.length) return null;
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+      {items.map((c) => (
+        <div key={c.sys} style={{ position: "absolute", left: c.x, top: c.y, transform: "translate(-50%, -50%)", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+          <span style={{ width: 20, height: 20, borderRadius: "50%", background: TOKENS.hivis, color: TOKENS.onHivis, display: "grid", placeItems: "center",
+            fontSize: 11, fontWeight: 700, fontFamily: "var(--font-mono, monospace)", boxShadow: `0 0 0 3px ${TOKENS.cardVeil}` }}>{c.n}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: TOKENS.ink, background: TOKENS.cardVeil, padding: "1px 6px", borderRadius: 3 }}>{c.label}</span>
+        </div>
+      ))}
     </div>
   );
 }
