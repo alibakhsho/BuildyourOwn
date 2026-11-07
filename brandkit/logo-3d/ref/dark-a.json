@@ -1,0 +1,8 @@
+{
+ "prompt": "Use the reference image as the exact shape and colour guide: a geometric isometric house with one gable wall holding a tall recessed door, one side wall and one flat roof plane, seen from the same angle. Keep the same silhouette, proportions and straight edges. Render it as a solid object of thick richly tinted cast glass with crisp bevelled edges and a very fine, smooth frosted satin surface. Each plane is its own separately coloured glass slab, joined at clean seams, so colour does not bleed between them: the roof slab is pure clear lilac purple glass with no red or pink in it, the gable wall is rich coral pink glass, the side wall is vivid signal red glass, the door is deep crimson glass. Background is a seamless smooth neutral charcoal grey studio backdrop, evenly lit and noise free. The glass is lit softly from within so each colour glows cleanly, with bright crisp edge highlights and a soft mirror reflection on the floor. Single object centred with generous empty space. Clean, smooth, noise free, no heavy grain. No text, no letters, no logos, no windows, no chimney, no extra objects. Premium 3D product render.",
+ "aspect_ratio": "1:1",
+ "resolution": "2k",
+ "image_urls": [
+  "https://d3snorpfx4xhv8.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/f6cc2332-ae1a-45bd-b849-d07fb408354b.png"
+ ]
+}

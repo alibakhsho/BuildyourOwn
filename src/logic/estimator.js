@@ -169,7 +169,7 @@ export const Estimator = {
       stairFlights, balustradeLM, staircaseType,
       windowsM2: openings.windowsM2, windowsCount: openings.windowsCount,
       doorsExternal: openings.doors, doorsInternal: internalDoors,
-      hasGarage,
+      hasGarage, garageDoors: hasGarage ? (spec.garageRearDoor ? 2 : 1) : 0,
       roofType, claddingType, framingType, floorFinish,
     };
   },
@@ -228,7 +228,7 @@ export const Estimator = {
     add("window_alum_double", takeoff.windowsM2);
     add("door_external", takeoff.doorsExternal);
     add("door_internal", takeoff.doorsInternal);
-    if (takeoff.hasGarage) add("garage_door", 1);
+    if (takeoff.hasGarage) add("garage_door", takeoff.garageDoors || 1);
 
     // interior — linings
     add("plasterboard", takeoff.plasterboardM2);

@@ -225,7 +225,7 @@ export function buildStructure(spec, { detail = "full" } = {}) {
   return {
     members: M.members,
     env, buildUp: bu, roof, layout, openings, extWalls, partitions,
-    garage: garage ? { x0: -w / 2 - G.w, x1: -w / 2, z0: l / 2 - G.l, z1: l / 2, doorW: G.doorW, doorH: G.doorH, h: G.h } : null,
+    garage: garage ? { x0: -w / 2 - G.w, x1: -w / 2, z0: l / 2 - G.l, z1: l / 2, doorW: G.doorW, doorH: G.doorH, h: G.h, rearDoor: !!spec.garageRearDoor } : null,
     spec,
     landscape,
     waypoints,
@@ -246,21 +246,26 @@ export function buildStructure(spec, { detail = "full" } = {}) {
 
 function buildGarage(M, C) {
   const { env, G, o, fd, FR, clad, cover, pitch, lite } = C;
+  const spec = C.spec || {};
   const { w, l, ffl, slabThk } = env;
   const gx0 = -w / 2 - G.w, gx1 = -w / 2, gz0 = l / 2 - G.l, gz1 = l / 2;
   const host = "Garage";
   buildSlab(M, { code: "GS", host: "Garage slab", x0: gx0, x1: gx1, z0: gz0, z1: gz1, top: ffl, thk: slabThk });
   const doorS = G.w / 2 - o;
+  const rear = !!spec.garageRearDoor;
+  const backS = G.w / 2 + o;                 // the back wall runs the other way, from the house side
   const walls = [
     { code: "GAR1", side: "front", start: [gx0 + o, gz1 - o], dir: [1, 0], out: [0, 1], len: G.w,
       ops: [{ s0: doorS - G.doorW / 2 - 0.01, s1: doorS + G.doorW / 2 + 0.01, sill: 0, head: G.doorH + 0.01, kind: "garage", s: doorS }] },
-    { code: "GAR2", side: "back", start: [gx1 + o, gz0 + o], dir: [-1, 0], out: [0, -1], len: G.w, ops: [] },
+    { code: "GAR2", side: "back", start: [gx1 + o, gz0 + o], dir: [-1, 0], out: [0, -1], len: G.w,
+      ops: rear ? [{ s0: backS - G.doorW / 2 - 0.01, s1: backS + G.doorW / 2 + 0.01, sill: 0, head: G.doorH + 0.01, kind: "garage", s: backS }] : [] },
     { code: "GAR3", side: "left", start: [gx0 + o, gz0 + o + fd], dir: [0, 1], out: [-1, 0], len: G.l - 2 * o - 2 * fd, ops: [] },
   ];
   for (const d of walls) {
     const W = { ...d, host: `Garage ${SIDE[d.side].toLowerCase()} wall`, y0: ffl, h: G.h, kind: "ext", frame: FR.ext, plateT: FR.plateT, tieDown: "rod", brace: true };
     frameWall(M, W);
     if (d.side === "front") addGarageDoor(M, W, doorS, { w: G.doorW, h: G.doorH }, ffl, "GD1", host);
+    if (d.side === "back" && rear) addGarageDoor(M, W, backS, { w: G.doorW, h: G.doorH }, ffl, "GD2", host);
   }
   // trusses bear on a ledger bolted to the house frame on the house side
   M.add({ sys: "wallFrame", kind: "plate", name: "Roof ledger (bolted to house frame)", profile: "2/90×45 MGP10 ledger", mat: "pine", host,
@@ -272,7 +277,8 @@ function buildGarage(M, C) {
   const env3 = [
     { side: "front", start: [gx0, gz1], dir: [1, 0], out: [0, 1], len: G.w, gable: true,
       ops: [{ u0: G.w / 2 - G.doorW / 2 - 0.005, u1: G.w / 2 + G.doorW / 2 + 0.005, y0: ffl, y1: ffl + G.doorH + 0.005, window: false }] },
-    { side: "back", start: [gx1, gz0], dir: [-1, 0], out: [0, -1], len: G.w, gable: true, ops: [] },
+    { side: "back", start: [gx1, gz0], dir: [-1, 0], out: [0, -1], len: G.w, gable: true,
+      ops: rear ? [{ u0: G.w / 2 - G.doorW / 2 - 0.005, u1: G.w / 2 + G.doorW / 2 + 0.005, y0: ffl, y1: ffl + G.doorH + 0.005, window: false }] : [] },
     { side: "left", start: [gx0, gz0], dir: [0, 1], out: [-1, 0], len: G.l, gable: false, ops: [] },
   ];
   const yBase = ffl - 0.05;

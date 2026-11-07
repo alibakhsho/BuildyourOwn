@@ -302,6 +302,108 @@ function squarify(items, rect) {
   return out;
 }
 
+/* ---- Layout ideas & hand-edited plans --------------------------------
+
+   spec.plan = {
+     mode:    "auto" (default) | "custom"
+     variant: which automatic arrangement (PLAN_VARIANTS)
+     mirror:  flip the plan left ↔ right
+     cells:   { [roomKey]: { x, z, w, l, level } }  — custom mode: where each
+              room sits, metres from the back-left corner of the floor plate
+   }
+   Whatever is left over in a custom plan becomes hallway, so the internal
+   walls and doors still form around every room. */
+
+export const PLAN_VARIANTS = [
+  { id: "balanced", label: "Balanced",               note: "Rooms packed as square as they fit" },
+  { id: "front",    label: "Living at the front",    note: "Living, kitchen & dining to the street, bedrooms at the back, hall between" },
+  { id: "rear",     label: "Living to the yard",     note: "Living opens to the back yard, bedrooms at the front" },
+  { id: "side",     label: "Side by side",           note: "Living one end, bedrooms the other, hall down the middle" },
+];
+const LIVING_ZONE = new Set(["Living", "Dining", "Kitchen", "Media", "Study", "Laundry", "Other"]);
+
+/** Stable key for a space, so a hand-edited position survives renames. */
+export const roomKey = (it) => String(it.id ?? `${it.type}:${it.name}`);
+
+/** Normalised plan settings. */
+export function planSpec(spec) {
+  const P = (spec && spec.plan) || {};
+  const v = PLAN_VARIANTS.findIndex((x) => x.id === P.variant);
+  return { mode: P.mode === "custom" ? "custom" : "auto", variant: v < 0 ? 0 : v, mirror: !!P.mirror, cells: P.cells || {} };
+}
+
+const hallItem = (f, k, area) => ({ id: `hall-${f}${k ? `-${k}` : ""}`, name: f === 0 ? "Hallway / circulation" : "Landing / hall", type: "Hallway", area, finish: "timber", circulation: true });
+
+/* Two zones in bands with a hall between: "front" / "rear" bands run across
+   the house (along x), "side" bands run front-to-back. */
+function zoned(list, plate, variant, f) {
+  const live = list.filter((it) => LIVING_ZONE.has(it.type));
+  const sleep = list.filter((it) => !LIVING_ZONE.has(it.type));
+  if (!live.length || !sleep.length) return null;
+  const across = variant !== "side";                 // bands stacked front-to-back
+  const span = across ? plate.w : plate.l;           // band length
+  const depth = across ? plate.l : plate.w;          // what the bands share
+  const aL = live.reduce((a, x) => a + x.area, 0), aS = sleep.reduce((a, x) => a + x.area, 0);
+  const spare = Math.max(0, span * depth - aL - aS);
+  let hall = Math.min(1.8, spare / span);
+  if (hall < 0.9) hall = 0;                          // too tight for a corridor: rooms meet directly
+  const k = (depth - hall) / ((aL + aS) / span);     // > 1 spreads rooms into spare floor, < 1 squeezes
+  const dL = (aL / span) * k, dS = (aS / span) * k;
+  const out = [];
+  // front of the house is +z; "front" puts living there, "rear" puts it at the back
+  const order = variant === "rear" ? ["live", "hall", "sleep"] : variant === "front" ? ["sleep", "hall", "live"] : ["live", "hall", "sleep"];
+  let at = across ? plate.z : plate.x;
+  for (const part of order) {
+    const d = part === "live" ? dL : part === "sleep" ? dS : hall;
+    if (d <= 0.01) continue;
+    const rect = across ? { x: plate.x, z: at, w: plate.w, l: d } : { x: at, z: plate.z, w: d, l: plate.l };
+    if (part === "hall") out.push({ ...rect, item: hallItem(f, 0, d * span) });
+    else {
+      // rooms keep their own size: spare floor in a zone becomes a bit more hallway there
+      const items = part === "live" ? live : sleep, a = part === "live" ? aL : aS;
+      out.push(...squarify(k > 1.02 ? [...items, hallItem(f, part === "live" ? 1 : 2, (k - 1) * a)] : items, rect));
+    }
+    at += d;
+  }
+  return out;
+}
+
+/* Every bit of the plate no room covers, as rectangles (they become hallway). */
+export function freeRects(plate, cells, minSide = 0.12) {
+  const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+  const xs = new Set([plate.x, plate.x + plate.w]), zs = new Set([plate.z, plate.z + plate.l]);
+  for (const c of cells) {
+    xs.add(cl(c.x, plate.x, plate.x + plate.w)); xs.add(cl(c.x + c.w, plate.x, plate.x + plate.w));
+    zs.add(cl(c.z, plate.z, plate.z + plate.l)); zs.add(cl(c.z + c.l, plate.z, plate.z + plate.l));
+  }
+  const X = [...xs].sort((a, b) => a - b), Z = [...zs].sort((a, b) => a - b);
+  const covered = (x, z) => cells.some((c) => x > c.x && x < c.x + c.w && z > c.z && z < c.z + c.l);
+  // runs of free grid cells along x in each z band, then stack identical runs
+  let open = [];
+  const out = [];
+  for (let j = 0; j < Z.length - 1; j++) {
+    const z0 = Z[j], z1 = Z[j + 1];
+    if (z1 - z0 < 1e-6) continue;
+    const runs = [];
+    for (let i = 0; i < X.length - 1; i++) {
+      const x0 = X[i], x1 = X[i + 1];
+      if (x1 - x0 < 1e-6 || covered((x0 + x1) / 2, (z0 + z1) / 2)) continue;
+      const last = runs[runs.length - 1];
+      if (last && Math.abs(last.x1 - x0) < 1e-6) last.x1 = x1; else runs.push({ x0, x1 });
+    }
+    const next = [];
+    for (const r of runs) {
+      const o = open.find((q) => Math.abs(q.x0 - r.x0) < 1e-6 && Math.abs(q.x1 - r.x1) < 1e-6 && Math.abs(q.z1 - z0) < 1e-6);
+      if (o) { o.z1 = z1; next.push(o); open = open.filter((q) => q !== o); }
+      else next.push({ ...r, z0, z1 });
+    }
+    out.push(...open);
+    open = next;
+  }
+  out.push(...open);
+  return out.map((r) => ({ x: r.x0, z: r.z0, w: r.x1 - r.x0, l: r.z1 - r.z0 })).filter((r) => r.w >= minSide && r.l >= minSide);
+}
+
 /* Assign spaces to storeys and lay each storey out inside the envelope.
    Rooms keep their scheduled area: leftover floor becomes hallway /
    circulation. Only when the schedule genuinely exceeds the floor plate are
@@ -326,6 +428,8 @@ export function layoutFloors(spec) {
   // interior's back-left corner, optional `level`
   const explicit = (spec.rooms || []).length > 0 && (spec.rooms || []).every((r) => Number.isFinite(+r.x) && Number.isFinite(+r.z));
 
+  const P = planSpec(spec);
+  const custom = !explicit && P.mode === "custom";
   const perFloor = Array.from({ length: env.floors }, () => []);
   if (explicit) {
     for (const it of items) {
@@ -359,19 +463,61 @@ export function layoutFloors(spec) {
       perFloor[target].push(fl.splice(smallest, 1)[0]);
     }
   }
+  // a hand-edited plan may have moved a room to another storey
+  if (custom && env.floors > 1) {
+    const all = perFloor.flat();
+    perFloor.forEach((fl) => { fl.length = 0; });
+    const auto = all.map(() => 0);
+    all.forEach((it, i) => { auto[i] = 0; });
+    for (const it of all) {
+      const c = P.cells[roomKey(it)];
+      const home = c && Number.isFinite(+c.level) ? clamp(Math.round(+c.level), 0, env.floors - 1) : (GROUND_TYPES.has(it.type) ? 0 : Math.min(1, env.floors - 1));
+      perFloor[home].push(it);
+    }
+  }
+
+  /* the automatic arrangement for one storey (also where a custom plan puts rooms it has no position for) */
+  const autoCells = (list, f) => {
+    const scheduled = list.reduce((a, x) => a + x.area, 0);
+    let fit = 1, cells = null;
+    const vId = PLAN_VARIANTS[P.variant].id;
+    if (vId !== "balanced") cells = zoned(list, plate, vId, f);
+    if (!cells) {
+      let work = list;
+      if (scheduled < plateArea - 0.5) work = [...list, hallItem(f, 0, plateArea - scheduled)];
+      cells = squarify(work, plate);
+    }
+    if (scheduled > plateArea) fit = plateArea / scheduled;
+    if (P.mirror) cells = cells.map((c) => ({ ...c, x: plate.x + plate.w - (c.x - plate.x) - c.w }));
+    return { cells, fit };
+  };
 
   const floorsOut = perFloor.map((list, f) => {
     let cells, fit = 1, scheduled = list.reduce((a, x) => a + x.area, 0);
     if (explicit) {
       cells = list.map((it) => ({ ...it.fixed, item: it }));
-    } else {
-      let work = list;
-      if (scheduled < plateArea - 0.5) {
-        work = [...list, { id: `hall-${f}`, name: f === 0 ? "Hallway / circulation" : "Landing / hall", type: "Hallway", area: plateArea - scheduled, finish: "timber", circulation: true }];
-      } else if (scheduled > plateArea) {
-        fit = plateArea / scheduled;
+    } else if (custom) {
+      // rooms where the user put them; a size that no longer matches the room's area (changed on the
+      // Estimate page) falls back to the room's own size; rooms never placed take their automatic spot
+      const auto = autoCells(list, f).cells;
+      const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+      cells = [];
+      for (const it of list) {
+        const c = P.cells[roomKey(it)];
+        if (!c || !Number.isFinite(+c.x) || !Number.isFinite(+c.z)) {
+          const a = auto.find((q) => q.item === it);
+          if (a) cells.push({ ...a, item: it, unplaced: true });
+          continue;
+        }
+        const sameArea = Number.isFinite(+c.w) && Number.isFinite(+c.l) && Math.abs(+c.w * +c.l - it.area) <= Math.max(0.15, it.area * 0.02);
+        let w = sameArea ? +c.w : it.w, l = sameArea ? +c.l : it.l;
+        if (!sameArea && c.rot) [w, l] = [l, w];
+        w = Math.min(w, plate.w); l = Math.min(l, plate.l);
+        cells.push({ x: plate.x + cl(+c.x, 0, plate.w - w), z: plate.z + cl(+c.z, 0, plate.l - l), w, l, item: it });
       }
-      cells = squarify(work, plate);
+      freeRects(plate, cells).forEach((r, k) => cells.push({ ...r, item: hallItem(f, k, r.w * r.l) }));
+    } else {
+      ({ cells, fit } = autoCells(list, f));
     }
     if (hasStair) {
       cells.push({ x: plate.x + plate.w, z: plate.z, w: stairStrip, l: plate.l, item: { id: `stair-${f}`, name: "Stair", type: "Stair", area: stairStrip * plate.l, finish: "timber", circulation: true } });

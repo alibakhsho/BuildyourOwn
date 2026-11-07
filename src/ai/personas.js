@@ -63,7 +63,7 @@ quantities vs waste allowances. You reference the supplier directory categories 
    (materials) each carry a different spec shape, and a patch with fields from
    the wrong mode silently writes into state nothing on screen reads. */
 const UPDATE_SPEC_FIELDS = {
-  residential: `widthM, lengthM, floors, wallHeightM, roofPitch, claddingType(brick|weatherboard|render), roofType(colorbond|tile|shingle), framingType(timber|steel), siteCondition(flat|sloping|difficult)`,
+  residential: `widthM, lengthM, floors, wallHeightM, roofPitch, claddingType(brick|weatherboard|render), roofType(colorbond|tile|shingle), framingType(timber|steel), siteCondition(flat|sloping|difficult), hasGarage(bool), garageRearDoor(bool — a second garage door in the garage's back wall, drive-through), solar(bool), "landscape.enabled"(bool), "landscape.deck"(bool), "landscape.deckWidthM"(m, along the back wall — the house width means full width), "landscape.deckDepthM"(m, out into the yard), "landscape.deckBoard"(merbau|pine|composite), "landscape.fence"(colorbond|paling|none), "landscape.fenceHeightM"`,
   highrise: `floorPlateM2, floors, floorHeightM, basementLevels, structureType(rc|steel|composite), facadeType(curtain_wall|precast|brick|render), occupancy(office|residential|hotel|mixed|retail), passengerLifts, goodsLifts, siteCondition(flat|sloping|difficult)`,
 };
 
@@ -109,7 +109,12 @@ export function summariseSpec(buildMode, spec, hrSpec, est) {
     return `Quote/materials project — no building dimensions, just a line-item list (${n} line${n === 1 ? "" : "s"}: materials, labour & trade items). Use add_quote_lines to suggest additions.`;
   }
   const s = spec || {};
-  return `House: ${s.widthM}×${s.lengthM}m, ${s.floors} floor(s), walls ${s.wallHeightM}m, roof ${s.roofType} @ ${s.roofPitch}°, ${s.claddingType} cladding, ${s.framingType} frame, ${(s.rooms || []).length} rooms, ${(s.kitchens || []).length} kitchen(s), ${(s.bathrooms || []).length} bathroom(s), site ${s.siteCondition}.`;
+  const L = s.landscape || {};
+  const garage = s.hasGarage ? `double garage${s.garageRearDoor ? " with a second door at the back (drive-through)" : " (front door only)"}` : "no garage";
+  const yard = L.enabled
+    ? `landscaping on — ${L.deck === false ? "no deck" : `rear deck ${L.deckWidthM ?? 5} m wide × ${L.deckDepthM ?? 3.6} m deep, ${L.deckBoard || "merbau"}`}, ${L.fence || "colorbond"} fence`
+    : "no landscaping yet";
+  return `House: ${s.widthM}×${s.lengthM}m (back wall ${s.widthM} m long), ${s.floors} floor(s), walls ${s.wallHeightM}m, roof ${s.roofType} @ ${s.roofPitch}°, ${s.claddingType} cladding, ${s.framingType} frame, ${(s.rooms || []).length} rooms, ${(s.kitchens || []).length} kitchen(s), ${(s.bathrooms || []).length} bathroom(s), ${garage}, ${s.solar ? "solar" : "no solar"}, site ${s.siteCondition}; ${yard}.`;
 }
 
 export function summariseEstimate(est, currency) {

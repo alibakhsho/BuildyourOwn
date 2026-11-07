@@ -89,6 +89,8 @@ const storey = (f) => (f === 0 ? "Ground floor" : f === 1 ? "First floor" : `Lev
  * @param M       Model
  * @param ctx     { env, layout, spec, roof, garage }
  */
+import { landscapeSpec, deckRunsFullWidth } from "./landscape.js";
+
 export function buildServices(M, ctx) {
   const { env, layout } = ctx;
   const { w, l, ffl, slabThk, wallH } = env;
@@ -112,23 +114,30 @@ export function buildServices(M, ctx) {
   const meter = [w / 2 - 1.0, 0.25, front != null ? front - 0.6 : l / 2 + 1.6];
   M.add({ sys: "plumbing", kind: "meter", name: "Water meter", profile: "Water meter + isolating valve", mat: "galv", unit: "ea", host: "Front boundary",
     a: [meter[0] - 0.15, meter[1], meter[2]], b: [meter[0] + 0.15, meter[1], meter[2]], d: 0.15, w: 0.15, up: [0, 1, 0], code: "P-WM" });
-  const hwu = [w / 3, ffl, -l / 2 - 0.45];
-  M.add({ sys: "plumbing", kind: "hwu", name: "Hot-water unit", profile: "Heat-pump hot-water unit 270 L", mat: "paintWhite", shape: "cyl", unit: "ea", host: "Rear wall · outside",
+  // a full-width rear deck takes the back wall, so the unit goes on the right side wall, near the back
+  const hwuSide = !!(ctx.spec && deckRunsFullWidth(landscapeSpec(ctx.spec), w));
+  const hwu = hwuSide ? [w / 2 + 0.45, ffl, -l / 2 + 1.4] : [w / 3, ffl, -l / 2 - 0.45];
+  const along = hwuSide ? [0, 0, 1] : [1, 0, 0];                     // along the wall the unit stands on
+  const at = (k, y) => [hwu[0] + along[0] * k, y, hwu[2] + along[2] * k];
+  const hwWall = hwuSide ? "Right side wall" : "Rear wall";
+  M.add({ sys: "plumbing", kind: "hwu", name: "Hot-water unit", profile: "Heat-pump hot-water unit 270 L", mat: "paintWhite", shape: "cyl", unit: "ea", host: `${hwWall} · outside`,
     a: [hwu[0], ffl, hwu[2]], b: [hwu[0], ffl + 1.6, hwu[2]], d: 0.62, w: 0.62, up: [1, 0, 0], code: "P-HW" });
-  M.add({ sys: "plumbing", kind: "valve", name: "Tempering valve", profile: "Tempering valve 50 °C (AS/NZS 3500.4)", mat: "chrome", unit: "ea", host: "Rear wall · outside",
-    a: [hwu[0] + 0.4, ffl + 0.9, hwu[2]], b: [hwu[0] + 0.4, ffl + 1.05, hwu[2]], d: 0.06, w: 0.06, up: [1, 0, 0], code: "P-TV" });
+  M.add({ sys: "plumbing", kind: "valve", name: "Tempering valve", profile: "Tempering valve 50 °C (AS/NZS 3500.4)", mat: "chrome", unit: "ea", host: `${hwWall} · outside`,
+    a: at(0.4, ffl + 0.9), b: at(0.4, ffl + 1.05), d: 0.06, w: 0.06, up: [1, 0, 0], code: "P-TV" });
   // main from the meter, under ground to the house, up into the roof space
   const mainIn = [w / 2 - 1.0, ffl, l / 2 - 0.3];
   pipe(M, "plumbing", "Water main", "PEX-b 25 mm water main", "Front yard", [meter[0], 0.2, meter[2]], [mainIn[0], -0.3, meter[2]], 0.025, "P-MN", "pipeCold");
   pipe(M, "plumbing", "Water main", "PEX-b 25 mm water main", "Front yard", [mainIn[0], -0.3, meter[2]], [mainIn[0], -0.3, mainIn[2]], 0.025, "P-MN", "pipeCold");
   pipe(M, "plumbing", "Water main", "PEX-b 25 mm water main", "Front wall", [mainIn[0], -0.3, mainIn[2]], [mainIn[0], ceil(0), mainIn[2]], 0.025, "P-MN", "pipeCold");
   const coldSrc = [mainIn[0], ceil(0), mainIn[2]];
-  const hotSrc = [hwu[0], ceil(0), -l / 2 + 0.3];
-  pipe(M, "plumbing", "Hot water flow", HOT, "Rear wall", [hwu[0] + 0.4, ffl + 1.0, hwu[2]], [hwu[0] + 0.4, ceil(0), hwu[2]], 0.02, "P-HF", "pipeHot");
-  pipe(M, "plumbing", "Hot water flow", HOT, "Roof space", [hwu[0] + 0.4, ceil(0), hwu[2]], hotSrc, 0.02, "P-HF", "pipeHot");
-  pipe(M, "plumbing", "Cold feed to HWU", COLD, "Roof space", coldSrc, [hwu[0] - 0.2, ceil(0), coldSrc[2]], 0.02, "P-CF", "pipeCold");
-  pipe(M, "plumbing", "Cold feed to HWU", COLD, "Roof space", [hwu[0] - 0.2, ceil(0), coldSrc[2]], [hwu[0] - 0.2, ceil(0), hwu[2]], 0.02, "P-CF", "pipeCold");
-  pipe(M, "plumbing", "Cold feed to HWU", COLD, "Rear wall", [hwu[0] - 0.2, ceil(0), hwu[2]], [hwu[0] - 0.2, ffl + 0.3, hwu[2]], 0.02, "P-CF", "pipeCold");
+  // through the wall into the roof space, just inside the wall the unit stands on
+  const hotSrc = hwuSide ? [w / 2 - 0.3, ceil(0), hwu[2] + 0.4] : [hwu[0], ceil(0), -l / 2 + 0.3];
+  pipe(M, "plumbing", "Hot water flow", HOT, hwWall, at(0.4, ffl + 1.0), at(0.4, ceil(0)), 0.02, "P-HF", "pipeHot");
+  pipe(M, "plumbing", "Hot water flow", HOT, "Roof space", at(0.4, ceil(0)), hotSrc, 0.02, "P-HF", "pipeHot");
+  const coldTurn = hwuSide ? [coldSrc[0], ceil(0), hwu[2] - 0.2] : [hwu[0] - 0.2, ceil(0), coldSrc[2]];
+  pipe(M, "plumbing", "Cold feed to HWU", COLD, "Roof space", coldSrc, coldTurn, 0.02, "P-CF", "pipeCold");
+  pipe(M, "plumbing", "Cold feed to HWU", COLD, "Roof space", coldTurn, at(-0.2, ceil(0)), 0.02, "P-CF", "pipeCold");
+  pipe(M, "plumbing", "Cold feed to HWU", COLD, hwWall, at(-0.2, ceil(0)), at(-0.2, ffl + 0.3), 0.02, "P-CF", "pipeCold");
 
   // sewer: boundary trap at the front, the main drain runs back under the slab
   const sewer = [-w / 4, under - 0.3, front != null ? front - 1.0 : l / 2 + 1.5];
@@ -250,7 +259,7 @@ export function buildServices(M, ctx) {
 
   // garden taps: front and rear, off the cold main
   for (const [z, side] of [[l / 2 + 0.06, "Front"], [-l / 2 - 0.06, "Rear"]]) {
-    const gx = side === "Front" ? mainIn[0] + 0.5 : hwu[0] - 1.0;
+    const gx = side === "Front" ? mainIn[0] + 0.5 : w / 3 - 1.0;
     M.add({ sys: "plumbing", kind: "tap", name: "Garden tap", profile: "Garden tap (hose cock)", mat: "chrome", unit: "ea", host: `${side} wall · outside`,
       a: [gx, 0.45, z], b: [gx, 0.52, z], d: 0.05, w: 0.05, up: [1, 0, 0], code: "P-GT" });
     pipe(M, "plumbing", "Garden tap feed", COLD, `${side} wall`, [gx, 0.45, z], [gx, -0.3, z], 0.02, "P-CW", "pipeCold");

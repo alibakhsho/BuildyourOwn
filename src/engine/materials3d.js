@@ -331,3 +331,111 @@ export function corrugatedNormalMap() {
   cache.set(key, t);
   return t;
 }
+
+/* =========================================================================
+   Surface relief and photo textures.
+
+   normalFromTexture(tex)   a tangent-space normal map derived from any of the
+                            procedural canvases above (Sobel on luminance), so
+                            brick joints, board laps and trowel marks catch the
+                            light instead of being painted on.
+   loadTextureManifest()    public/textures/manifest.json — the photo PBR tiles,
+                            skies and foliage cut-outs made once by
+                            scripts/gen-3d-assets.mjs. Missing pack → null, and
+                            everything falls back to the procedural textures.
+   pbrMaps(name)            albedo + normal textures for one pack entry, repeat
+                            set from its real size in metres (1 UV = 1 m).
+   usePbr(material, name)   swap a material onto the photo maps as soon as the
+                            pack is known (now, or when the manifest arrives).
+   ========================================================================= */
+const NORMALS = new Map();
+export function normalFromTexture(tex, strength = 1.6, { invert = false } = {}) {
+  if (!tex || !tex.image) return null;
+  const key = `${tex.uuid}|${strength}|${invert ? 1 : 0}`;
+  if (NORMALS.has(key)) return NORMALS.get(key);
+  const src = tex.image, w = src.width, h = src.height;
+  const g = src.getContext ? src.getContext("2d") : null;
+  if (!g) return null;
+  const px = g.getImageData(0, 0, w, h).data;
+  const lum = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) lum[i] = (0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2]) / 255;
+  const L = (x, y) => { const v = lum[((y + h) % h) * w + ((x + w) % w)]; return invert ? 1 - v : v; };
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const out = c.getContext("2d").createImageData(w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const dx = (L(x + 1, y - 1) + 2 * L(x + 1, y) + L(x + 1, y + 1)) - (L(x - 1, y - 1) + 2 * L(x - 1, y) + L(x - 1, y + 1));
+    const dy = (L(x - 1, y + 1) + 2 * L(x, y + 1) + L(x + 1, y + 1)) - (L(x - 1, y - 1) + 2 * L(x, y - 1) + L(x + 1, y - 1));
+    let nx = -dx * strength, ny = dy * strength, nz = 1;
+    const len = Math.hypot(nx, ny, nz); nx /= len; ny /= len; nz /= len;
+    const i = (y * w + x) * 4;
+    out.data[i] = (nx * 0.5 + 0.5) * 255; out.data[i + 1] = (ny * 0.5 + 0.5) * 255; out.data[i + 2] = (nz * 0.5 + 0.5) * 255; out.data[i + 3] = 255;
+  }
+  c.getContext("2d").putImageData(out, 0, 0);
+  const n = new THREE.CanvasTexture(c);
+  n.wrapS = n.wrapT = tex.wrapS;
+  n.repeat.copy(tex.repeat);
+  n.anisotropy = tex.anisotropy;
+  NORMALS.set(key, n);
+  return n;
+}
+
+const PACK = { base: "/textures/", manifest: undefined, promise: null, maps: new Map(), waiting: [] };
+export const textureUrl = (file) => `${PACK.base}${file}${PACK.manifest?.generated ? `?v=${encodeURIComponent(PACK.manifest.generated)}` : ""}`;
+
+export function loadTextureManifest() {
+  if (PACK.promise) return PACK.promise;
+  if (typeof fetch === "undefined") return Promise.resolve(null);
+  const base = (typeof import.meta !== "undefined" && import.meta.env?.BASE_URL) || "/";
+  PACK.base = `${base.replace(/\/$/, "")}/textures/`;
+  PACK.promise = fetch(`${PACK.base}manifest.json`, { cache: "no-cache" })
+    .then((r) => (r.ok ? r.json() : null))
+    .catch(() => null)
+    .then((m) => {
+      PACK.manifest = m || null;
+      const w = PACK.waiting; PACK.waiting = [];
+      for (const fn of w) { try { fn(PACK.manifest); } catch { /* one bad listener must not stop the rest */ } }
+      return PACK.manifest;
+    });
+  return PACK.promise;
+}
+export const texturePack = () => PACK.manifest || null;
+
+export function pbrMaps(name) {
+  const entry = PACK.manifest?.textures?.[name];
+  if (!entry) return null;
+  if (PACK.maps.has(name)) return PACK.maps.get(name);
+  const loader = new THREE.TextureLoader();
+  const metres = entry.metres || 1;
+  const prep = (t, srgb) => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    if (entry.kind === "tile") t.repeat.set(1 / metres, 1 / metres);
+    t.anisotropy = 8;
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  };
+  const map = prep(loader.load(textureUrl(entry.albedo)), true);
+  const normalMap = entry.normal ? prep(loader.load(textureUrl(entry.normal)), false) : null;
+  const r = { map, normalMap, metres, kind: entry.kind };
+  PACK.maps.set(name, r);
+  return r;
+}
+
+/* Put `material` onto the photo maps for `name` — immediately if the pack is
+   known, otherwise as soon as it loads. `normal` scales the relief. */
+export function usePbr(material, name, { normal = 0.6, tint } = {}) {
+  const apply = () => {
+    const maps = pbrMaps(name);
+    if (!maps) return;
+    material.map = maps.map;
+    if (maps.normalMap) { material.normalMap = maps.normalMap; material.normalScale = new THREE.Vector2(normal, normal); }
+    if (tint != null) material.color.set(tint);
+    material.needsUpdate = true;
+    PACK.onApplied?.();
+  };
+  if (PACK.manifest !== undefined) apply();
+  else { PACK.waiting.push(apply); loadTextureManifest(); }
+  return material;
+}
+/* The engine hooks this to redraw when photo maps land on a material. */
+export function onPbrApplied(fn) { PACK.onApplied = fn; }

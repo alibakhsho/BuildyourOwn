@@ -1,5 +1,6 @@
 // Children/cloneElement went with StaggerReveal, their only consumer.
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { round, fmt, pad, currencySymbol } from "./lib/format.js";
 import { nextId } from "./lib/ids.js";
@@ -55,14 +56,19 @@ import { buildMultiEstimate } from "./logic/multi-dwelling.js";
 import { MultiDwellingPanel, MultiCostPlan, MultiProgramme, defaultMultiSpec, houseType } from "./modules/MultiDwelling.jsx";
 import DescribeCard from "./components/DescribeCard.jsx";
 import { ModelToolbar, LayersPanel, PieceCard, CutList, ExplodeCallouts } from "./components/ModelTools.jsx";
+import { partOfSys } from "./engine/explore.js";
 import Drawings from "./components/Drawings.jsx";
+import Explore3D from "./components/Explore3D.jsx";
+import PlanEditor from "./components/PlanEditor.jsx";
 import ServicesBim from "./components/ServicesBim.jsx";
 import Landscape from "./components/Landscape.jsx";
 import LandscapeCard from "./components/LandscapeCard.jsx";
 import InteriorCard from "./components/InteriorCard.jsx";
 import FilmPanel from "./components/FilmPanel.jsx";
+// the full-screen modelling workspace loads only when someone opens it
+const Studio3D = lazy(() => import("./components/Studio3D.jsx"));
 import BuildRequirements from "./components/BuildRequirements.jsx";
-import { houseSpecFromFeatures, cleanDeveloper } from "./logic/describe.js";
+import { houseSpecFromFeatures, cleanDeveloper, mergeSpecPatch } from "./logic/describe.js";
 import { useCloudSync } from "./state/cloud-sync.js";
 import ConstructionManager from "./modules/ConstructionManager.jsx";
 import Marketplace, { MarketBadge } from "./modules/Marketplace.jsx";
@@ -1484,6 +1490,7 @@ function stageTabs(stage, buildMode) {
   ];
   if (stage === "timeline") return [{ id: "timeline", label: "Programme" }];
   if (stage === "three_d" && (buildMode === "residential" || buildMode === "materials")) return [
+    ...(buildMode === "residential" ? [{ id: "plan", label: "Floor plan" }] : []),
     { id: "layers", label: "Layers & views" },
     { id: "cutlist", label: "Cut list & schedule" },
     { id: "drawings", label: "Drawings" },
@@ -1951,6 +1958,8 @@ export default function App() {
   const [walkMode, setWalkMode] = useState(false);
   const [filmMode, setFilmMode] = useState(false);   // the cinematic film is playing
   const [filmOpen, setFilmOpen] = useState(false);   // its panel is open under the viewport
+  const [studioOpen, setStudioOpen] = useState(false); // the full-screen 3D Studio
+  const [studioSelect, setStudioSelect] = useState(null); // a piece to open the Studio on ("Change size")
   const overlayRef = useRef(null);                   // titles / letterbox canvas over the 3D
   const [walkRoom, setWalkRoom] = useState("");
   const [walkT, setWalkT] = useState(0);
@@ -2051,7 +2060,7 @@ export default function App() {
   }, [spec, hrSpec, matSpec, mdSpec, buildMode, engineReady]);
 
   useEffect(() => { if (buildMode === "residential" || buildMode === "multi") engineRef.current?.setProgress(progress); }, [progress, buildMode]);
-  useEffect(() => { if (!walkMode) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode]);
+  useEffect(() => { if (!walkMode && !studioOpen) engineRef.current?.setAutoRotate(autoRotate); }, [autoRotate, walkMode, studioOpen]);
 
   /* The current page's secondary tabs, and which one is showing. A stale
      `tab` from another page falls back to this page's first view. */
@@ -2099,6 +2108,11 @@ export default function App() {
     () => (buildMode === "materials" ? specFromQuoteLines(matSpec.lines) : null),
     [buildMode, matSpec]
   );
+
+  /* The Explore panel (parts, rooms, see-inside) lives on the 3D page. */
+  const exploreOn = stage === "three_d" && (buildMode === "residential" || (buildMode === "materials" && !!quoteMassingSpec)) && engineReady && !walkMode && !filmMode;
+  // on the 3D page the camera holds still until you move it
+  useEffect(() => { if (stage === "three_d") setAutoRotate(false); }, [stage]);
 
   /* Spec update helper */
   const update = useCallback((patch) => setSpec((s) => ({ ...s, ...patch })), []);
@@ -2352,8 +2366,21 @@ export default function App() {
       return `Set up ${types.length} house type${types.length === 1 ? "" : "s"}, ${types.reduce((a, t) => a + t.count, 0)} dwellings.`;
     }
     const extras = scopeToLines(r.extras);
-    setSpec((sp) => ({ ...houseSpecFromFeatures(r.features || {}, sp), extras: [...(sp.extras || []), ...extras] }));
-    return `Updated the house${extras.length ? ` and added ${extras.length} extra line${extras.length === 1 ? "" : "s"}` : ""}.`;
+    // a re-description rebuilds the house; a change request ("extend the deck…") only changes what it names
+    const redescribed = Object.keys(r.features || {}).length > 0;
+    const ed = r.edits;
+    setSpec((sp) => {
+      let next = redescribed ? houseSpecFromFeatures(r.features, sp) : { ...sp };
+      if (extras.length) next = { ...next, extras: [...(sp.extras || []), ...extras] };
+      if (ed) next = mergeSpecPatch(next, { ...(ed.patch || {}), ...(Object.keys(ed.landscape || {}).length ? { landscape: ed.landscape } : {}) });
+      return next;
+    });
+    const parts = [];
+    if (ed?.said?.length) parts.push(ed.said.join(" "));
+    if (redescribed) parts.push("Updated the house.");
+    if (extras.length) parts.push(`Added ${extras.length} extra line${extras.length === 1 ? "" : "s"}.`);
+    if (ed) parts.push("Open the 3D model to see it.");
+    return parts.join(" ") || "Updated the house.";
   };
   const currency = currencySymbol(region);
 
@@ -2798,7 +2825,7 @@ export default function App() {
             {/* Start of the workflow: describe it, then fine-tune below. On a
                 plan without AI this runs on the built-in engine — no credits. */}
             {!(buildMode === "residential" && spec.importedLines && spec.importedLines.length > 0) && (
-              <DescribeCard key={buildMode} mode={buildMode} useAi={can.ai} onApply={applyDescribe} />
+              <DescribeCard key={buildMode} mode={buildMode} useAi={can.ai} onApply={applyDescribe} spec={buildMode === "residential" ? spec : undefined} />
             )}
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <button onClick={resetDefaults} className="ec-btn ec-btn-ghost" style={{ flex: 1, justifyContent: "center", fontSize: 13 }}>
@@ -2900,7 +2927,8 @@ export default function App() {
             <InputRow>
               <Field label="External doors"><input className="ec-input" type="number" min="1" max="8" step="1" value={spec.openings.doors} onChange={(e) => updateOpenings({ doors: +e.target.value })} /></Field>
               <Field label=" "><div style={{ display: "flex", gap: 8 }}>
-                <Toggle label="Garage" value={spec.hasGarage} onChange={(v) => update({ hasGarage: v })} />
+                <Toggle label="Garage" value={spec.hasGarage} onChange={(v) => update(v ? { hasGarage: true } : { hasGarage: false, garageRearDoor: false })} />
+                {spec.hasGarage && <Toggle label="Rear garage door" value={!!spec.garageRearDoor} onChange={(v) => update({ garageRearDoor: v })} />}
                 <Toggle label="Solar" value={spec.solar} onChange={(v) => update({ solar: v })} />
               </div></Field>
             </InputRow>
@@ -2950,11 +2978,13 @@ export default function App() {
 
           {/* 3D viewport — a compact live preview while you edit, full size on its own page */}
           {(stage === "estimate" || stage === "three_d") && (<>
-          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: stage === "three_d" ? "min(72vh, 760px)" : 360, overflow: "hidden" }}>
+          <div id="ws-viewport" className="ec-card ec-paper ec-viewport" style={{ position: "relative", padding: 0, height: stage === "three_d" ? "max(520px, min(80vh, 880px))" : 360, overflow: "hidden" }}>
             <div ref={attachViewport} style={{ position: "absolute", inset: 0 }} />
+            {exploreOn && <Explore3D engine={engineRef.current} version={modelVersion}
+              onEditLayout={buildMode === "residential" ? () => { setTab("plan"); setTimeout(() => document.getElementById("ws-plan")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60); } : undefined} />}
             <canvas ref={overlayRef} aria-hidden="true" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 4 }} />
             {/* Dimension annotations overlay */}
-            <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: filmMode ? "none" : "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
+            <div style={{ position: "absolute", top: 16, left: 16, maxWidth: "55%", display: filmMode || exploreOn ? "none" : "flex", flexDirection: "column", alignItems: "flex-start", gap: 6, pointerEvents: "none" }}>
               <span className="ec-tag ec-tag-hivis">VIEWPORT</span>
               {buildMode === "materials" ? (
                 quoteMassingSpec ? (
@@ -2999,7 +3029,11 @@ export default function App() {
             {stage === "three_d" && piece && (
               <PieceCard member={piece} structure={engineRef.current?.structure}
                 onClose={() => engineRef.current?.select(null)}
-                onIsolate={(sys) => engineRef.current?.isolateLayer(sys)} />
+                onIsolate={(sys) => engineRef.current?.isolateLayer(sys)}
+                onFly={(m) => engineRef.current?.explore?.flyToMember(m.id)}
+                onFocus={(m) => { const X = engineRef.current?.explore; const p = X && partOfSys(m.sys); if (p) X.focus(p.id); }}
+                onEdit={buildMode === "residential" ? (m) => { setStudioSelect(m.id); setPiece(null); setStudioOpen(true); } : undefined}
+                style={exploreOn ? { left: "auto", right: 12, top: 52, bottom: "auto" } : undefined} />
             )}
             {/* Live indicator + current room (walk mode) */}
             <div style={{ position: "absolute", top: 16, right: 16, maxWidth: "42%", pointerEvents: "none", display: filmMode ? "none" : "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
@@ -3021,6 +3055,14 @@ export default function App() {
                 <FilmPanel engine={engineRef.current} facts={filmFacts} overlayRef={overlayRef} projectName={projectName} onClose={() => setFilmOpen(false)} />
               ) : !walkMode ? (
                 <>
+                  {(buildMode === "residential" || (buildMode === "materials" && quoteMassingSpec)) && engineReady && (
+                    <button className="ec-btn" onClick={() => { setPiece(null); setStudioOpen(true); }}
+                      title="Open the model full-screen to inspect, move, resize, recolour and measure every piece"
+                      style={{ background: TOKENS.emphasis, color: TOKENS.onEmphasis, fontWeight: 700 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M12 2l9 5v10l-9 5-9-5V7z" /><path d="M12 22V12M21 7l-9 5-9-5" /></svg>
+                      Open 3D Studio
+                    </button>
+                  )}
                   <button className="ec-btn ec-btn-hivis" onClick={playConstruction}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                     Play demo
@@ -3075,6 +3117,19 @@ export default function App() {
 
           {stage === "three_d" && (buildMode === "residential" || (buildMode === "materials" && quoteMassingSpec)) && engineReady && !walkMode && !filmMode && (
             <ModelToolbar engine={engineRef.current} />
+          )}
+
+          {/* The 3D Studio takes the same engine full-screen (a portal: the page
+              wrapper animates with a transform, which would trap position: fixed) */}
+          {studioOpen && engineRef.current && createPortal(
+            <Suspense fallback={<div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "#0f1115", color: "#a7b0bd", display: "grid", placeItems: "center" }}>Opening the studio…</div>}>
+              <Studio3D engine={engineRef.current} returnTo={() => viewportRef.current} projectName={projectName}
+                spec={buildMode === "residential" ? spec : null}
+                onSpecPatch={buildMode === "residential" ? (p) => setSpec((sp) => mergeSpecPatch(sp, p)) : undefined}
+                initialSelect={studioSelect}
+                onClose={() => { setStudioOpen(false); setStudioSelect(null); }} />
+            </Suspense>,
+            document.body
           )}
 
           {/* Headline cost cards — Estimate and Costs pages */}
@@ -3144,6 +3199,12 @@ export default function App() {
             {activeTab === "cadbim" && buildMode === "materials" && <CadBimTab region={region} currency={currency} onApplyMaterials={applyMaterialsImport} materialsMode />}
             {activeTab === "codes" && buildMode !== "materials" && <CodesTab region={region} highrise={buildMode === "highrise"} floors={spec?.floors} currency={currency} />}
             {activeTab === "suppliers" && <SuppliersTab region={region} estimate={estimate} highrise={buildMode === "highrise"} />}
+            {activeTab === "plan" && buildMode === "residential" && (
+              <div id="ws-plan">
+                <PlanEditor spec={spec} setSpec={setSpec} currency={currency} total={estimate ? grossOf(estimate) : null}
+                  onShow3D={() => document.getElementById("ws-viewport")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+              </div>
+            )}
             {activeTab === "layers" && <LayersPanel engine={engineRef.current} version={modelVersion} />}
             {activeTab === "cutlist" && (buildMode === "residential" ? spec : quoteMassingSpec) && <CutList spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
             {activeTab === "services" && (buildMode === "residential" ? spec : quoteMassingSpec) && <ServicesBim spec={buildMode === "residential" ? spec : quoteMassingSpec} projectName={projectName} />}
@@ -3163,7 +3224,7 @@ export default function App() {
           onSpecPatch={(patch) => {
             if (buildMode === "highrise") updateHr(patch);
             else if (buildMode === "materials" || buildMode === "multi") return; // no single building spec to patch
-            else update(patch);
+            else setSpec((sp) => mergeSpecPatch(sp, patch));   // understands landscape.* and the garage door
           }}
           onAddQuoteLines={(lines) => {
             const mk = (l) => ({ id: nextId(), kind: l.kind || "element", label: l.label || "AI line", qty: +l.qty || 1, unit: l.unit || "ea", rate: +l.rate || 0, useCustomRate: true });

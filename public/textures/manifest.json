@@ -1,0 +1,136 @@
+{
+  "textures": {
+    "concrete": {
+      "albedo": "concrete.webp",
+      "normal": "concrete_n.webp",
+      "metres": 2,
+      "kind": "tile"
+    },
+    "lawn": {
+      "albedo": "lawn.webp",
+      "normal": "lawn_n.webp",
+      "metres": 3,
+      "kind": "tile"
+    },
+    "gravel": {
+      "albedo": "gravel.webp",
+      "normal": "gravel_n.webp",
+      "metres": 1.5,
+      "kind": "tile"
+    },
+    "paddock": {
+      "albedo": "paddock.webp",
+      "normal": "paddock_n.webp",
+      "metres": 5,
+      "kind": "tile"
+    },
+    "exposedagg": {
+      "albedo": "exposedagg.webp",
+      "normal": "exposedagg_n.webp",
+      "metres": 1.5,
+      "kind": "tile"
+    },
+    "pavers": {
+      "albedo": "pavers.webp",
+      "normal": "pavers_n.webp",
+      "metres": 1.2,
+      "kind": "tile"
+    },
+    "render": {
+      "albedo": "render.webp",
+      "normal": "render_n.webp",
+      "metres": 1.5,
+      "kind": "tile"
+    },
+    "mulch": {
+      "albedo": "mulch.webp",
+      "normal": "mulch_n.webp",
+      "metres": 1,
+      "kind": "tile"
+    },
+    "porcelain": {
+      "albedo": "porcelain.webp",
+      "normal": "porcelain_n.webp",
+      "metres": 1.2,
+      "kind": "tile"
+    },
+    "oakfloor": {
+      "albedo": "oakfloor.webp",
+      "normal": "oakfloor_n.webp",
+      "metres": 1.2,
+      "kind": "tile"
+    },
+    "carpet": {
+      "albedo": "carpet.webp",
+      "normal": "carpet_n.webp",
+      "metres": 0.6,
+      "kind": "tile"
+    },
+    "pine": {
+      "albedo": "pine.webp",
+      "normal": "pine_n.webp",
+      "metres": null,
+      "kind": "plank"
+    },
+    "lvl": {
+      "albedo": "lvl.webp",
+      "normal": "lvl_n.webp",
+      "metres": null,
+      "kind": "plank"
+    },
+    "merbau": {
+      "albedo": "merbau.webp",
+      "normal": "merbau_n.webp",
+      "metres": null,
+      "kind": "plank"
+    },
+    "sitepad": {
+      "albedo": "sitepad.webp",
+      "normal": "sitepad_n.webp",
+      "metres": 4,
+      "kind": "tile"
+    }
+  },
+  "skies": {
+    "sky-clear": {
+      "file": "sky/sky-clear.jpg",
+      "label": "Clear afternoon"
+    },
+    "sky-golden": {
+      "file": "sky/sky-golden.jpg",
+      "label": "Golden hour"
+    },
+    "sky-overcast": {
+      "file": "sky/sky-overcast.jpg",
+      "label": "Overcast"
+    }
+  },
+  "foliage": {
+    "gum-1": {
+      "file": "foliage/gum-1.webp",
+      "height": 12,
+      "aspect": 0.6969001148105626
+    },
+    "gum-2": {
+      "file": "foliage/gum-2.webp",
+      "height": 9,
+      "aspect": 0.7072018890200709
+    },
+    "bottlebrush": {
+      "file": "foliage/bottlebrush.webp",
+      "height": 3,
+      "aspect": 0.752262443438914
+    },
+    "lillypilly": {
+      "file": "foliage/lillypilly.webp",
+      "height": 2.2,
+      "aspect": 0.6571767497034401
+    },
+    "grasstree": {
+      "file": "foliage/grasstree.webp",
+      "height": 1.6,
+      "aspect": 0.6299303944315545
+    }
+  },
+  "generated": "2026-10-31T07:07:35.916Z"
+}

@@ -184,6 +184,31 @@ for (const [label, spec] of VARIANTS) {
   ok("steel: studs are C-sections", studs.length > 0 && studs.every((m) => m.shape === "channel" && /C-stud/.test(m.profile)));
 }
 
+/* ---- the garage opened up at the back, and a full-width deck ---- */
+{
+  const doors = (s) => s.members.filter((m) => m.kind === "garageDoor").map((m) => m.mark);
+  const g = { ...base, hasGarage: true };
+  ok("garage: one door by default", doors(buildStructure(g)).length === 1, doors(buildStructure(g)));
+  const rear = buildStructure({ ...g, garageRearDoor: true });
+  ok("garage: rear door adds a second door (GD2)", doors(rear).length === 2 && doors(rear).some((d) => d.startsWith("GD2")), doors(rear));
+  const gd2 = rear.members.find((m) => m.kind === "garageDoor" && m.mark.startsWith("GD2"));
+  ok("garage: the second door is in the back wall", gd2 && gd2.a[2] < rear.garage.z0 + 0.5, gd2?.a);
+  ok("garage: the record says so (drawings read it)", rear.garage.rearDoor === true);
+  const sheets = drawingSet(rear);
+  let drawn = 0;
+  try { for (const sh of sheets) if (String(sh.svg()).length > 100) drawn++; } catch (e) { drawn = -1; }
+  ok("garage: every drawing sheet still draws with the rear door", drawn === sheets.length, `${drawn}/${sheets.length}`);
+
+  const w = g.widthM;
+  const full = buildStructure({ ...g, landscape: { enabled: true, deck: true, deckWidthM: w } });
+  const d = full.landscape.deck;
+  ok("deck: full width runs (almost) the whole back wall", d && d.x1 - d.x0 >= w - 0.7, d && d.x1 - d.x0);
+  const hwu = full.members.find((m) => m.kind === "hwu");
+  ok("deck: the hot-water unit moves to the side wall", /Right side wall/.test(hwu.host) && hwu.a[0] > w / 2, hwu.host);
+  const small = buildStructure({ ...g, landscape: { enabled: true, deck: true, deckWidthM: 4 } });
+  ok("deck: a small deck leaves the hot-water unit on the back wall", /Rear wall/.test(small.members.find((m) => m.kind === "hwu").host));
+}
+
 /* ---- deterministic ---- */
 ok("same spec → identical model", JSON.stringify(buildStructure(base).members) === JSON.stringify(buildStructure(base).members));
 
