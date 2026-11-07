@@ -1,0 +1,8 @@
+{
+ "prompt": "Use the reference image as the exact shape and colour guide: a geometric isometric house with one gable wall holding a tall door, one side wall and one flat roof plane, seen from the same angle. Keep the same silhouette, proportions and straight edges. Colours: coral gable wall, signal red side wall, soft lilac roof, deep crimson door. Render it as a solid object made of thick frosted glass, softly lit from within, with bevelled edges, fine surface grain and light glowing through the corners. Single object centred on a plain pale warm grey studio background, soft studio light, gentle contact shadow, generous empty space, premium 3D product render, ultra detailed real materials. No text, no letters, no logos, no extra objects.",
+ "aspect_ratio": "1:1",
+ "resolution": "2k",
+ "image_urls": [
+  "https://d3snorpfx4xhv8.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/f6cc2332-ae1a-45bd-b849-d07fb408354b.png"
+ ]
+}

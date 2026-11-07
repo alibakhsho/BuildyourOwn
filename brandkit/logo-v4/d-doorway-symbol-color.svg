@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">BuildYourOwn logo, Doorway concept</title>
+  <defs><linearGradient id="haze-d" gradientUnits="userSpaceOnUse" x1="40" y1="240" x2="216" y2="30"><stop offset="0" stop-color="#B8141C"/><stop offset=".26" stop-color="#E2483D"/><stop offset=".55" stop-color="#F9B5BF"/><stop offset="1" stop-color="#C9B8F8"/></linearGradient></defs>
+  <path fill="url(#haze-d)" fill-rule="evenodd" d="M108.12 37.58A30 30 0 0 1 147.88 37.58L222.55 103.64A28 28 0 0 1 232 124.61L232 204A34 34 0 0 1 198 238L196 238A10 10 0 0 1 186 228L186 142.99A22.99 22.99 0 0 0 163.01 120L162.99 120A22.99 22.99 0 0 0 140 142.99L140 228A10 10 0 0 1 130 238L58 238A34 34 0 0 1 24 204L24 124.61A28 28 0 0 1 33.45 103.64Z"/>
+</svg>

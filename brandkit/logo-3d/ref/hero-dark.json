@@ -1,0 +1,9 @@
+{
+ "prompt": "Recreate the exact glass house object from the first reference image, same angle, same silhouette, same straight bevelled edges, same fine frosted grain and tall recessed door; the second reference is the exact shape and colour guide. It is thick cast tinted glass, deeply coloured right through. Make the colour much richer and more saturated than the first reference: coral pink gable wall, vivid signal red side wall that is clearly red, clear lilac purple roof, deep crimson door. Background is a seamless flat dark graphite studio backdrop, hex 22262B, evenly lit. The glass glows softly from within, lit up in red, coral and lilac, with bright edge highlights and a faint coloured reflection and glow on the floor. Single object perfectly centred with generous empty space around it. No text, no letters, no logos, no windows, no chimney, no extra objects. Premium 3D product render, ultra detailed real glass.",
+ "aspect_ratio": "1:1",
+ "resolution": "2k",
+ "image_urls": [
+  "https://d3snorpfx4xhv8.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/07d8adf0-5627-4ede-969d-94f8542bdad0.png",
+  "https://d3snorpfx4xhv8.cloudfront.net/4f0e113e-f6b0-4a2f-a9b0-3f053d2747f6/f6cc2332-ae1a-45bd-b849-d07fb408354b.png"
+ ]
+}
