@@ -275,7 +275,7 @@ export const icons = {
   viewBox: "0 0 24 24",
   stroke: { width: { default: 2, bold: 2.5 }, linecap: "round", linejoin: "round", fill: "none", color: "currentColor" },
   sizes: [12, 14, 16, 18, 20],
-  logo: { component: "BYOLogo", viewBox: "0 0 48 48", note: "bespoke mark, not part of the stroke-icon set" },
+  logo: { component: "BYOLogo", viewBox: "100 96 200 200", note: "leaf-roof mark, never with lettering; not part of the stroke-icon set" },
   registries: {
     workflow: "7 — one per WorkflowStepper stage (estimate, three_d, materials, timeline, ai, quote, proposal); wired into WorkflowStepper",
     trade: "14 — matches estimator.js humaniseTradeName keys (siteworks, concrete, frame, roof, brick, electrical, plumbing, hvac, plaster, paint, tile, joinery, kitchen_bath_fit, finishes); not yet wired into TakeoffTable — labourCosts() would need to return the raw trade key alongside the humanised label",
@@ -298,7 +298,7 @@ export const components = {
   WorkflowStepper: "The 1–7 stage pills (Estimate → 3D → Materials → Timeline → AI → Quote → Proposal); pinned to the sticky topbar",
   StaggerReveal: "Framer-motion wrapper applying `motion.stagger` to a list of children on mount/scroll",
   Reveal: "Single-element entrance wrapper (slide/fade variants) using `motion.ease.signature`",
-  BYOLogo: "Bespoke SVG wordmark icon (see Icons)",
+  BYOLogo: "Leaf-roof mark, no lettering (see Icons)",
 };
 
 /* -------------------------------------------------------------------------
