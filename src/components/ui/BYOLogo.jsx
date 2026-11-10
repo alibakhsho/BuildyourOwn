@@ -1,24 +1,29 @@
 /* =========================================================================
-   BYOLogo — the brand mark: the tinted glass house (coral front, lilac roof,
-   crimson door), the same art used for the app icon and share card.
+   BYOLogo — the brand mark: the leaf roof (coral and lilac leaves meeting
+   at the ridge) over an arched door and a ground line. Mark only, never
+   with lettering — the "BUILD YOUR OWN" wordmark sits beside it in the
+   header as text.
 
-   Served from /logo-mark.png (256px, transparent) so it stays light when it
-   appears in the header on every screen and sits cleanly on the light and
-   dark themes and on white proposals. The house is drawn inside a square, so
-   `size` is the box it fits in. The art needs no `dark` variant — the prop is
-   kept only so existing call sites don't have to change.
+   Drawn inline so it stays crisp at any size. The door and ground line use
+   currentColor, so the mark follows the surrounding text colour on the light
+   and dark themes and on white proposals. `dark` forces the cream ink.
 
-   Favicons use the flat vector in /favicon.svg instead, because the glass
-   detail doesn't survive at 16px. Source files: brandkit/logo-3d.
+   Source and icon/splash renders: brandkit/logo-leaf (build.py, render.cjs).
    ========================================================================= */
+const CORAL = "#E8574E";
+const LILAC = "#BDAEDD";
+const LEFT = "M112 214C171.50 206.74 200.90 173.14 196 118C140.70 120.46 111.30 154.06 112 214Z";
+const RIGHT = "M204 118C263.50 125.26 292.90 158.86 288 214C232.70 211.54 203.30 177.94 204 118Z";
+
 export default function BYOLogo({ size = 34, dark = false }) {
+  const ink = dark ? "#F4EFE6" : "currentColor";
   return (
-    <img
-      src="/logo-mark.png"
-      width={size}
-      height={size}
-      alt="Build Your Own"
-      style={{ flexShrink: 0, display: "block", objectFit: "contain" }}
-    />
+    <svg viewBox="100 96 200 200" width={size} height={size} role="img" aria-label="Build Your Own"
+      style={{ flexShrink: 0, display: "block" }}>
+      <path d={LEFT} fill={CORAL} />
+      <path d={RIGHT} fill={LILAC} />
+      <path d="M176 286V236A24 24 0 0 1 224 236V286Z" fill={ink} />
+      <path d="M124 286H276" stroke={ink} strokeWidth="9" strokeLinecap="round" />
+    </svg>
   );
 }
