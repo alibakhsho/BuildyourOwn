@@ -1,1 +1,2 @@
-out/*.log
+# renders land here; finished reels are added with git add -f
+out/*
