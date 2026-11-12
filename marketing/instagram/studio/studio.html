@@ -6,27 +6,27 @@
 <meta charset="utf-8">
 <title>BYO reel studio</title>
 <style>
-  html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #EEF1EE; }
-  body { font-family: 'Plus Jakarta Sans', 'Inter Display', Inter, system-ui, sans-serif; color: #14171A; -webkit-font-smoothing: antialiased; }
+  /* Minimal: paper, ink, one accent. No cards, no boxes — type and a hairline. */
+  html, body { margin: 0; width: 1080px; height: 1920px; overflow: hidden; background: #EDEBE6; }
+  body { font-family: 'Plus Jakarta Sans', 'Inter Display', Inter, system-ui, sans-serif; color: #17191C; -webkit-font-smoothing: antialiased; }
   #stage { position: absolute; inset: 0; }
   #shade { position: absolute; inset: 0; pointer-events: none;
-    background: linear-gradient(180deg, rgba(238,241,238,0.96) 0, rgba(238,241,238,0) 24%, rgba(238,241,238,0) 62%, rgba(238,241,238,0.94) 86%); }
-  #brand { position: absolute; top: 120px; left: 64px; display: flex; align-items: center; gap: 18px; font-weight: 800; font-size: 34px; letter-spacing: -0.01em; }
-  #brand img { width: 64px; height: 64px; border-radius: 14px; }
-  #eyebrow { position: absolute; top: 236px; left: 64px; right: 64px; font-weight: 700; font-size: 30px; letter-spacing: 0.1em; color: #C2570A; }
-  #headline { position: absolute; top: 284px; left: 64px; right: 64px; font-weight: 800; font-size: 92px; line-height: 1.02; letter-spacing: -0.03em; }
-  #panel { position: absolute; left: 56px; right: 56px; bottom: 300px; background: rgba(255,255,255,0.9); border: 1px solid rgba(20,23,26,0.08);
-    border-radius: 44px; padding: 40px 44px 36px; box-shadow: 0 30px 80px rgba(20,23,26,0.16); }
-  #plabel { font-weight: 600; font-size: 28px; color: #6B7279; display: flex; justify-content: space-between; }
-  #price { font-weight: 800; font-size: 104px; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; line-height: 1.1; }
-  #bar { height: 10px; border-radius: 10px; background: rgba(20,23,26,0.08); overflow: hidden; margin: 14px 0 22px; }
-  #bar i { display: block; height: 100%; width: 100%; transform-origin: left; background: linear-gradient(90deg, #F5C518, #C2570A); }
-  #chips { display: flex; flex-wrap: wrap; gap: 12px; }
-  .chip { font-weight: 700; font-size: 26px; padding: 12px 22px; border-radius: 99px; background: rgba(20,23,26,0.07); color: #6B7279; }
-  .chip.on { background: #F5C518; color: #14171A; }
-  .chip.done { background: #14171A; color: #fff; }
-  #sub { font-weight: 600; font-size: 34px; line-height: 1.3; color: #3A4046; margin-top: 6px; }
-  #cta { position: absolute; left: 0; right: 0; bottom: 190px; text-align: center; font-weight: 700; font-size: 30px; color: #3A4046; }
+    background: linear-gradient(180deg, #EDEBE6 0, rgba(237,235,230,0) 20%, rgba(237,235,230,0) 70%, #EDEBE6 90%); }
+  #brand { position: absolute; top: 132px; left: 72px; display: flex; align-items: center; gap: 16px; font-weight: 600; font-size: 28px; letter-spacing: 0.01em; color: #17191C; }
+  #brand img { width: 44px; height: 44px; border-radius: 10px; }
+  #eyebrow { position: absolute; top: 250px; left: 72px; right: 72px; font-weight: 600; font-size: 22px; letter-spacing: 0.22em; color: #B4530A; }
+  #headline { position: absolute; top: 296px; left: 72px; right: 72px; font-weight: 500; font-size: 80px; line-height: 1.06; letter-spacing: -0.035em; }
+  #panel { position: absolute; left: 72px; right: 72px; bottom: 290px; }
+  #plabel { font-weight: 500; font-size: 24px; letter-spacing: 0.02em; color: #7A7F85; display: flex; justify-content: space-between; align-items: baseline; }
+  #price { font-weight: 500; font-size: 112px; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; line-height: 1.12; margin-top: 4px; }
+  #bar { height: 2px; background: rgba(23,25,28,0.12); overflow: hidden; margin: 20px 0 22px; }
+  #bar i { display: block; height: 100%; width: 100%; transform-origin: left; background: #17191C; }
+  #chips { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px 28px; }
+  .chip { font-weight: 500; font-size: 22px; letter-spacing: 0.02em; color: #A9ADB1; }
+  .chip.on { color: #B4530A; font-weight: 700; }
+  .chip.done { color: #17191C; }
+  #sub { font-weight: 400; font-size: 32px; line-height: 1.35; color: #4A4F55; margin-top: 10px; }
+  #cta { position: absolute; left: 72px; right: 72px; bottom: 196px; font-weight: 500; font-size: 22px; letter-spacing: 0.02em; color: #7A7F85; }
 </style>
 </head>
 <body>
@@ -42,7 +42,7 @@
     <div id="chips"></div>
     <div id="sub"></div>
   </div>
-  <div id="cta">Free to try · link in bio</div>
+  <div id="cta">Free to try — link in bio</div>
   <script type="module" src="./studio.js"></script>
 </body>
 </html>
