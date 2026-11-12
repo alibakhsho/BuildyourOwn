@@ -26,7 +26,7 @@ const ff = spawn("ffmpeg", ["-y", "-loglevel", "error", "-f", "image2pipe", "-fr
 const started = Date.now();
 for (let i = 0; i < frames; i++) {
   await page.evaluate((t) => window.renderAt(t), i / fps);
-  const shot = await page.screenshot({ type: "jpeg", quality: 95 });
+  const shot = await page.screenshot({ type: "jpeg", quality: 95, timeout: 600000 })   // software GL under load can take a while;
   if (!ff.stdin.write(shot)) await new Promise((r) => ff.stdin.once("drain", r));
   if (i % 60 === 0) console.log(`${scene}: frame ${i}/${frames} (${Math.round((Date.now() - started) / 1000)}s)`);
 }
