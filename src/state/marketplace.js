@@ -271,6 +271,18 @@ export async function saveMyPro(userId, profile, { create = false } = {}) {
   return proFromRow(data);
 }
 
+/** Save just the logo or cover, as soon as it's picked: on a phone the
+ *  profile's Save button is a long scroll away, and an upload that was never
+ *  saved was lost. Other unsaved edits on the form are left alone. */
+export async function saveMyProImage(userId, field, path) {
+  const column = { logoPath: "logo_path", coverPath: "cover_path" }[field];
+  if (!column) throw new Error(`Not a profile image: ${field}`);
+  const before = await previousMedia("pro_profiles", "user_id", userId, column);
+  const data = await run(need().from("pro_profiles").update({ [column]: path || null }).eq("user_id", userId).select().single());
+  await removeDropped(before, [data[column]]);
+  return proFromRow(data);
+}
+
 /** Accept a (newer) version of the Terms; the database stamps the time. */
 export async function acceptTerms(userId, version) {
   const data = await run(need().from("pro_profiles").update({ terms_version: version }).eq("user_id", userId).select().single());
