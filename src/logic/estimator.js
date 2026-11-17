@@ -208,6 +208,8 @@ export const Estimator = {
       add("structural_steel", takeoff.steelFramingTonne);
     }
     add("steel_lintel", takeoff.lintelLM);
+    // the upper floor itself: sheet flooring over the joists, whatever the frame
+    if (takeoff.upperFloorAreaM2 > 0) add("particleboard_floor", takeoff.upperFloorAreaM2);
 
     // roof
     const roofMat = takeoff.roofType === "tile" ? "concrete_tile"
@@ -309,12 +311,31 @@ export const Estimator = {
 
   /* Labour cost — applied as a % of materials by trade, then totalled */
   labourCosts(takeoff, region, complexity = 1.0) {
-    /* rough $/m² GFA for labour by trade, by region */
+    /* $/m² GFA of labour by trade, by region — only the work NOT already in
+       the material lines. Several of those are installed rates ("Electrical
+       rough-in + fit-off", "Plasterboard + set joints", "Paint, 2 coats",
+       floors and wall tiles "+ lay", cornice/skirting "+ install", split
+       systems), so those trades only carry what's left: connections,
+       fixtures, doors, patching. Charging their full labour again on top
+       was counting the same work twice. The structural trades (siteworks,
+       slab, frame, roof, brick) buy supply-only materials and carry their
+       full subcontract labour.
+       Calibrated Nov 2026: a 180 m² single-storey 3-bed brick veneer lands at
+       ~A$2,540/m² ex GST incl. prelims, margin and contingency, inside the
+       BMT 2026 Sydney project-home band (A$2,176–2,895, medium A$2,424); it
+       was A$3,560. US/UK keep their old ratio to AU per trade, pending their
+       own benchmarks. */
     const rates = {
-      AU: { siteworks: 95, concrete: 110, frame: 180, roof: 95, brick: 130, electrical: 120, plumbing: 110, hvac: 45, plaster: 85, paint: 65, tile: 95, joinery: 90, kitchen_bath_fit: 75, finishes: 95 },
-      US: { siteworks: 55, concrete: 65, frame: 110, roof: 60, brick: 80, electrical: 75, plumbing: 70, hvac: 28, plaster: 50, paint: 38, tile: 60, joinery: 55, kitchen_bath_fit: 45, finishes: 55 },
-      UK: { siteworks: 60, concrete: 70, frame: 115, roof: 65, brick: 85, electrical: 78, plumbing: 72, hvac: 32, plaster: 55, paint: 42, tile: 65, joinery: 60, kitchen_bath_fit: 50, finishes: 60 },
+      AU: { siteworks: 55, concrete: 85, frame: 120, roof: 55, brick: 80, electrical: 15, plumbing: 30, hvac: 10, plaster: 15, paint: 15, tile: 20, joinery: 30, kitchen_bath_fit: 25, finishes: 40 },
+      US: { siteworks: 32, concrete: 50, frame: 73, roof: 35, brick: 49, electrical: 9, plumbing: 19, hvac: 6, plaster: 9, paint: 9, tile: 13, joinery: 18, kitchen_bath_fit: 15, finishes: 23 },
+      UK: { siteworks: 35, concrete: 54, frame: 77, roof: 38, brick: 52, electrical: 10, plumbing: 20, hvac: 7, plaster: 10, paint: 10, tile: 14, joinery: 20, kitchen_bath_fit: 17, finishes: 25 },
     }[region];
+
+    /* Working at height: upper-floor frame and brickwork go up from scaffold
+       with joists, beams and a crane lift in between, so they cost more per
+       m² than the ground floor; services and linings a little more. */
+    const upperShare = takeoff.gfaM2 > 0 ? (takeoff.upperFloorAreaM2 || 0) / takeoff.gfaM2 : 0;
+    const height = { frame: 0.6, brick: 0.6, electrical: 0.2, plumbing: 0.2, plaster: 0.2, paint: 0.2 };
 
     return Object.entries(rates).map(([trade, rate]) => ({
       // Carry the raw key alongside the label. The management side keys its
@@ -322,7 +343,7 @@ export const Estimator = {
       // quote and a job budget was a display string.
       tradeKey: trade,
       trade: humaniseTradeName(trade),
-      total: round(rate * takeoff.gfaM2 * complexity, 2),
+      total: round(rate * takeoff.gfaM2 * complexity * (1 + (height[trade] || 0) * upperShare), 2),
     }));
   },
 
