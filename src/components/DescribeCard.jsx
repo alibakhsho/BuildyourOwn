@@ -99,6 +99,23 @@ function fromAi(mode, j, text, spec) {
   return houseResult(j.features || {}, Array.isArray(j.extras) ? j.extras : [], edits, j.note);
 }
 
+/** Read a description into a result: the AI first when the plan has it,
+ *  the built-in engine when it doesn't or the AI misses. Shared with the
+ *  phone app, so both read a description the same way. */
+export async function readDescription(mode, text, spec, useAi) {
+  let result = null;
+  if (useAi) {
+    try {
+      const out = await aiChat({ system: aiPrompt(mode, spec), tier: "fast", maxTokens: 1200, messages: [{ role: "user", content: text }] });
+      const a = out.indexOf("{"), b = out.lastIndexOf("}");
+      const j = a >= 0 && b > a ? JSON.parse(out.slice(a, b + 1)) : null;
+      if (j) result = fromAi(mode, j, text, spec);
+    } catch { /* fall back to the built-in engine below */ }
+  }
+  if (!result || !result.found) result = parseLocal(mode, text, spec);
+  return result;
+}
+
 export default function DescribeCard({ mode, useAi, onApply, spec }) {
   const copy = COPY[mode] || COPY.residential;
   const [text, setText] = useState("");
@@ -109,16 +126,7 @@ export default function DescribeCard({ mode, useAi, onApply, spec }) {
     const t = text.trim();
     if (!t || busy) return;
     setBusy(true); setMsg(null);
-    let result = null, via = "built-in";
-    if (useAi) {
-      try {
-        const out = await aiChat({ system: aiPrompt(mode, spec), tier: "fast", maxTokens: 1200, messages: [{ role: "user", content: t }] });
-        const a = out.indexOf("{"), b = out.lastIndexOf("}");
-        const j = a >= 0 && b > a ? JSON.parse(out.slice(a, b + 1)) : null;
-        if (j) { result = fromAi(mode, j, t, spec); via = "ai"; }
-      } catch { /* fall back to the built-in engine below */ }
-    }
-    if (!result || !result.found) { result = parseLocal(mode, t, spec); if (via === "ai") via = "built-in"; }
+    const result = await readDescription(mode, t, spec, useAi);
     if (!result.found) {
       setMsg({ tone: "warn", text: `I couldn't pick out enough to work with. Try something like: "${copy.example}"` });
       setBusy(false); return;
